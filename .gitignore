@@ -1,0 +1,62 @@
+# Secrets / environment
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+
+# Backend artifacts
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/*.sqlite3
+backend/alembic.ini.bak
+
+# Node / Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/test-results/
+frontend/playwright-report/
+frontend/coverage/
+frontend/tsconfig.tsbuildinfo
+
+# Logs / temp
+*.log
+logs/
+tmp/
+temp/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker local data / overrides
+docker-compose.override.yml
+
+# Local uploads / exports / dumps
+*.csv
+*.xlsx
+*.sql
+*.dump
+*.bak
