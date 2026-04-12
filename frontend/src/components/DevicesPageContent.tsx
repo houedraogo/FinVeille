@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import DeviceCard from "@/components/DeviceCard";
 import { devices } from "@/lib/api";
@@ -43,7 +43,6 @@ export default function DevicesPageContent({
   newDeviceHref = "/devices/new",
 }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [result, setResult] = useState<DeviceListResponse | null>(null);
   const [loading, setLoading] = useState(true);
