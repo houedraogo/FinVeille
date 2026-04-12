@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     MISTRAL_API_KEY: Optional[str] = None
 
+    # CORS
+    FRONTEND_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000"
+
     # Sources tierces
     LES_AIDES_API_IDC: Optional[str] = None
     AIDES_ENTREPRISES_API_ID: Optional[str] = None
