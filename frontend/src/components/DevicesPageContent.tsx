@@ -181,9 +181,9 @@ export default function DevicesPageContent({
   return (
     <AppLayout>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">{title}</h1>
           {result && (
             <p className="text-sm text-gray-500">{result.total.toLocaleString("fr")} résultats</p>
           )}
@@ -442,8 +442,8 @@ export default function DevicesPageContent({
 
       {/* Barre d'actions groupées flottante */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 flex-wrap
-                        bg-gray-900 text-white rounded-2xl shadow-2xl px-4 py-3 max-w-xl w-max">
+        <div className="fixed bottom-4 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-50 flex items-center gap-2 flex-wrap
+                        bg-gray-900 text-white rounded-2xl shadow-2xl px-4 py-3 sm:max-w-xl">
           <div className="flex items-center gap-2 pr-3 border-r border-gray-700">
             <CheckSquare className="w-4 h-4 text-primary-400" />
             <span className="text-sm font-medium">{selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}</span>

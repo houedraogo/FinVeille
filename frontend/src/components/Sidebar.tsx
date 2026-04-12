@@ -4,11 +4,10 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Search, Database, Bell, Settings,
-  LogOut, TrendingUp, Building2, Landmark, ChevronRight, Sparkles,
+  LogOut, TrendingUp, Building2, Landmark, ChevronRight, Sparkles, X,
 } from "lucide-react";
 import clsx from "clsx";
 
-/* ─── Groupes de navigation ──────────────────────────────────────── */
 const NAV_GROUPS = [
   {
     label: null,
@@ -23,8 +22,7 @@ const NAV_GROUPS = [
         href: "/devices",
         label: "Dispositifs publics",
         icon: Landmark,
-        activeFn: (pathname: string, _sp: URLSearchParams) =>
-          pathname === "/devices",
+        activeFn: (pathname: string, _sp: URLSearchParams) => pathname === "/devices",
       },
       { href: "/sources", label: "Sources & Collecte", icon: Database,
         activeFn: (pathname: string) => pathname === "/sources" },
@@ -50,7 +48,12 @@ const NAV_GROUPS = [
   },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [userEmail, setUserEmail] = useState<string>("Connecté");
@@ -74,9 +77,16 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-64 bg-primary-900 text-white flex flex-col min-h-screen shrink-0">
-      {/* Logo */}
-      <div className="px-5 py-5 border-b border-primary-700">
+    <aside className={clsx(
+      "w-64 bg-primary-900 text-white flex flex-col min-h-screen shrink-0 z-30",
+      // Desktop : toujours visible
+      "md:relative md:translate-x-0 md:flex",
+      // Mobile : drawer depuis la gauche
+      "fixed inset-y-0 left-0 transition-transform duration-200",
+      isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+    )}>
+      {/* Logo + bouton fermer (mobile) */}
+      <div className="px-5 py-5 border-b border-primary-700 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
             <TrendingUp className="w-5 h-5 text-white" />
@@ -86,6 +96,9 @@ export default function Sidebar() {
             <p className="text-xs text-primary-400 leading-none">France & Afrique</p>
           </div>
         </div>
+        <button onClick={onClose} className="md:hidden p-1 text-primary-400 hover:text-white">
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Navigation groupée */}
@@ -104,6 +117,7 @@ export default function Sidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
+                    onClick={onClose}
                     className={clsx(
                       "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group",
                       active

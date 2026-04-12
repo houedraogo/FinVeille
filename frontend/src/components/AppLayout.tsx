@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("finveille_token");
@@ -29,10 +31,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-auto bg-gray-50">
-        <div className="max-w-7xl mx-auto px-6 py-6">{children}</div>
-      </main>
+      {/* Overlay mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/50 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      {/* Contenu principal */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Barre mobile */}
+        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-primary-900 text-white sticky top-0 z-10">
+          <button onClick={() => setSidebarOpen(true)} className="p-1">
+            <Menu className="w-6 h-6" />
+          </button>
+          <span className="font-bold text-base">FinVeille</span>
+        </header>
+
+        <main className="flex-1 overflow-auto bg-gray-50">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }
