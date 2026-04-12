@@ -3,17 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import settings
-from app.database import create_tables, ensure_search_vector_trigger
+from app.database import create_tables
 from app.routers import auth, devices, sources, alerts, dashboard, admin, match
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    if settings.DEBUG:
-        await create_tables()  # crée les tables + installe le trigger
-    else:
-        await ensure_search_vector_trigger()  # en prod : trigger seulement
+    # Startup — crée les tables si elles n'existent pas, puis installe les triggers
+    await create_tables()
     yield
     # Shutdown (nettoyage si besoin)
 
