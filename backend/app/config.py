@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     MAX_RETRIES: int = 3
     AUTO_PUBLISH_MIN_CONFIDENCE: int = 55
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+
     # LLM
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
@@ -40,6 +43,9 @@ class Settings(BaseSettings):
 
     # CORS
     FRONTEND_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000"
+
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
 
     # Sources tierces
     LES_AIDES_API_IDC: Optional[str] = None
