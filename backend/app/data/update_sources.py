@@ -125,6 +125,7 @@ NEW_SOURCES = [
         "config": {
             "api_key_header": "IDC",
             "api_key_value": "f94f575e2932379f273b7ede238d5deb72c4fdf4",
+            "assume_standby_without_close_date": True,
         },
         "is_active": True,
         "notes": "API officielle CCI les-aides.fr. Attribution obligatoire : 'Contenu produit par Les-aides.fr'. Limite 720 req/jour.",
@@ -429,6 +430,21 @@ async def main():
             text(
                 """
                 UPDATE sources
+                SET config = CAST(config AS jsonb) || CAST(:config_patch AS jsonb)
+                WHERE name = 'les-aides.fr - solutions de financement entreprises'
+                """
+            ),
+            {
+                "config_patch": json.dumps({
+                    "assume_standby_without_close_date": True,
+                }),
+            },
+        )
+
+        await session.execute(
+            text(
+                """
+                UPDATE sources
                 SET
                     url = :url,
                     collection_mode = 'html',
@@ -449,6 +465,7 @@ async def main():
                         "detail_fetch": True,
                         "detail_content_selector": "main .field--name-body, main .layout-content, main article, main",
                         "detail_max_chars": 9000,
+                        "assume_standby_without_close_date": True,
                         "pagination": {"max_pages": 1},
                     }
                 ),
@@ -577,6 +594,7 @@ async def main():
                 "config": json.dumps({
                     "api_key_header": "IDC",
                     "api_key_value": "f94f575e2932379f273b7ede238d5deb72c4fdf4",
+                    "assume_standby_without_close_date": True,
                 }),
                 "notes": "API officielle CCI les-aides.fr. Attribution obligatoire : 'Contenu produit par Les-aides.fr'. Limite 720 req/jour.",
             },

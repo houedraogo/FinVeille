@@ -16,6 +16,11 @@ import {
   Sparkles,
   X,
   FolderSearch,
+  ShieldCheck,
+  UserRound,
+  CreditCard,
+  KeyRound,
+  UsersRound,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -76,6 +81,36 @@ const NAV_GROUPS = [
         activeFn: (pathname: string) => pathname === "/match",
       },
       { href: "/alerts", label: "Mes alertes", icon: Bell },
+      {
+        href: "/profile",
+        label: "Profil",
+        icon: UserRound,
+        activeFn: (pathname: string) => pathname === "/profile",
+      },
+      {
+        href: "/billing",
+        label: "Abonnement",
+        icon: CreditCard,
+        activeFn: (pathname: string) => pathname === "/billing",
+      },
+      {
+        href: "/settings/security",
+        label: "Securite",
+        icon: KeyRound,
+        activeFn: (pathname: string) => pathname === "/settings/security",
+      },
+      {
+        href: "/settings/team",
+        label: "Equipe",
+        icon: UsersRound,
+        activeFn: (pathname: string) => pathname === "/settings/team",
+      },
+      {
+        href: "/admin/workspace",
+        label: "Espace super admin",
+        icon: ShieldCheck,
+        activeFn: (pathname: string) => pathname === "/admin/workspace",
+      },
       { href: "/admin", label: "Administration", icon: Settings },
     ],
   },
@@ -111,7 +146,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         ...group,
         items: group.items.filter((item) => {
           if (item.href.startsWith("/sources")) return canManageSources(role);
-          if (item.href === "/admin") return canAccessAdmin(role);
+          if (item.href.startsWith("/admin")) return canAccessAdmin(role);
           return true;
         }),
       })).filter((group) => group.items.length > 0),

@@ -2,6 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.dependencies import get_current_user
+from app.models.user import User
+from app.services.billing_service import ensure_feature
 from app.services.match_service import match_project
 
 router = APIRouter(prefix="/api/v1/match", tags=["match"])
@@ -20,7 +23,10 @@ async def match_from_document(
     file: UploadFile = File(...),
     limit: int = Query(default=15, ge=1, le=30),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    await ensure_feature(db, current_user, "matching_ai")
+
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(

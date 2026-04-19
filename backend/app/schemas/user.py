@@ -22,6 +22,8 @@ class UserResponse(BaseModel):
     email: str
     full_name: Optional[str]
     role: str
+    platform_role: str = "member"
+    default_organization_id: Optional[UUID] = None
     is_active: bool
     last_login_at: Optional[datetime]
     created_at: datetime

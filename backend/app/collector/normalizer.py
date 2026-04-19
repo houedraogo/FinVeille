@@ -8,11 +8,16 @@ import dateparser
 from unidecode import unidecode
 
 from app.collector.base_connector import RawItem
+from app.collector.source_profiles import get_source_profile
 from app.utils.text_utils import (
+    build_contextual_eligibility,
+    build_contextual_funding,
+    build_structured_sections,
     clean_editorial_text,
     dedupe_text_fields,
     derive_device_status,
     extract_keywords,
+    has_recurrence_evidence,
     looks_english_text,
     sanitize_text,
 )
@@ -158,26 +163,38 @@ class Normalizer:
         self.source = source
         self.default_country = source.get("country", "")
         self.organism = source.get("organism", "")
-        self.config = source.get("config") or {}
+        self.profile = get_source_profile(source)
+        self.config = {**(source.get("config") or {})}
+        if self.profile:
+            for key, value in self.profile.config_overrides.items():
+                if value and not self.config.get(key):
+                    self.config[key] = value
 
     def normalize(self, item: RawItem) -> Optional[Dict[str, Any]]:
         raw_body = clean_editorial_text(item.raw_content or "")
+        metadata = item.metadata if isinstance(item.metadata, dict) else {}
         if looks_english_text(raw_body) and not self.config.get("allow_english_text"):
             logger.info(f"[Normalizer] Item ignoré car description anglaise: {item.title[:120]}")
             return None
 
-        normalized_title = self._normalize_title_for_source(item.title, raw_body)
+        normalized_title = self._normalize_title_for_source(item.title, raw_body, metadata)
         text = sanitize_text(f"{normalized_title} {raw_body}").lower()
         close_date = self._extract_metadata_date(item, "close") or self._extract_date(text, "close")
         open_date = self._extract_metadata_date(item, "open") or self._extract_date(text, "open")
         initial_status = self._extract_metadata_status(item) or self._detect_status(text)
         is_recurring = False
         recurrence_notes = None
-        if (
+        if initial_status == "open" and not close_date and has_recurrence_evidence(text):
+            initial_status = "recurring"
+            is_recurring = True
+            recurrence_notes = (
+                "Classe automatiquement comme dispositif recurrent: "
+                "le texte source indique un fonctionnement sans fenetre de cloture unique."
+            )
+        elif (
             self.config.get("assume_recurring_without_close_date")
-            and not close_date
-            and initial_status == "open"
-        ):
+            or (self.profile and self.profile.key == "data_aides_entreprises")
+        ) and not close_date and initial_status == "open":
             initial_status = "recurring"
             is_recurring = True
             recurrence_notes = (
@@ -185,21 +202,36 @@ class Normalizer:
                 "la source n'expose pas de date de cloture fiable."
             )
         elif (
-            self.config.get("assume_standby_without_close_date")
+            (self.config.get("assume_standby_without_close_date") or (self.profile and self.profile.key == "les_aides"))
             and not close_date
             and initial_status == "open"
         ):
             initial_status = "standby"
-        metadata = item.metadata if isinstance(item.metadata, dict) else {}
         short_description = self._build_short_description(item, raw_body, metadata, close_date)
         full_description = self._build_full_description(item, raw_body, metadata, close_date, open_date)
-        extra_fields = self._extract_source_specific_fields(normalized_title, raw_body, close_date, open_date)
+        extra_fields = self._extract_source_specific_fields(normalized_title, raw_body, metadata, close_date, open_date)
         short_description = extra_fields.get("short_description") or short_description
         short_description, full_description, funding_details, eligibility_criteria = dedupe_text_fields(
             short_description,
             extra_fields.get("full_description") or full_description,
             extra_fields.get("funding_details"),
             extra_fields.get("eligibility_criteria"),
+        )
+        if self.profile and self.profile.key in {"les_aides", "data_aides_entreprises"}:
+            eligibility_criteria = extra_fields.get("eligibility_criteria") or eligibility_criteria
+            funding_details = extra_fields.get("funding_details") or funding_details
+
+        final_full_description = self._finalize_structured_full_description(
+            item=item,
+            metadata=metadata,
+            normalized_title=normalized_title,
+            full_description=full_description,
+            short_description=short_description,
+            eligibility_criteria=eligibility_criteria,
+            funding_details=funding_details,
+            open_date=open_date,
+            close_date=close_date,
+            recurrence_notes=recurrence_notes,
         )
 
         payload = {
@@ -212,7 +244,7 @@ class Normalizer:
             "sectors": self._detect_sectors(text) or ["transversal"],
             "beneficiaries": self._detect_beneficiaries(text),
             "short_description": short_description,
-            "full_description": full_description,
+            "full_description": final_full_description,
             "eligibility_criteria": eligibility_criteria,
             "close_date": close_date,
             "open_date": open_date,
@@ -234,10 +266,13 @@ class Normalizer:
             payload[key] = value
         return payload
 
-    def _normalize_title_for_source(self, title: str, raw_body: str) -> str:
+    def _normalize_title_for_source(self, title: str, raw_body: str, metadata: dict) -> str:
         cleaned = sanitize_text(title or "")
         source_url = (self.source.get("url") or "").lower()
         body = sanitize_text(raw_body or "").lower()
+        profile_title = self._get_profile_text(metadata, getattr(self.profile, "title_fields", ()))
+        if profile_title:
+            cleaned = sanitize_text(profile_title)
 
         if "africabusinessheroes.org" in source_url:
             return "Africa's Business Heroes (ABH) 2026" if "2026" in body else "Africa's Business Heroes (ABH)"
@@ -248,10 +283,14 @@ class Normalizer:
         self,
         normalized_title: str,
         raw_body: str,
+        metadata: dict,
         close_date: Optional[date],
         open_date: Optional[date],
     ) -> Dict[str, Any]:
         source_url = (self.source.get("url") or "").lower()
+        profile_fields = self._build_profile_sections(metadata, close_date, open_date)
+        if profile_fields:
+            return profile_fields
         if "africabusinessheroes.org" not in source_url:
             return {}
 
@@ -318,6 +357,10 @@ class Normalizer:
         }
 
     def _build_short_description(self, item: RawItem, raw_body: str, metadata: dict, close_date: Optional[date]) -> Optional[str]:
+        profile_short = self._get_profile_text(metadata, getattr(self.profile, "short_description_fields", ()))
+        if profile_short and not self._should_replace_english_body_with_metadata(profile_short, metadata):
+            return sanitize_text(profile_short)[:500]
+
         cleaned = sanitize_text(raw_body or "")
         if cleaned and len(cleaned) >= 80 and not self._should_replace_english_body_with_metadata(cleaned, metadata):
             return cleaned[:500]
@@ -343,6 +386,98 @@ class Normalizer:
             return cleaned.title()
         return cleaned
 
+    def _metadata_value_to_text(self, value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, dict):
+            for key in ("text", "texte", "label", "title", "name", "value", "cdata", "Name"):
+                nested = value.get(key)
+                if nested:
+                    return self._metadata_value_to_text(nested)
+            parts = [self._metadata_value_to_text(item) for item in value.values()]
+            return " ".join(part for part in parts if part).strip()
+        if isinstance(value, list):
+            parts = [self._metadata_value_to_text(item) for item in value]
+            return " ".join(part for part in parts if part).strip()
+        return sanitize_text(str(value))
+
+    def _get_profile_text(self, metadata: dict, field_names: tuple[str, ...]) -> Optional[str]:
+        if not metadata or not field_names:
+            return None
+
+        parts = []
+        seen = set()
+        for field_name in field_names:
+            value = self._get_nested_metadata_value(metadata, field_name)
+            text = self._metadata_value_to_text(value)
+            if not text:
+                continue
+            normalized = unidecode(text.lower())
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            parts.append(text)
+
+        if not parts:
+            return None
+        return "\n\n".join(parts)
+
+    def _build_profile_sections(
+        self,
+        metadata: dict,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        if not self.profile or self.profile.key not in {"les_aides", "data_aides_entreprises"}:
+            return {}
+
+        presentation = self._get_profile_text(metadata, self.profile.short_description_fields)
+        details = self._get_profile_text(metadata, self.profile.full_description_fields)
+        eligibility = self._get_profile_text(metadata, self.profile.eligibility_fields)
+        funding = self._get_profile_text(metadata, self.profile.funding_fields)
+
+        if not any([presentation, details, eligibility, funding]):
+            return {}
+
+        details_clean = sanitize_text(details or "")
+        presentation_clean = sanitize_text(presentation or "")
+        if details_clean and unidecode(details_clean.lower()) == unidecode(presentation_clean.lower()):
+            details_clean = ""
+
+        if self.profile.key == "les_aides":
+            base_text = details_clean or presentation_clean
+            eligibility = eligibility or build_contextual_eligibility(
+                text=base_text,
+                beneficiaries=self._detect_beneficiaries(sanitize_text(base_text).lower()),
+                country=self._canonicalize_country_name(
+                    self._get_nested_metadata_value(metadata, "country") or self.default_country
+                ),
+                geographic_scope=sanitize_text(self._get_nested_metadata_value(metadata, "geographic_scope") or ""),
+            )
+            funding = funding or build_contextual_funding(
+                text=base_text,
+                device_type=sanitize_text(self._get_nested_metadata_value(metadata, "device_type") or ""),
+            )
+
+        payload: Dict[str, Any] = {
+            "short_description": sanitize_text(presentation or details or "")[:500] or None,
+            "full_description": build_structured_sections(
+                presentation=details_clean or presentation_clean,
+                eligibility=eligibility,
+                funding=funding,
+                open_date=open_date,
+                close_date=close_date,
+                procedure=self._build_procedure_text(sanitize_text(presentation or details or "")),
+            ),
+            "eligibility_criteria": sanitize_text(eligibility) if eligibility else None,
+            "funding_details": sanitize_text(funding) if funding else None,
+        }
+
+        country = self._get_profile_text(metadata, getattr(self.profile, "country_fields", ()))
+        if country:
+            payload["country"] = self._canonicalize_country_name(country)
+        return {key: value for key, value in payload.items() if value}
+
     def _build_full_description(
         self,
         item: RawItem,
@@ -351,6 +486,10 @@ class Normalizer:
         close_date: Optional[date],
         open_date: Optional[date],
     ) -> Optional[str]:
+        profile_full = self._build_profile_sections(metadata, close_date, open_date).get("full_description")
+        if profile_full:
+            return profile_full[:4000]
+
         cleaned = sanitize_text(raw_body or "")
         if cleaned and len(cleaned) >= 220 and not self._should_replace_english_body_with_metadata(cleaned, metadata):
             return cleaned[:4000]
@@ -394,6 +533,66 @@ class Normalizer:
 
         result = sanitize_text("\n\n".join(section for section in sections if section))
         return result[:4000] if result else None
+
+    def _build_procedure_text(self, context_title: str) -> str:
+        source_url = (self.source.get("url") or "").lower()
+        organism = sanitize_text(self.organism or "").strip()
+
+        if "les-aides.fr" in source_url or "aides-entreprises" in source_url:
+            return "La consultation detaillee et l'acces au dispositif se font depuis la fiche source officielle."
+        if "worldbank" in source_url:
+            return (
+                "La consultation detaillee se fait sur la page officielle du projet. "
+                "Les modalites d'acces et d'instruction doivent etre confirmees aupres de l'institution porteuse."
+            )
+        if organism:
+            return f"La consultation detaillee se fait aupres de {organism} via la source officielle."
+        if context_title:
+            return "La consultation detaillee et la demarche associee doivent etre confirmees sur la source officielle."
+        return "La consultation detaillee se fait depuis la source officielle."
+
+    def _finalize_structured_full_description(
+        self,
+        *,
+        item: RawItem,
+        metadata: dict,
+        normalized_title: str,
+        full_description: Optional[str],
+        short_description: Optional[str],
+        eligibility_criteria: Optional[str],
+        funding_details: Optional[str],
+        open_date: Optional[date],
+        close_date: Optional[date],
+        recurrence_notes: Optional[str],
+    ) -> Optional[str]:
+        current = full_description or ""
+        if current.startswith("## ") and "## Calendrier" in current:
+            return current
+
+        metadata_summary = self._compose_metadata_summary(item, metadata, close_date)
+        presentation = metadata_summary or full_description or short_description
+        funding = funding_details
+        if not funding:
+            funding_bits = []
+            total_commitment = self._get_nested_metadata_value(metadata, "totalcommamt")
+            if total_commitment:
+                funding_bits.append(f"Engagement total annonce : {total_commitment}.")
+            board_approval = self._get_nested_metadata_value(metadata, "boardapprovaldate")
+            if board_approval:
+                formatted_approval = self._format_iso_date(board_approval)
+                if formatted_approval:
+                    funding_bits.append(f"Date d'approbation indiquee : {formatted_approval}.")
+            funding = " ".join(funding_bits) if funding_bits else None
+
+        return build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility_criteria,
+            funding=funding,
+            open_date=open_date,
+            close_date=close_date,
+            procedure=self._build_procedure_text(normalized_title),
+            recurrence_notes=recurrence_notes,
+        ) or full_description
 
     def _compose_metadata_summary(self, item: RawItem, metadata: dict, close_date: Optional[date]) -> Optional[str]:
         project_abstract = self._get_nested_metadata_value(metadata, "project_abstract")
@@ -510,7 +709,10 @@ class Normalizer:
     def _detect_status(self, text: str) -> str:
         if any(keyword in text for keyword in ["clôturé", "terminé", "expiré", "closed", "archivé"]):
             return "closed"
-        if any(keyword in text for keyword in ["récurrent", "permanent", "ouvert en continu"]):
+        if has_recurrence_evidence(text) or any(
+            keyword in text
+            for keyword in ["récurrent", "permanent", "ouvert en continu", "ouverte en continu"]
+        ):
             return "recurring"
         if "en cours" in text:
             return "open"

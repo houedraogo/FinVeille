@@ -558,7 +558,11 @@ async def get_device(device_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{device_id}/history")
-async def get_device_history(device_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_device_history(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin", "editor"])),
+):
     return await DeviceService(db).get_history(device_id)
 
 
@@ -609,7 +613,11 @@ async def reject_device(
 
 
 @router.post("/{device_id}/scrape", response_model=DeviceResponse)
-async def scrape_device_details(device_id: UUID, db: AsyncSession = Depends(get_db)):
+async def scrape_device_details(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin", "editor"])),
+):
     """
     Scrape l'URL officielle du dispositif et enrichit la fiche :
     description complète, critères d'éligibilité, dépenses éligibles.

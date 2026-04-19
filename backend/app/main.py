@@ -4,7 +4,19 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import create_tables
-from app.routers import auth, devices, sources, alerts, dashboard, admin, match
+from app.routers import auth, devices, sources, alerts, dashboard, admin, match, organizations, workspace, billing, security
+
+if settings.SENTRY_DSN:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.APP_ENV,
+            traces_sample_rate=0.1,
+        )
+    except Exception:
+        pass
 
 
 @asynccontextmanager
@@ -41,6 +53,10 @@ app.include_router(alerts.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
 app.include_router(match.router)
+app.include_router(organizations.router)
+app.include_router(workspace.router)
+app.include_router(billing.router)
+app.include_router(security.router)
 
 
 @app.get("/api/health", tags=["health"])

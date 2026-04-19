@@ -99,6 +99,274 @@ def dedupe_text_fields(
     return short, full, funding, eligibility
 
 
+def _same_text(left: str | None, right: str | None) -> bool:
+    normalized_left = unidecode(clean_editorial_text(left or "").lower())
+    normalized_right = unidecode(clean_editorial_text(right or "").lower())
+    return bool(normalized_left) and normalized_left == normalized_right
+
+
+def build_structured_sections(
+    *,
+    presentation: str | None = None,
+    eligibility: str | None = None,
+    funding: str | None = None,
+    open_date: date | None = None,
+    close_date: date | None = None,
+    procedure: str | None = None,
+    recurrence_notes: str | None = None,
+) -> str | None:
+    """Construit un full_description metier propre et dedupe."""
+
+    presentation_text = clean_editorial_text(presentation or "")
+    eligibility_text = clean_editorial_text(eligibility or "")
+    funding_text = clean_editorial_text(funding or "")
+    procedure_text = clean_editorial_text(procedure or "")
+    recurrence_text = clean_editorial_text(recurrence_notes or "")
+
+    if _same_text(eligibility_text, presentation_text):
+        eligibility_text = ""
+    if _same_text(funding_text, presentation_text) or _same_text(funding_text, eligibility_text):
+        funding_text = ""
+    if _same_text(procedure_text, presentation_text) or _same_text(procedure_text, eligibility_text) or _same_text(procedure_text, funding_text):
+        procedure_text = ""
+
+    sections: list[tuple[str, str]] = []
+
+    sections.append(
+        (
+            "Presentation",
+            presentation_text or "La source ne fournit pas encore de presentation editoriale exploitable.",
+        )
+    )
+
+    sections.append(
+        (
+            "Criteres d'eligibilite",
+            eligibility_text or "Les criteres detailles doivent etre confirmes sur la source officielle.",
+        )
+    )
+
+    sections.append(
+        (
+            "Montant / avantages",
+            funding_text or "Le montant ou les avantages ne sont pas precises clairement par la source.",
+        )
+    )
+
+    calendar_lines = []
+    if open_date:
+        calendar_lines.append(f"- Ouverture : {open_date.strftime('%d/%m/%Y')}")
+    if close_date:
+        calendar_lines.append(f"- Cloture : {close_date.strftime('%d/%m/%Y')}")
+    if recurrence_text and not any(_same_text(recurrence_text, line) for line in calendar_lines):
+        calendar_lines.append(f"- Rythme : {recurrence_text}")
+    if not calendar_lines:
+        calendar_lines.append("- Calendrier non communique clairement par la source.")
+    sections.append(("Calendrier", "\n".join(calendar_lines)))
+
+    sections.append(
+        (
+            "Demarche",
+            procedure_text or "La consultation detaillee et la candidature se font depuis la source officielle.",
+        )
+    )
+
+    full_description = "\n\n".join(f"## {title}\n{content}" for title, content in sections if content)
+    return full_description.strip() or None
+
+
+def _split_editorial_sentences(text: str) -> list[str]:
+    cleaned = clean_editorial_text(text or "")
+    if not cleaned:
+        return []
+    normalized = re.sub(r"([.;!?])(?=\S)", r"\1 ", cleaned)
+    parts = re.split(r"(?<=[.;!?])\s+|\n+", normalized)
+    sentences = []
+    seen = set()
+    for part in parts:
+        value = clean_editorial_text(part)
+        if not value:
+            continue
+        normalized_value = unidecode(value.lower())
+        if normalized_value in seen:
+            continue
+        seen.add(normalized_value)
+        sentences.append(value)
+    return sentences
+
+
+def _pick_sentences_by_keywords(text: str, keywords: tuple[str, ...], limit: int = 2) -> list[str]:
+    matches = []
+    seen = set()
+    for sentence in _split_editorial_sentences(text):
+        normalized = unidecode(sentence.lower())
+        if not any(keyword in normalized for keyword in keywords):
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        matches.append(sentence)
+        if len(matches) >= limit:
+            break
+    return matches
+
+
+def _format_beneficiaries(beneficiaries) -> str:
+    if not beneficiaries:
+        return ""
+    if isinstance(beneficiaries, str):
+        values = [clean_editorial_text(beneficiaries)]
+    else:
+        values = [clean_editorial_text(str(value)) for value in beneficiaries if clean_editorial_text(str(value))]
+    normalized = []
+    seen = set()
+    for value in values:
+        key = unidecode(value.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(value.lower())
+    if not normalized:
+        return ""
+    if len(normalized) == 1:
+        return normalized[0]
+    if len(normalized) == 2:
+        return f"{normalized[0]} et {normalized[1]}"
+    return f"{', '.join(normalized[:-1])} et {normalized[-1]}"
+
+
+def _format_scope(country: str | None = None, geographic_scope: str | None = None) -> str:
+    scope = unidecode(clean_editorial_text(geographic_scope or "").lower())
+    country_label = clean_editorial_text(country or "")
+    if scope == "regional":
+        return "a l'echelle regionale"
+    if scope == "national":
+        if country_label:
+            return f"sur l'ensemble du territoire {country_label}"
+        return "a l'echelle nationale"
+    if scope == "local":
+        return "sur un perimetre local"
+    if scope == "international":
+        return "a l'international"
+    if scope == "continental":
+        return "a l'echelle continentale"
+    if country_label:
+        return f"en {country_label}"
+    return ""
+
+
+def build_contextual_eligibility(
+    *,
+    text: str | None = None,
+    beneficiaries=None,
+    country: str | None = None,
+    geographic_scope: str | None = None,
+) -> str:
+    keywords = (
+        "eligible",
+        "eligibil",
+        "beneficia",
+        "adresse",
+        "destine",
+        "reserve",
+        "pme",
+        "tpe",
+        "eti",
+        "startup",
+        "association",
+        "collectiv",
+        "entreprise",
+        "artisan",
+        "agric",
+        "porteur",
+    )
+    sentences = _pick_sentences_by_keywords(text or "", keywords, limit=2)
+    parts = list(sentences)
+
+    beneficiaries_label = _format_beneficiaries(beneficiaries)
+    scope_label = _format_scope(country=country, geographic_scope=geographic_scope)
+
+    if beneficiaries_label:
+        sentence = f"Le dispositif s'adresse notamment aux {beneficiaries_label}."
+        if scope_label:
+            sentence = f"Le dispositif s'adresse notamment aux {beneficiaries_label} {scope_label}."
+        if not any(unidecode(sentence.lower()) == unidecode(part.lower()) for part in parts):
+            parts.append(sentence)
+    elif scope_label:
+        parts.append(f"Le dispositif s'applique {scope_label}.")
+
+    if not parts:
+        parts.append("Les criteres detailles doivent etre confirmes sur la source officielle.")
+    else:
+        parts.append("Les conditions detaillees de recevabilite doivent etre confirmees sur la source officielle.")
+
+    return " ".join(parts).strip()
+
+
+def build_contextual_funding(
+    *,
+    text: str | None = None,
+    device_type: str | None = None,
+    amount_min=None,
+    amount_max=None,
+    currency: str | None = None,
+) -> str:
+    if amount_min is not None or amount_max is not None:
+        def _format_amount(value) -> str:
+            if value is None:
+                return ""
+            try:
+                amount = float(value)
+            except (TypeError, ValueError):
+                return clean_editorial_text(str(value))
+            if amount.is_integer():
+                amount_str = f"{int(amount):,}".replace(",", " ")
+            else:
+                amount_str = f"{amount:,.2f}".replace(",", " ").replace(".", ",")
+            return f"{amount_str} {(currency or 'EUR').strip()}".strip()
+
+        if amount_min and amount_max and amount_min != amount_max:
+            return f"Montant indicatif compris entre {_format_amount(amount_min)} et {_format_amount(amount_max)}."
+        amount = amount_max or amount_min
+        if amount is not None:
+            return f"Montant indicatif : {_format_amount(amount)}."
+
+    keywords = (
+        "montant",
+        "subvention",
+        "pret",
+        "garantie",
+        "avance",
+        "prise en charge",
+        "financement",
+        "taux",
+        "plafond",
+        "exoner",
+        "abattement",
+        "dotation",
+        "cofinancement",
+        "%",
+        "euro",
+        "eur",
+    )
+    sentences = _pick_sentences_by_keywords(text or "", keywords, limit=2)
+    if sentences:
+        merged = " ".join(sentences).strip()
+        normalized = unidecode(merged.lower())
+        if not any(marker in normalized for marker in ("montant", "taux", "%", "euro", "eur", "prise en charge", "plafond")):
+            merged += " Le montant exact doit etre confirme sur la fiche officielle."
+        return merged
+
+    default_messages = {
+        "subvention": "La source reference ce dispositif comme une subvention, mais le montant exact doit etre confirme sur la fiche officielle.",
+        "pret": "La source reference ce dispositif comme un pret, mais ses modalites financieres exactes doivent etre confirmees sur la fiche officielle.",
+        "garantie": "La source reference ce dispositif comme une garantie ou un partage de risque, a confirmer sur la fiche officielle.",
+        "aap": "Les avantages associes a cet appel doivent etre confirmes sur la fiche officielle.",
+        "concours": "La source mentionne un concours ou une dotation, mais les avantages exacts doivent etre confirmes sur la fiche officielle.",
+    }
+    return default_messages.get(device_type or "", "Le montant ou les avantages ne sont pas precises clairement par la source.")
+
+
 def _extract_cdata_payload(value):
     if isinstance(value, dict):
         for key in ("cdata!", "cdata", "CDATA!", "CDATA"):
@@ -298,6 +566,28 @@ def derive_device_status(close_date_value, current_status: str | None = None) ->
     if current_status:
         return current_status
     return "open"
+
+
+def has_recurrence_evidence(text: str | None) -> bool:
+    sample = f" {unidecode(sanitize_text(text or '').lower())} "
+    markers = (
+        " ouvert en continu ",
+        " ouverte en continu ",
+        " toute l'annee ",
+        " toute l annee ",
+        " permanent ",
+        " permanente ",
+        " recurrent ",
+        " recurrente ",
+        " reconduit chaque annee ",
+        " sans date limite ",
+        " au fil de l'eau ",
+        " au fil de l eau ",
+        " a tout moment ",
+        " dispositif permanent ",
+        " dispositif recurrent ",
+    )
+    return any(marker in sample for marker in markers)
 
 
 def extract_close_date(text: str) -> date | None:

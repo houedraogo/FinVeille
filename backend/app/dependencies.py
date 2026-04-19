@@ -45,3 +45,21 @@ def require_role(roles: List[str]):
             )
         return current_user
     return role_checker
+
+
+def is_platform_super_admin(user: User) -> bool:
+    return user.role == "admin" or getattr(user, "platform_role", None) == "super_admin"
+
+
+def require_platform_role(roles: List[str]):
+    async def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        platform_role = getattr(current_user, "platform_role", "member")
+        if "super_admin" in roles and is_platform_super_admin(current_user):
+            return current_user
+        if platform_role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Accès refusé. Rôles plateforme requis : {roles}",
+            )
+        return current_user
+    return role_checker

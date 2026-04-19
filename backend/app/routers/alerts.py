@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.alert import AlertCreate, AlertUpdate, AlertResponse
 from app.dependencies import get_current_user
 from app.services.alert_service import AlertService
+from app.services.billing_service import ensure_limit
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -38,6 +39,7 @@ async def create_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await ensure_limit(db, current_user, "alerts")
     return await AlertService(db).create(data, current_user.id)
 
 

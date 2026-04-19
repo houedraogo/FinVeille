@@ -17,6 +17,7 @@ interface Props {
 }
 
 type SortKey = "name" | "errors" | "last_success" | "reliability";
+type StatusFilter = "all" | "active" | "inactive" | "error" | "manual_reference";
 
 const HEALTH_COLORS: Record<string, string> = {
   excellent: "bg-green-100 text-green-700",
@@ -60,6 +61,34 @@ function getSourceCollectionPreview(source: Pick<Source, "collection_mode" | "so
   return "Cherchera une liste d'items et générera une fiche distincte pour chaque dispositif détecté.";
 }
 
+function getLastCollectionLabel(source: Pick<Source, "collection_mode" | "source_kind" | "last_success_at">) {
+  if (source.collection_mode === "manual" || source.source_kind === "pdf_manual") {
+    return {
+      primary: "À qualifier",
+      secondary: "Qualification manuelle attendue",
+    };
+  }
+
+  return {
+    primary: source.last_success_at ? formatDateRelative(source.last_success_at) : "Jamais",
+    secondary: null as string | null,
+  };
+}
+
+function getHealthBadge(source: Pick<Source, "collection_mode" | "source_kind" | "health_score" | "health_label">) {
+  if (source.collection_mode === "manual" || source.source_kind === "pdf_manual") {
+    return {
+      label: `Référence ${source.health_score}/100`,
+      tone: "bg-slate-100 text-slate-700",
+    };
+  }
+
+  return {
+    label: `Sante ${source.health_score}/100`,
+    tone: HEALTH_COLORS[source.health_label] || "bg-gray-100 text-gray-700",
+  };
+}
+
 export default function SourcesPageContent({ category, title, subtitle, defaultSourceType }: Props) {
   const router = useRouter();
   const [sourceList, setSourceList] = useState<Source[]>([]);
@@ -69,7 +98,7 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<SourceTestResult | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "error">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [modeFilter, setModeFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
   const [sortBy, setSortBy] = useState<SortKey>("errors");
@@ -94,6 +123,11 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
     sources.list({ category }).then(setSourceList).finally(() => setLoading(false));
   }, [category]);
 
+  const manualReferenceCount = useMemo(
+    () => sourceList.filter((source) => isManualPrivateSource(source)).length,
+    [sourceList]
+  );
+
   const handleAuthError = (message: string) => {
     if (!message.toLowerCase().includes("session expir")) return false;
     alert("Session expirée. Veuillez vous reconnecter pour gérer les sources.");
@@ -107,6 +141,7 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
       if (statusFilter === "active" && !source.is_active) return false;
       if (statusFilter === "inactive" && source.is_active) return false;
       if (statusFilter === "error" && source.consecutive_errors <= 0) return false;
+      if (statusFilter === "manual_reference" && !isManualPrivateSource(source)) return false;
       if (modeFilter !== "all" && source.collection_mode !== modeFilter) return false;
       if (levelFilter !== "all" && String(source.level) !== levelFilter) return false;
       if (!normalizedSearch) return true;
@@ -255,8 +290,8 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
                     {getSourceCollectionPreview(s)}
                   </div>
                   <div className="mt-1">
-                    <span className={clsx("badge text-[10px]", HEALTH_COLORS[s.health_label] || "bg-gray-100 text-gray-700")}>
-                      Sante {s.health_score}/100
+                    <span className={clsx("badge text-[10px]", getHealthBadge(s).tone)}>
+                      {getHealthBadge(s).label}
                     </span>
                   </div>
                   {s.last_error && (
@@ -278,7 +313,10 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
                   {SOURCE_FREQ_LABELS[s.check_frequency] || s.check_frequency}
                 </td>
                 <td className="px-4 py-3 align-top text-gray-500 break-words">
-                  <span className="block">{s.last_success_at ? formatDateRelative(s.last_success_at) : "Jamais"}</span>
+                  <span className="block">{getLastCollectionLabel(s).primary}</span>
+                  {getLastCollectionLabel(s).secondary && (
+                    <span className="mt-1 block text-[11px] text-slate-400">{getLastCollectionLabel(s).secondary}</span>
+                  )}
                   {s.consecutive_errors > 0 && (
                     <span className="mt-1 block text-red-500">
                       {s.consecutive_errors} erreur{s.consecutive_errors > 1 ? "s" : ""}
@@ -335,6 +373,25 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
             {loading ? "Chargement..." : `${filteredSources.filter((s) => s.is_active).length} actives · ${filteredSources.length} affichees`}
             {subtitle && <span className="ml-2 text-gray-400">· {subtitle}</span>}
           </p>
+          {!loading && category === "private" && manualReferenceCount > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStatusFilter((current) => current === "manual_reference" ? "all" : "manual_reference")}
+                className={clsx(
+                  "rounded-full px-3 py-1 text-xs font-semibold transition-colors",
+                  statusFilter === "manual_reference"
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                )}
+              >
+                Référentiel manuel · {manualReferenceCount}
+              </button>
+              <span className="text-xs text-slate-400">
+                Stock privé à qualifier manuellement avant toute automatisation.
+              </span>
+            </div>
+          )}
         </div>
         <button onClick={() => setShowAdd(true)} className="btn-primary">
           <Plus className="w-4 h-4" /> Ajouter une source
@@ -352,11 +409,12 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
-          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
             <option value="all">Tous les statuts</option>
             <option value="active">Actives</option>
             <option value="inactive">Inactives</option>
             <option value="error">En erreur</option>
+            {category === "private" && <option value="manual_reference">Référentiel manuel</option>}
           </select>
           <select className="input" value={modeFilter} onChange={(e) => setModeFilter(e.target.value)}>
             <option value="all">Tous les modes</option>

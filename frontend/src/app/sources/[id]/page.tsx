@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle, Play, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
 
 import AppLayout from "@/components/AppLayout";
+import RoleGate from "@/components/RoleGate";
 import { sources } from "@/lib/api";
 import { CollectionLog, Source, SOURCE_FREQ_LABELS, SOURCE_KIND_LABELS, SOURCE_MODE_LABELS, SourceTestResult } from "@/lib/types";
 import { formatDate, formatDateRelative } from "@/lib/utils";
@@ -39,6 +40,10 @@ function getSourceKindBadge(source: Pick<Source, "collection_mode" | "source_kin
     return { label: "Page éditoriale", tone: "bg-amber-100 text-amber-700" };
   }
   return { label: "Collecte automatique", tone: "bg-emerald-100 text-emerald-700" };
+}
+
+function isManualReference(source: Pick<Source, "collection_mode" | "source_kind">) {
+  return source.collection_mode === "manual" || source.source_kind === "pdf_manual";
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -148,25 +153,43 @@ export default function SourceDetailPage() {
 
   if (loading) {
     return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
-        </div>
-      </AppLayout>
+      <RoleGate allow={["admin", "editor"]} title="Sources réservées à l'équipe" message="Cette fiche source n'est pas accessible aux utilisateurs standard.">
+        <AppLayout>
+          <div className="flex items-center justify-center h-64">
+            <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+          </div>
+        </AppLayout>
+      </RoleGate>
     );
   }
 
   if (!source) {
     return (
-      <AppLayout>
-        <div className="card p-8 text-center text-gray-500">Source introuvable</div>
-      </AppLayout>
+      <RoleGate allow={["admin", "editor"]} title="Sources réservées à l'équipe" message="Cette fiche source n'est pas accessible aux utilisateurs standard.">
+        <AppLayout>
+          <div className="card p-8 text-center text-gray-500">Source introuvable</div>
+        </AppLayout>
+      </RoleGate>
     );
   }
 
   const categoryPath = source.category === "private" ? "/sources/private" : "/sources";
+  const manualReference = isManualReference(source);
+  const healthBadge = manualReference
+    ? { label: `Référence ${source.health_score}/100`, tone: "bg-slate-100 text-slate-700" }
+    : { label: `Sante ${source.health_score}/100`, tone: HEALTH_COLORS[source.health_label] || "bg-gray-100 text-gray-700" };
+  const lastSuccessLabel = manualReference
+    ? { value: "À qualifier", sub: "Qualification manuelle attendue" }
+    : { value: source.last_success_at ? formatDateRelative(source.last_success_at) : "Jamais", sub: source.last_success_at ? formatDate(source.last_success_at) : undefined };
+  const lastCheckLabel = manualReference
+    ? { value: "Suivi manuel", sub: "Pas de collecte automatique prévue" }
+    : { value: source.last_checked_at ? formatDateRelative(source.last_checked_at) : "Jamais", sub: source.last_checked_at ? formatDate(source.last_checked_at) : undefined };
+  const healthStatLabel = manualReference
+    ? { value: `${source.health_score}/100`, sub: "référentiel manuel" }
+    : { value: `${source.health_score}/100`, sub: source.health_label };
 
   return (
+    <RoleGate allow={["admin", "editor"]} title="Sources réservées à l'équipe" message="Cette fiche source n'est pas accessible aux utilisateurs standard.">
     <AppLayout>
       <div className="flex items-center justify-between gap-3 mb-6">
         <div>
@@ -179,8 +202,8 @@ export default function SourceDetailPage() {
           </button>
           <h1 className="text-2xl font-bold text-gray-900">{source.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className={clsx("badge text-xs", HEALTH_COLORS[source.health_label] || "bg-gray-100 text-gray-700")}>
-              Sante {source.health_score}/100
+            <span className={clsx("badge text-xs", healthBadge.tone)}>
+              {healthBadge.label}
             </span>
             <span className={clsx("rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]", getSourceKindBadge(source).tone)}>
               {getSourceKindBadge(source).label}
@@ -201,11 +224,12 @@ export default function SourceDetailPage() {
           </button>
           <button
             onClick={handleCollect}
-            disabled={busyAction !== null}
+            disabled={busyAction !== null || manualReference}
             className="btn-primary disabled:opacity-50"
+            title={manualReference ? "Collecte automatique indisponible pour une source manuelle" : "Relancer la collecte"}
           >
             {busyAction === "collect" ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            Relancer
+            {manualReference ? "Collecte auto indisponible" : "Relancer"}
           </button>
           <button
             onClick={handleToggleActive}
@@ -229,18 +253,18 @@ export default function SourceDetailPage() {
         />
         <StatCard
           label="Dernier succes"
-          value={source.last_success_at ? formatDateRelative(source.last_success_at) : "Jamais"}
-          sub={source.last_success_at ? formatDate(source.last_success_at) : undefined}
+          value={lastSuccessLabel.value}
+          sub={lastSuccessLabel.sub}
         />
         <StatCard
           label="Derniere verification"
-          value={source.last_checked_at ? formatDateRelative(source.last_checked_at) : "Jamais"}
-          sub={source.last_checked_at ? formatDate(source.last_checked_at) : undefined}
+          value={lastCheckLabel.value}
+          sub={lastCheckLabel.sub}
         />
         <StatCard
           label="Sante"
-          value={`${source.health_score}/100`}
-          sub={source.health_label}
+          value={healthStatLabel.value}
+          sub={healthStatLabel.sub}
         />
         <StatCard
           label="Frequence"
@@ -409,5 +433,6 @@ export default function SourceDetailPage() {
         )}
       </div>
     </AppLayout>
+    </RoleGate>
   );
 }

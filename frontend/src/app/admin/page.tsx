@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/AppLayout";
+import RoleGate from "@/components/RoleGate";
 import { admin } from "@/lib/api";
 import DeviceCard from "@/components/DeviceCard";
 import {
@@ -159,7 +160,13 @@ export default function AdminPage() {
   };
 
   return (
-    <AppLayout>
+    <RoleGate
+      allow={["admin"]}
+      title="Administration réservée"
+      message="Cette zone est réservée au profil super admin."
+      backHref="/workspace"
+    >
+      <AppLayout>
       {/* En-tête */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -441,6 +448,7 @@ export default function AdminPage() {
           </div>
         </>
       )}
-    </AppLayout>
+      </AppLayout>
+    </RoleGate>
   );
 }

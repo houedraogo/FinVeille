@@ -1,16 +1,19 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import DeviceCard from "@/components/DeviceCard";
-import { devices } from "@/lib/api";
+import LimitNotice from "@/components/LimitNotice";
+import { billing, devices } from "@/lib/api";
 import { DeviceListResponse, DEVICE_TYPE_LABELS } from "@/lib/types";
 import { COUNTRIES, SECTORS } from "@/lib/constants";
+import { formatAmount, formatDate } from "@/lib/utils";
+import { consumePendingSavedSearch, getSavedViewMode, getUserPreferences, saveSearch, saveUserPreferences, setSavedViewMode } from "@/lib/workspace";
 import {
   Search, SlidersHorizontal, Download, Plus,
   ChevronLeft, ChevronRight, X,
   ShieldCheck, XCircle, Trash2, Tag, CheckSquare,
-  FileSpreadsheet, FileText, ChevronDown,
+  FileSpreadsheet, FileText, ChevronDown, LayoutGrid, Rows3, ExternalLink, BookmarkPlus,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -34,6 +37,8 @@ interface Props {
   newDeviceHref?: string;
 }
 
+type ViewMode = "cards" | "table";
+
 export default function DevicesPageContent({
   title,
   lockedDeviceTypes,
@@ -43,6 +48,7 @@ export default function DevicesPageContent({
   newDeviceHref = "/devices/new",
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
 
   const [result, setResult] = useState<DeviceListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,11 +74,46 @@ export default function DevicesPageContent({
   const [sortBy, setSortBy] = useState(defaultSort);
   const [page, setPage] = useState(1);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [editingSavedSearchId, setEditingSavedSearchId] = useState<string | null>(null);
+  const [exportsAllowed, setExportsAllowed] = useState(true);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
     return () => clearTimeout(timer);
   }, [q]);
+
+  useEffect(() => {
+    billing.subscription()
+      .then((subscription: any) => setExportsAllowed(!!subscription?.features?.exports))
+      .catch(() => setExportsAllowed(true));
+  }, []);
+
+  useEffect(() => {
+    const preferredView = getSavedViewMode(pathname);
+    if (preferredView) {
+      setViewMode(preferredView);
+    }
+
+    const pendingSearch = consumePendingSavedSearch(pathname);
+    if (!pendingSearch) return;
+
+    setQ(pendingSearch.search.filters.q);
+    setDebouncedQ(pendingSearch.search.filters.q);
+    setFilterCountries(pendingSearch.search.filters.countries);
+    setFilterTypes(pendingSearch.search.filters.deviceTypes);
+    setFilterSectors(pendingSearch.search.filters.sectors);
+    setFilterStatuses(pendingSearch.search.filters.statuses);
+    setClosingSoon(pendingSearch.search.filters.closingSoon);
+    setSortBy(pendingSearch.search.filters.sortBy || defaultSort);
+    setPage(1);
+    setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
+  }, [pathname, defaultSort]);
+
+  useEffect(() => {
+    setSavedViewMode(pathname, viewMode);
+    saveUserPreferences({ ...getUserPreferences(), defaultViewMode: viewMode });
+  }, [pathname, viewMode]);
 
   const fetchDevices = useCallback(async () => {
     setLoading(true);
@@ -111,10 +152,13 @@ export default function DevicesPageContent({
   const clearFilters = () => {
     setFilterCountries([]); setFilterTypes([]); setFilterSectors([]);
     setFilterStatuses([]); setClosingSoon(""); setPage(1);
+    setEditingSavedSearchId(null);
   };
 
   const hasFilters = filterCountries.length || filterTypes.length || filterSectors.length ||
     filterStatuses.length || closingSoon;
+  const pageIds = result?.items.map((d) => d.id) ?? [];
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
 
   // Sélection
   const toggleSelect = (id: string) => {
@@ -127,6 +171,17 @@ export default function DevicesPageContent({
   const selectAllPage = () => {
     const pageIds = result?.items.map(d => d.id) ?? [];
     setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.add(id)); return n; });
+  };
+  const toggleAllPageSelection = () => {
+    if (allPageSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      return;
+    }
+    selectAllPage();
   };
   const clearSelection = () => {
     setSelectedIds(new Set());
@@ -162,6 +217,57 @@ export default function DevicesPageContent({
     }
   };
 
+  const handleSaveSearch = () => {
+    const defaultName = q.trim()
+      ? `${title} - ${q.trim()}`
+      : `${title} - vue enregistrée`;
+    const existingSearchName = editingSavedSearchId
+      ? window.localStorage.getItem("finveille_saved_searches")
+      : null;
+    let suggestedName = defaultName;
+
+    if (editingSavedSearchId && existingSearchName) {
+      try {
+        const parsed = JSON.parse(existingSearchName) as Array<{ id: string; name: string }>;
+        suggestedName = parsed.find((item) => item.id === editingSavedSearchId)?.name || defaultName;
+      } catch {
+        suggestedName = defaultName;
+      }
+    }
+
+    const name = window.prompt(
+      editingSavedSearchId ? "Mettre à jour le nom de cette recherche" : "Nom de cette recherche enregistrée",
+      suggestedName,
+    )?.trim();
+    if (!name) return;
+
+    saveSearch({
+      id: editingSavedSearchId || crypto.randomUUID(),
+      name,
+      title,
+      path: pathname,
+      resultCount: result?.total ?? null,
+      savedAt: new Date().toISOString(),
+      filters: {
+        q: q.trim(),
+        countries: filterCountries,
+        deviceTypes: filterTypes,
+        sectors: filterSectors,
+        statuses: filterStatuses,
+        closingSoon,
+        sortBy,
+      },
+    });
+
+    setBulkMsg({
+      type: "success",
+      text: editingSavedSearchId
+        ? `Recherche mise à jour dans Mon espace : ${name}`
+        : `Recherche enregistrée dans Mon espace : ${name}`,
+    });
+    setEditingSavedSearchId(null);
+  };
+
   // Tous les filtres actifs transmis à l'export
   const effectiveTypesForExport =
     filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
@@ -189,6 +295,39 @@ export default function DevicesPageContent({
           )}
         </div>
         <div className="flex items-center gap-2">
+          <div className="hidden items-center rounded-xl border border-gray-200 bg-white p-1 sm:flex">
+            <button
+              type="button"
+              onClick={() => setViewMode("cards")}
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                viewMode === "cards" ? "bg-slate-900 text-white" : "text-gray-500 hover:bg-gray-50 hover:text-gray-800",
+              )}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Cartes
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("table")}
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                viewMode === "table" ? "bg-slate-900 text-white" : "text-gray-500 hover:bg-gray-50 hover:text-gray-800",
+              )}
+            >
+              <Rows3 className="w-3.5 h-3.5" />
+              Tableau
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveSearch}
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            title={editingSavedSearchId ? "Mettre à jour cette recherche sauvegardée" : "Enregistrer cette recherche dans Mon espace"}
+          >
+            <BookmarkPlus className="w-3.5 h-3.5" />
+            {editingSavedSearchId ? "Mettre à jour" : "Enregistrer"}
+          </button>
           {/* Dropdown Export */}
           <div className="relative">
             <button
@@ -205,7 +344,17 @@ export default function DevicesPageContent({
               <>
                 {/* Overlay invisible pour fermer */}
                 <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 w-44 overflow-hidden">
+                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 w-72 overflow-hidden">
+                  {!exportsAllowed ? (
+                    <div className="p-2">
+                      <LimitNotice
+                        compact
+                        title="Export reserve aux plans Pro"
+                        message="Les exports CSV/Excel sont disponibles avec Pro, Team ou Enterprise."
+                      />
+                    </div>
+                  ) : (
+                    <>
                   <a
                     href={exportCsvUrl}
                     download
@@ -231,6 +380,8 @@ export default function DevicesPageContent({
                       <div className="text-gray-400">Formaté + filtres</div>
                     </div>
                   </a>
+                    </>
+                  )}
                 </div>
               </>
             )}
@@ -413,16 +564,124 @@ export default function DevicesPageContent({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {result?.items.map((device) => (
-              <DeviceCard
-                key={device.id}
-                device={device}
-                selected={selectedIds.has(device.id)}
-                onSelect={toggleSelect}
-              />
-            ))}
-          </div>
+          {viewMode === "cards" ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {result?.items.map((device) => (
+                <DeviceCard
+                  key={device.id}
+                  device={device}
+                  selected={selectedIds.has(device.id)}
+                  onSelect={toggleSelect}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_14px_40px_-28px_rgba(15,23,42,0.35)]">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1020px] text-sm">
+                  <thead className="border-b border-slate-200 bg-slate-50/80">
+                    <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                      <th className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={allPageSelected}
+                          onChange={toggleAllPageSelection}
+                          className="h-4 w-4 rounded border-gray-300 accent-primary-600"
+                          aria-label="Sélectionner toute la page"
+                        />
+                      </th>
+                      <th className="px-4 py-3">Dispositif</th>
+                      <th className="px-4 py-3">Type</th>
+                      <th className="px-4 py-3">Pays</th>
+                      <th className="px-4 py-3">Montant</th>
+                      <th className="px-4 py-3">Clôture</th>
+                      <th className="px-4 py-3">Statut</th>
+                      <th className="px-4 py-3">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result?.items.map((device) => (
+                      <tr key={device.id} className="border-b border-slate-100 align-top transition-colors hover:bg-slate-50/70">
+                        <td className="px-4 py-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(device.id)}
+                            onChange={() => toggleSelect(device.id)}
+                            className="h-4 w-4 rounded border-gray-300 accent-primary-600"
+                            aria-label={`Sélectionner ${device.title}`}
+                          />
+                        </td>
+                        <td className="min-w-[340px] px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/devices/${device.id}`)}
+                            className="block text-left group"
+                          >
+                            <div className="font-semibold leading-6 text-slate-900 group-hover:text-primary-700">
+                              {device.title}
+                            </div>
+                          </button>
+                          <div className="mt-1 text-xs text-slate-500">{device.organism}</div>
+                          {device.short_description && (
+                            <p className="mt-2 line-clamp-2 max-w-xl text-sm leading-6 text-slate-600">
+                              {device.short_description}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                            {DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-slate-700">
+                          {[device.country, device.region].filter(Boolean).join(" · ") || "Non renseigné"}
+                        </td>
+                        <td className="px-4 py-4 text-slate-700">
+                          {device.amount_max ? formatAmount(device.amount_max, device.currency) : "À confirmer"}
+                        </td>
+                        <td className="px-4 py-4">
+                          {device.close_date ? (
+                            <span className="font-medium text-slate-800">{formatDate(device.close_date)}</span>
+                          ) : (
+                            <span className="text-slate-400">{device.status === "recurring" ? "Récurrent" : "Non communiquée"}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span
+                            className={clsx(
+                              "rounded-full px-2.5 py-1 text-xs font-medium",
+                              device.status === "open" && "bg-green-100 text-green-700",
+                              device.status === "recurring" && "bg-blue-100 text-blue-700",
+                              device.status === "closed" && "bg-slate-200 text-slate-700",
+                              device.status === "expired" && "bg-red-100 text-red-700",
+                            )}
+                          >
+                            {STATUS_LABELS[device.status] || device.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="max-w-[180px] truncate text-slate-600">{device.organism}</span>
+                            {device.source_url && (
+                              <a
+                                href={device.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-slate-400 transition-colors hover:text-primary-600"
+                                title="Ouvrir la source officielle"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {result && result.pages > 1 && (
             <div className="flex items-center justify-center gap-2 mt-6">

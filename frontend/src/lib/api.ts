@@ -23,7 +23,15 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
       }
       throw new Error("Session expirée. Veuillez vous reconnecter.");
     }
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const detail =
+      typeof error.detail === "string"
+        ? error.detail
+        : error.detail?.message
+          ? error.detail.message
+          : Array.isArray(error.detail)
+            ? error.detail.map((item: any) => item.msg).join(", ")
+            : null;
+    throw new Error(detail || `HTTP ${response.status}`);
   }
 
   // 204 No Content (typique pour les DELETE) → retourner null
@@ -41,7 +49,61 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  googleLogin: (credential: string) =>
+    apiFetch<{ access_token: string; user: any }>("/api/v1/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    }),
   me: () => apiFetch("/api/v1/auth/me"),
+  context: () => apiFetch("/api/v1/me/context"),
+};
+
+// Organizations
+export const organizations = {
+  current: () => apiFetch<any>("/api/v1/organizations/current"),
+  create: (name: string) => apiFetch<any>("/api/v1/organizations", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  }),
+  invite: (data: { email: string; role: string; organization_id?: string }) =>
+    apiFetch<any>("/api/v1/organizations/invite", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  acceptInvitation: (token: string) =>
+    apiFetch<any>(`/api/v1/organizations/invitations/${token}/accept`, { method: "POST" }),
+};
+
+// Billing
+export const billing = {
+  plans: () => apiFetch<any[]>("/api/v1/billing/plans"),
+  subscription: () => apiFetch<any>("/api/v1/billing/subscription"),
+  checkout: (planSlug: string) =>
+    apiFetch<any>("/api/v1/billing/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan_slug: planSlug }),
+    }),
+  portal: () => apiFetch<any>("/api/v1/billing/portal", { method: "POST" }),
+};
+
+// Security / RGPD
+export const security = {
+  forgotPassword: (email: string) =>
+    apiFetch<any>("/api/v1/security/password/forgot", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (token: string, newPassword: string) =>
+    apiFetch<any>("/api/v1/security/password/reset", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }),
+  createDataExport: () => apiFetch<any>("/api/v1/security/data-export", { method: "POST" }),
+  requestDeletion: (reason?: string) =>
+    apiFetch<any>("/api/v1/security/deletion-request", {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
 };
 
 // Devices
@@ -114,6 +176,8 @@ export const admin = {
   fixExpired: () => apiFetch("/api/v1/admin/quality/fix-expired", { method: "POST" }),
   pending: (page = 1) => apiFetch<any>(`/api/v1/admin/pending?page=${page}`),
   users: () => apiFetch<any[]>("/api/v1/admin/users"),
+  organizations: () => apiFetch<any[]>("/api/v1/admin/organizations"),
+  operations: () => apiFetch<any>("/api/v1/admin/operations"),
   collectAll: () => apiFetch("/api/v1/admin/collect/all", { method: "POST" }),
   emailStatus: () => apiFetch<any>("/api/v1/admin/email/status"),
   testEmail: () => apiFetch<any>("/api/v1/admin/email/test", { method: "POST" }),

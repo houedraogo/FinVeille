@@ -5,8 +5,17 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import DeviceCard from "@/components/DeviceCard";
 import { devices } from "@/lib/api";
+import { canModerateDevices, getCurrentRole, type AppRole } from "@/lib/auth";
 import { Device, DEVICE_TYPE_LABELS, STATUS_LABELS } from "@/lib/types";
 import { formatAmount, formatDate, formatDateRelative, daysUntil, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
+import {
+  getPipelineDevice,
+  isFavoriteDevice,
+  removePipelineDevice,
+  savePipelineDevice,
+  toggleFavoriteDevice,
+  type DevicePipelineStatus,
+} from "@/lib/workspace";
 import {
   AlertCircle,
   ArrowLeft,
@@ -29,6 +38,9 @@ import {
   Tag,
   Trash2,
   Users,
+  Heart,
+  Flag,
+  StickyNote,
   XCircle,
 } from "lucide-react";
 import clsx from "clsx";
@@ -301,10 +313,10 @@ function SectionField({
   }
 
   return (
-    <div className="space-y-2 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+    <div className="space-y-2 border-t border-slate-100 pt-4 first:border-t-0 first:pt-0">
       {eyebrow && <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-500">{eyebrow}</p>}
       {title && <h3 className="text-sm font-semibold text-slate-900">{title}</h3>}
-        <RichTextSection text={cleaned} />
+      <RichTextSection text={cleaned} />
     </div>
   );
 }
@@ -360,12 +372,12 @@ function FundingCard({ device }: { device: Device }) {
   }
 
   return (
-    <div className="card border border-primary-100 bg-gradient-to-br from-primary-50 to-blue-50 p-5">
+    <div className="card border border-primary-100/80 bg-gradient-to-br from-primary-50/80 to-blue-50/70 p-5">
       <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-primary-700">
         <Banknote className="h-4 w-4" />
         Montant de l&apos;aide
       </h2>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {device.amount_max && (
           <div>
             <div className="mb-0.5 text-xs text-primary-400">Montant maximum</div>
@@ -389,11 +401,11 @@ function FundingCard({ device }: { device: Device }) {
         )}
       </div>
       {(device as any).funding_details && (
-          <div className="mt-3 border-t border-primary-100 pt-3">
-            <RichTextSection text={sanitizeDisplayText((device as any).funding_details)} tone="primary" />
-          </div>
-        )}
-      </div>
+        <div className="mt-4 border-t border-primary-100 pt-4">
+          <RichTextSection text={sanitizeDisplayText((device as any).funding_details)} tone="primary" />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -409,7 +421,7 @@ function InsightCard({
   accent?: boolean;
 }) {
   return (
-    <div className={clsx("rounded-2xl border p-4 shadow-sm", accent ? "border-primary-200 bg-primary-50/70" : "border-slate-200 bg-white")}>
+    <div className={clsx("rounded-2xl border p-4", accent ? "border-primary-200 bg-primary-50/70" : "border-slate-200 bg-white")}>
       <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
         <Icon className={clsx("h-3.5 w-3.5", accent && "text-primary-600")} />
         {label}
@@ -435,16 +447,37 @@ export default function DeviceDetailPage() {
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [favorite, setFavorite] = useState(false);
+  const [role, setRole] = useState<AppRole>("reader");
+  const [pipelineStatus, setPipelineStatus] = useState<DevicePipelineStatus | "">("");
+  const [pipelineNote, setPipelineNote] = useState("");
+  const [pipelineFeedback, setPipelineFeedback] = useState<string | null>(null);
   const cameFromMatch = searchParams.get("from") === "match";
+  const canModerate = canModerateDevices(role);
+  const PIPELINE_LABELS: Record<DevicePipelineStatus, string> = {
+    a_etudier: "A etudier",
+    candidature_en_cours: "Candidature en cours",
+    non_pertinent: "Non pertinent",
+  };
 
   useEffect(() => {
-    Promise.all([devices.get(id), devices.history(id)])
-      .then(([deviceResult, historyResult]) => {
-        setDevice(deviceResult as Device);
-        setHistory(historyResult as any[]);
+    const currentRole = getCurrentRole();
+    setRole(currentRole);
+
+    devices.get(id)
+      .then((deviceResult) => {
+        const loadedDevice = deviceResult as Device;
+        setDevice(loadedDevice);
+
+        if (canModerateDevices(currentRole)) {
+          devices.history(id)
+            .then((historyResult) => setHistory(historyResult as any[]))
+            .catch(() => setHistory([]));
+        }
+
         return devices.list({
-          device_types: [(deviceResult as Device).device_type],
-          countries: [(deviceResult as Device).country],
+          device_types: [loadedDevice.device_type],
+          countries: [loadedDevice.country],
           page_size: 4,
           status: "open",
         });
@@ -454,6 +487,13 @@ export default function DeviceDetailPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+  }, [id]);
+
+  useEffect(() => {
+    setFavorite(isFavoriteDevice(id));
+    const tracked = getPipelineDevice(id);
+    setPipelineStatus(tracked?.pipelineStatus || "");
+    setPipelineNote(tracked?.note || "");
   }, [id]);
 
   const handleValidate = async () => {
@@ -518,6 +558,57 @@ export default function DeviceDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleToggleFavorite = () => {
+    if (!device) return;
+
+    const nextFavorite = toggleFavoriteDevice({
+      id: device.id,
+      title: device.title,
+      organism: device.organism,
+      country: device.country,
+      region: device.region,
+      deviceType: device.device_type,
+      status: device.status,
+      closeDate: device.close_date,
+      amountMax: device.amount_max,
+      currency: device.currency,
+      sourceUrl: device.source_url,
+    });
+    setFavorite(nextFavorite);
+  };
+
+  const handleSavePipeline = () => {
+    if (!device) return;
+
+    if (!pipelineStatus && !pipelineNote.trim()) {
+      removePipelineDevice(device.id);
+      setPipelineFeedback("Le suivi personnel a été effacé pour cette fiche.");
+      return;
+    }
+
+    if (!pipelineStatus) {
+      setPipelineFeedback("Choisis d'abord un statut personnel pour enregistrer ce suivi.");
+      return;
+    }
+
+    savePipelineDevice({
+      id: device.id,
+      title: device.title,
+      organism: device.organism,
+      country: device.country,
+      region: device.region,
+      deviceType: device.device_type,
+      status: device.status,
+      closeDate: device.close_date,
+      amountMax: device.amount_max,
+      currency: device.currency,
+      sourceUrl: device.source_url,
+      pipelineStatus,
+      note: pipelineNote.trim(),
+    });
+    setPipelineFeedback("Suivi personnel enregistré dans Mon espace.");
+  };
+
   if (loading) {
     return (
       <AppLayout>
@@ -554,8 +645,20 @@ export default function DeviceDetailPage() {
       : natureBanner?.kind === "recurring"
         ? "border-blue-200/70 bg-blue-50/15 text-blue-50"
         : natureBanner?.kind === "institutional_project"
-          ? "border-violet-200/70 bg-violet-50/15 text-violet-50"
-          : "border-amber-200/70 bg-amber-50/15 text-amber-50";
+        ? "border-violet-200/70 bg-violet-50/15 text-violet-50"
+        : "border-amber-200/70 bg-amber-50/15 text-amber-50";
+  const presentationContent = sanitizeDisplayText(
+    stripLeadingSectionHeading(device.full_description || "", ["PrÃ©sentation", "PrÃ©sentation du dispositif"]),
+  );
+  const eligibilityContent = sanitizeDisplayText(
+    stripLeadingSectionHeading(device.eligibility_criteria || "", ["CritÃ¨res d'Ã©ligibilitÃ©", "Conditions d'attribution"]),
+  );
+  const projectContent = sanitizeDisplayText(
+    stripLeadingSectionHeading(device.eligible_expenses || "", ["DÃ©penses concernÃ©es", "Montants & Financement"]),
+  );
+  const fundingContent = sanitizeDisplayText((device as any).funding_details || "");
+  const hasDistinctFundingText =
+    fundingContent && normalizeForComparison(fundingContent) !== normalizeForComparison(presentationContent);
 
   return (
     <AppLayout>
@@ -569,7 +672,7 @@ export default function DeviceDetailPage() {
             Retour
           </button>
           <div className="flex flex-wrap items-center gap-2">
-            {device.validation_status === "pending_review" && (
+            {canModerate && device.validation_status === "pending_review" && (
               <>
                 <button onClick={handleValidate} disabled={actionLoading} className="btn-primary bg-green-600 text-xs hover:bg-green-700">
                   <ShieldCheck className="h-3 w-3" />
@@ -581,40 +684,55 @@ export default function DeviceDetailPage() {
                 </button>
               </>
             )}
-            <button
-              onClick={handleScrape}
-              disabled={scraping}
-              className="btn-secondary flex items-center gap-1.5 border-violet-300 text-xs text-violet-700 hover:bg-violet-50"
-            >
-              {scraping ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              {scraping ? "Enrichissement..." : "Enrichir"}
-            </button>
-            <button onClick={() => setShowHistory(!showHistory)} className="btn-secondary text-xs">
-              <History className="h-3 w-3" />
-              Historique
-            </button>
+            {canModerate && (
+              <>
+                <button
+                  onClick={handleScrape}
+                  disabled={scraping}
+                  className="btn-secondary flex items-center gap-1.5 border-violet-300 text-xs text-violet-700 hover:bg-violet-50"
+                >
+                  {scraping ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  {scraping ? "Enrichissement..." : "Enrichir"}
+                </button>
+                <button onClick={() => setShowHistory(!showHistory)} className="btn-secondary text-xs">
+                  <History className="h-3 w-3" />
+                  Historique
+                </button>
+              </>
+            )}
             <button onClick={handleCopyLink} className="btn-secondary flex items-center gap-1.5 text-xs">
               <Share2 className="h-3 w-3" />
               {copied ? "Copié" : "Partager"}
             </button>
-            {deleteConfirm ? (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={handleDelete}
-                  disabled={deleteLoading}
-                  className="btn-secondary border-red-600 bg-red-600 text-xs text-white hover:bg-red-700 disabled:opacity-60"
-                >
-                  {deleteLoading ? "Suppression..." : "Confirmer"}
+            <button
+              onClick={handleToggleFavorite}
+              className={clsx(
+                "btn-secondary flex items-center gap-1.5 text-xs",
+                favorite && "border-rose-300 text-rose-600 hover:bg-rose-50"
+              )}
+            >
+              <Heart className={clsx("h-3 w-3", favorite && "fill-current")} />
+              {favorite ? "Favori" : "Ajouter aux favoris"}
+            </button>
+            {canModerate &&
+              (deleteConfirm ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleteLoading}
+                    className="btn-secondary border-red-600 bg-red-600 text-xs text-white hover:bg-red-700 disabled:opacity-60"
+                  >
+                    {deleteLoading ? "Suppression..." : "Confirmer"}
+                  </button>
+                  <button onClick={() => { setDeleteConfirm(false); setDeleteError(null); }} className="btn-secondary text-xs">
+                    Annuler
+                  </button>
+                </div>
+              ) : (
+                <button onClick={handleDelete} className="btn-secondary text-xs text-red-600 hover:bg-red-50" title="Supprimer">
+                  <Trash2 className="h-3 w-3" />
                 </button>
-                <button onClick={() => { setDeleteConfirm(false); setDeleteError(null); }} className="btn-secondary text-xs">
-                  Annuler
-                </button>
-              </div>
-            ) : (
-              <button onClick={handleDelete} className="btn-secondary text-xs text-red-600 hover:bg-red-50" title="Supprimer">
-                <Trash2 className="h-3 w-3" />
-              </button>
-            )}
+              ))}
           </div>
         </div>
 
@@ -723,7 +841,7 @@ export default function DeviceDetailPage() {
         <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <InsightCard
             label="Date limite"
-            value={device.close_date ? formatDate(device.close_date) : "Clôture non communiquée"}
+            value={device.close_date ? formatDate(device.close_date) : device.status === "recurring" ? "Dispositif récurrent" : "Non communiquée"}
             icon={Calendar}
             accent={!!device.close_date}
           />
@@ -747,7 +865,7 @@ export default function DeviceDetailPage() {
 
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="space-y-4 md:col-span-2">
-            {!hasRichContent && (
+            {canModerate && !hasRichContent && (
               <div className="card border-2 border-dashed border-violet-200 bg-violet-50/30 p-6 text-center">
                 <Sparkles className="mx-auto mb-2 h-8 w-8 text-violet-400" />
                 <p className="mb-1 text-sm font-medium text-violet-700">Fiche incomplète</p>
@@ -762,21 +880,14 @@ export default function DeviceDetailPage() {
 
             <FundingCard device={device} />
 
-            {(device.short_description || device.full_description) && (
+            {(device.short_description || presentationContent) && (
               <SectionCard title="Présentation du dispositif" icon={FileText}>
                 {showShortDescription && device.short_description && <SectionField content={device.short_description} />}
-                {device.full_description && (
-                  <SectionField
-                    content={stripLeadingSectionHeading(device.full_description, [
-                      "Présentation",
-                      "Présentation du dispositif",
-                    ])}
-                  />
-                )}
+                {presentationContent && <SectionField content={presentationContent} />}
               </SectionCard>
             )}
 
-            {(beneficiarySummary || device.eligibility_criteria) && (
+            {(beneficiarySummary || eligibilityContent) && (
               <SectionCard title="Conditions d'attribution" icon={CheckCircle}>
                 {beneficiarySummary && (
                   <SectionField
@@ -785,29 +896,24 @@ export default function DeviceDetailPage() {
                     content={beneficiarySummary}
                   />
                 )}
-                {device.eligibility_criteria && (
+                {eligibilityContent && (
                   <SectionField
                     title="Critères d'éligibilité"
-                    content={stripLeadingSectionHeading(device.eligibility_criteria, [
-                      "Critères d'éligibilité",
-                      "Conditions d'attribution",
-                    ])}
+                    content={eligibilityContent}
                   />
                 )}
               </SectionCard>
             )}
 
-            {(device.eligible_expenses || device.specific_conditions) && (
+            {(projectContent || device.specific_conditions || hasDistinctFundingText) && (
               <SectionCard title="Pour quel projet ?" icon={Tag}>
-                {showEligibleExpenses && device.eligible_expenses && (
+                {showEligibleExpenses && projectContent && (
                   <SectionField
                     title="Dépenses concernées"
-                    content={stripLeadingSectionHeading(device.eligible_expenses, [
-                      "Dépenses concernées",
-                      "Montants & Financement",
-                    ])}
+                    content={projectContent}
                   />
                 )}
+                {hasDistinctFundingText && <SectionField title="Montant / avantages" content={fundingContent} />}
                 {device.specific_conditions && <SectionField title="Quelles sont les particularités ?" content={device.specific_conditions} />}
               </SectionCard>
             )}
@@ -947,6 +1053,71 @@ export default function DeviceDetailPage() {
             ) : null}
 
             <div className="card p-4">
+              <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Flag className="h-4 w-4 text-primary-600" />
+                  <h2 className="text-sm font-semibold text-slate-900">Suivi personnel</h2>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      Statut du pipeline
+                    </label>
+                    <select
+                      value={pipelineStatus}
+                      onChange={(e) => {
+                        setPipelineStatus(e.target.value as DevicePipelineStatus | "");
+                        setPipelineFeedback(null);
+                      }}
+                      className="input text-sm"
+                    >
+                      <option value="">Aucun suivi</option>
+                      <option value="a_etudier">A étudier</option>
+                      <option value="candidature_en_cours">Candidature en cours</option>
+                      <option value="non_pertinent">Non pertinent</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      <StickyNote className="h-3.5 w-3.5" />
+                      Note
+                    </label>
+                    <textarea
+                      value={pipelineNote}
+                      onChange={(e) => {
+                        setPipelineNote(e.target.value);
+                        setPipelineFeedback(null);
+                      }}
+                      rows={4}
+                      placeholder="Ex. à revoir avec l'équipe, manque un document, intéressant pour Q3..."
+                      className="input min-h-[110px] resize-y py-3 text-sm"
+                    />
+                  </div>
+                  {pipelineFeedback && (
+                    <p className="text-xs text-primary-700">{pipelineFeedback}</p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={handleSavePipeline} className="btn-secondary text-xs">
+                      Enregistrer le suivi
+                    </button>
+                    {(pipelineStatus || pipelineNote.trim()) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPipelineStatus("");
+                          setPipelineNote("");
+                          removePipelineDevice(id);
+                          setPipelineFeedback("Le suivi personnel a été retiré.");
+                        }}
+                        className="text-xs font-medium text-slate-500 hover:text-red-500"
+                      >
+                        Réinitialiser
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {hasEnrichedContent && (
                 <div className="mb-4 rounded-2xl border border-primary-100 bg-primary-50/60 p-4">
                   <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary-800">

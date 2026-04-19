@@ -1,12 +1,14 @@
 "use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
+import LimitNotice from "@/components/LimitNotice";
 import Link from "next/link";
 import {
   Upload, FileText, Search, CheckCircle,
   AlertCircle, ExternalLink, ChevronRight, X, Loader2,
 } from "lucide-react";
 import clsx from "clsx";
+import { billing } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const MATCH_STORAGE_KEY = "finveille_match_state";
@@ -58,6 +60,7 @@ interface MatchPageState {
   result: MatchResult | null;
   error: string | null;
   step: "idle" | "extracting" | "matching" | "done";
+  updatedAt?: string | null;
 }
 
 export default function MatchPage() {
@@ -69,6 +72,7 @@ export default function MatchPage() {
   const [result, setResult] = useState<MatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"idle" | "extracting" | "matching" | "done">("idle");
+  const [matchingAllowed, setMatchingAllowed] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const persistMatchState = useCallback((nextState: MatchPageState | null) => {
@@ -80,6 +84,10 @@ export default function MatchPage() {
   }, []);
 
   useEffect(() => {
+    billing.subscription()
+      .then((subscription: any) => setMatchingAllowed(!!subscription?.features?.matching_ai))
+      .catch(() => setMatchingAllowed(true));
+
     const rawState = localStorage.getItem(MATCH_STORAGE_KEY);
     if (!rawState) return;
 
@@ -104,6 +112,7 @@ export default function MatchPage() {
       result,
       error,
       step,
+      updatedAt: new Date().toISOString(),
     };
 
     persistMatchState(stateToPersist);
@@ -160,6 +169,8 @@ export default function MatchPage() {
         const data = await res.json().catch(() => ({}));
         const msg = typeof data.detail === "string"
           ? data.detail
+          : data.detail?.message
+            ? data.detail.message
           : Array.isArray(data.detail)
             ? data.detail.map((d: any) => d.msg).join(", ")
             : `Erreur ${res.status}`;
@@ -173,6 +184,7 @@ export default function MatchPage() {
         result: data,
         error: null,
         step: "done",
+        updatedAt: new Date().toISOString(),
       });
       setResult(data);
       setError(null);
@@ -206,7 +218,16 @@ export default function MatchPage() {
         </div>
 
         {/* Zone d'upload */}
-        {!result && (
+        {!matchingAllowed && (
+          <div className="mb-6">
+            <LimitNotice
+              title="Matching IA reserve aux plans Pro"
+              message="Le matching de document est disponible avec les offres Pro, Team et Enterprise."
+            />
+          </div>
+        )}
+
+        {!result && matchingAllowed && (
           <div
             onDragOver={e => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}

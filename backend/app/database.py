@@ -39,7 +39,106 @@ async def create_tables():
     """Crée toutes les tables (développement uniquement — utiliser Alembic en prod)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await ensure_saas_columns()
+    await ensure_workspace_columns()
+    await ensure_billing_columns()
+    await ensure_billing_defaults()
     await ensure_search_vector_trigger()
+
+
+async def ensure_saas_columns():
+    """Ajoute les colonnes SaaS sur les bases locales déjà existantes."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50) NOT NULL DEFAULT 'member'
+        """))
+        await conn.execute(text("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS default_organization_id UUID NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE alerts
+            ADD COLUMN IF NOT EXISTS organization_id UUID NULL
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_alerts_organization_id
+            ON alerts (organization_id)
+        """))
+
+
+async def ensure_workspace_columns():
+    """Ajoute les colonnes workspace sur les bases locales deja existantes."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE saved_searches
+            ADD COLUMN IF NOT EXISTS organization_id UUID NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE saved_searches
+            ADD COLUMN IF NOT EXISTS title VARCHAR(255) NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE saved_searches
+            ADD COLUMN IF NOT EXISTS path VARCHAR(255) NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE saved_searches
+            ADD COLUMN IF NOT EXISTS result_count INTEGER NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE saved_searches
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NULL DEFAULT now()
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_saved_searches_organization_id
+            ON saved_searches (organization_id)
+        """))
+
+
+async def ensure_billing_columns():
+    """Aligne les anciennes bases locales sur le schema billing actuel."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+              IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'plans'
+                  AND column_name = 'is_active'
+                  AND data_type <> 'boolean'
+              ) THEN
+                ALTER TABLE plans
+                ALTER COLUMN is_active TYPE BOOLEAN
+                USING CASE
+                  WHEN lower(is_active::text) IN ('true', 't', '1', 'yes', 'on') THEN TRUE
+                  ELSE FALSE
+                END;
+              END IF;
+            END $$;
+        """))
+        await conn.execute(text("""
+            UPDATE plans
+            SET is_active = TRUE
+            WHERE is_active IS NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE plans
+            ALTER COLUMN is_active SET DEFAULT TRUE
+        """))
+        await conn.execute(text("""
+            ALTER TABLE plans
+            ALTER COLUMN is_active SET NOT NULL
+        """))
+
+
+async def ensure_billing_defaults():
+    """Initialise les plans SaaS par defaut."""
+    from app.services.billing_service import ensure_default_plans
+
+    async with AsyncSessionLocal() as session:
+        await ensure_default_plans(session)
 
 
 async def ensure_search_vector_trigger():

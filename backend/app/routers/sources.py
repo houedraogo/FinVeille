@@ -14,6 +14,7 @@ from app.schemas.source import (
     SourceTestResponse,
     SourceUpdate,
 )
+from app.services.billing_service import ensure_feature
 from app.services.source_service import SourceService
 
 router = APIRouter(prefix="/api/v1/sources", tags=["sources"])
@@ -26,6 +27,7 @@ async def list_sources(
     active_only: bool = Query(False),
     category: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin", "editor"])),
 ):
     return await SourceService(db).get_all(
         country=country,
@@ -36,7 +38,10 @@ async def list_sources(
 
 
 @router.get("/stats")
-async def source_stats(db: AsyncSession = Depends(get_db)):
+async def source_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin", "editor"])),
+):
     return await SourceService(db).get_stats()
 
 
@@ -50,7 +55,11 @@ async def test_source(
 
 
 @router.get("/{source_id}", response_model=SourceResponse)
-async def get_source(source_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_source(
+    source_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin", "editor"])),
+):
     source = await SourceService(db).get_by_id(source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source introuvable")
@@ -58,7 +67,11 @@ async def get_source(source_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{source_id}/logs")
-async def get_source_logs(source_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_source_logs(
+    source_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin", "editor"])),
+):
     return await SourceService(db).get_logs(source_id)
 
 
@@ -68,6 +81,8 @@ async def create_source(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["admin", "editor"])),
 ):
+    if data.category == "private":
+        await ensure_feature(db, current_user, "private_sources")
     return await SourceService(db).create(data)
 
 

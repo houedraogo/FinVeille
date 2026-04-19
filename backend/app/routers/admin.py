@@ -9,14 +9,27 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models.device import Device
 from app.models.source import Source
+from app.models.alert import Alert
+from app.models.billing import Plan, Subscription
+from app.models.collection_log import CollectionLog
 from app.models.user import User as UserModel
+from app.models.organization import Organization, OrganizationMember
+from app.models.operations import AuditLog, DataExport, DeletionRequest, EmailEvent
+from app.models.saved_search import SavedSearch
+from app.models.workspace import DevicePipeline
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.organization import OrganizationResponse
 from app.dependencies import require_role
 from app.utils.auth_utils import hash_password
 from app.services.device_service import DeviceService
 from app.tasks.quality_tasks import build_quality_audit, daily_quality_audit
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+async def _count_scalar(db: AsyncSession, statement) -> int:
+    result = await db.execute(statement)
+    return int(result.scalar() or 0)
 
 
 # --- Qualité des données ---
@@ -159,6 +172,182 @@ async def update_user(user_id: UUID, data: UserUpdate,
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.get("/organizations", response_model=List[OrganizationResponse])
+async def list_organizations(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin"])),
+):
+    result = await db.execute(select(Organization).order_by(Organization.created_at.desc()))
+    return result.scalars().all()
+
+
+@router.get("/operations")
+async def operations_cockpit(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin"])),
+):
+    """Vue exploitation SaaS pour le super admin."""
+    org_rows = await db.execute(
+        select(Organization, Subscription, Plan)
+        .outerjoin(Subscription, Subscription.organization_id == Organization.id)
+        .outerjoin(Plan, Plan.id == Subscription.plan_id)
+        .order_by(Organization.created_at.desc())
+        .limit(50)
+    )
+
+    organizations = []
+    limits_reached = []
+    for org, subscription, plan in org_rows.all():
+        member_count = await _count_scalar(
+            db,
+            select(func.count(OrganizationMember.id)).where(
+                OrganizationMember.organization_id == org.id,
+                OrganizationMember.is_active == True,
+            ),
+        )
+        usage = {
+            "users": member_count,
+            "alerts": await _count_scalar(
+                db,
+                select(func.count(Alert.id)).join(
+                    OrganizationMember,
+                    OrganizationMember.user_id == Alert.user_id,
+                ).where(OrganizationMember.organization_id == org.id)
+            ),
+            "saved_searches": await _count_scalar(
+                db,
+                select(func.count(SavedSearch.id)).join(
+                    OrganizationMember,
+                    OrganizationMember.user_id == SavedSearch.user_id,
+                ).where(OrganizationMember.organization_id == org.id)
+            ),
+            "pipeline_projects": await _count_scalar(
+                db,
+                select(func.count(DevicePipeline.id)).join(
+                    OrganizationMember,
+                    OrganizationMember.user_id == DevicePipeline.user_id,
+                ).where(OrganizationMember.organization_id == org.id)
+            ),
+        }
+        plan_limits = (plan.limits if plan else {"users": 1, "alerts": 3, "saved_searches": 5, "pipeline_projects": 10}) or {}
+        reached = []
+        for metric, limit in plan_limits.items():
+            if isinstance(limit, int) and limit >= 0 and usage.get(metric, 0) >= limit:
+                reached.append({"metric": metric, "used": usage.get(metric, 0), "limit": limit})
+
+        if reached:
+            limits_reached.append({"organization_id": str(org.id), "organization_name": org.name, "items": reached})
+
+        organizations.append({
+            "id": str(org.id),
+            "name": org.name,
+            "slug": org.slug,
+            "status": org.status,
+            "created_at": org.created_at,
+            "plan": plan.name if plan else "Free",
+            "plan_slug": plan.slug if plan else "free",
+            "subscription_status": subscription.status if subscription else "free",
+            "usage": usage,
+            "limits": plan_limits,
+            "limits_reached": reached,
+        })
+
+    audit_rows = await db.execute(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(20))
+    email_rows = await db.execute(select(EmailEvent).order_by(EmailEvent.created_at.desc()).limit(20))
+    deletion_rows = await db.execute(select(DeletionRequest).order_by(DeletionRequest.created_at.desc()).limit(20))
+    export_rows = await db.execute(select(DataExport).order_by(DataExport.created_at.desc()).limit(10))
+    error_rows = await db.execute(
+        select(CollectionLog, Source)
+        .join(Source, Source.id == CollectionLog.source_id)
+        .where(CollectionLog.status.in_(["failed", "partial"]))
+        .order_by(CollectionLog.started_at.desc())
+        .limit(20)
+    )
+
+    totals = {
+        "organizations": await _count_scalar(db, select(func.count(Organization.id))),
+        "users": await _count_scalar(db, select(func.count(UserModel.id))),
+        "active_subscriptions": await _count_scalar(
+            db,
+            select(func.count(Subscription.id)).where(Subscription.status.in_(["active", "trialing", "past_due"])),
+        ),
+        "limits_reached": len(limits_reached),
+        "pending_deletions": await _count_scalar(
+            db,
+            select(func.count(DeletionRequest.id)).where(DeletionRequest.status == "pending"),
+        ),
+        "recent_errors": await _count_scalar(
+            db,
+            select(func.count(CollectionLog.id)).where(CollectionLog.status.in_(["failed", "partial"])),
+        ),
+    }
+
+    return {
+        "totals": totals,
+        "organizations": organizations,
+        "limits_reached": limits_reached,
+        "audit_logs": [
+            {
+                "id": str(item.id),
+                "action": item.action,
+                "resource_type": item.resource_type,
+                "resource_id": item.resource_id,
+                "user_id": str(item.user_id) if item.user_id else None,
+                "organization_id": str(item.organization_id) if item.organization_id else None,
+                "metadata": item.metadata_json or {},
+                "created_at": item.created_at,
+            }
+            for item in audit_rows.scalars().all()
+        ],
+        "email_events": [
+            {
+                "id": str(item.id),
+                "email": item.email,
+                "template": item.template,
+                "subject": item.subject,
+                "status": item.status,
+                "error_message": item.error_message,
+                "created_at": item.created_at,
+            }
+            for item in email_rows.scalars().all()
+        ],
+        "deletion_requests": [
+            {
+                "id": str(item.id),
+                "user_id": str(item.user_id),
+                "status": item.status,
+                "reason": item.reason,
+                "scheduled_for": item.scheduled_for,
+                "created_at": item.created_at,
+            }
+            for item in deletion_rows.scalars().all()
+        ],
+        "data_exports": [
+            {
+                "id": str(item.id),
+                "user_id": str(item.user_id),
+                "status": item.status,
+                "export_type": item.export_type,
+                "expires_at": item.expires_at,
+                "created_at": item.created_at,
+            }
+            for item in export_rows.scalars().all()
+        ],
+        "recent_errors": [
+            {
+                "id": str(log.id),
+                "source_id": str(source.id),
+                "source_name": source.name,
+                "status": log.status,
+                "error_message": log.error_message,
+                "started_at": log.started_at,
+                "items_error": log.items_error,
+            }
+            for log, source in error_rows.all()
+        ],
+    }
 
 
 # --- Collecte ---

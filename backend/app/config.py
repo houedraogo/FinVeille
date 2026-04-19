@@ -36,6 +36,22 @@ class Settings(BaseSettings):
     # Google OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
 
+    # Billing / Stripe
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_PRICE_PRO: Optional[str] = None
+    STRIPE_PRICE_TEAM: Optional[str] = None
+    STRIPE_PRICE_ENTERPRISE: Optional[str] = None
+    STRIPE_CHECKOUT_SUCCESS_URL: str = "http://localhost:3000/billing?checkout=success"
+    STRIPE_CHECKOUT_CANCEL_URL: str = "http://localhost:3000/billing?checkout=cancel"
+    STRIPE_PORTAL_RETURN_URL: str = "http://localhost:3000/billing"
+
+    # Production / observabilite
+    APP_ENV: str = "development"
+    SENTRY_DSN: Optional[str] = None
+    PUBLIC_APP_URL: str = "http://localhost:3000"
+    BACKUP_RETENTION_DAYS: int = 14
+
     # LLM
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None

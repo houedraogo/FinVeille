@@ -393,6 +393,7 @@ NEW_SOURCES = [
         "config": {
             "api_key_header": "IDC",
             "api_key_value": "f94f575e2932379f273b7ede238d5deb72c4fdf4",
+            "assume_standby_without_close_date": True,
         },
         "is_active": True,
         "notes": "API officielle CCI les-aides.fr. Attribution obligatoire : 'Contenu produit par Les-aides.fr'. Limite 720 req/jour.",
@@ -774,6 +775,7 @@ NEW_SOURCES = [
             "detail_fetch": True,
             "detail_content_selector": "main .field--name-body, main .layout-content, main article, main",
             "detail_max_chars": 9000,
+            "assume_standby_without_close_date": True,
             "pagination": {"max_pages": 1},
         },
         "is_active": True,

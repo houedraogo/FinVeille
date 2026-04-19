@@ -40,6 +40,7 @@ class DeviceCreate(BaseModel):
     keywords: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     source_raw: Optional[str] = None
+    validation_status: Optional[str] = None
 
 
 class DeviceUpdate(BaseModel):

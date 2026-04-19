@@ -13,6 +13,7 @@ export interface Device {
   short_description: string | null;
   full_description: string | null;
   eligibility_criteria: string | null;
+  funding_details: string | null;
   eligible_expenses: string | null;
   specific_conditions: string | null;
   required_documents: string | null;

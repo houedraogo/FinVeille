@@ -11,13 +11,28 @@ from app.collector.normalizer import Normalizer
 from app.config import settings
 from app.models.collection_log import CollectionLog
 from app.schemas.device import DeviceCreate
+from app.services.device_quality import DeviceQualityGate
 from app.services.device_service import DeviceService
 from app.utils.hash_utils import compute_content_hash
 
 logger = logging.getLogger(__name__)
 
 DEVICE_CREATE_FIELDS = set(DeviceCreate.model_fields.keys())
-SUPPLEMENTAL_UPDATE_FIELDS = ("close_date", "open_date", "amount_min", "amount_max", "source_raw", "source_url", "status", "country")
+SUPPLEMENTAL_UPDATE_FIELDS = (
+    "close_date",
+    "open_date",
+    "amount_min",
+    "amount_max",
+    "source_raw",
+    "source_url",
+    "status",
+    "country",
+    "full_description",
+    "eligibility_criteria",
+    "funding_details",
+    "validation_status",
+    "tags",
+)
 
 
 class CollectionPipeline:
@@ -33,6 +48,7 @@ class CollectionPipeline:
         self.normalizer = Normalizer(source)
         self.deduplicator = Deduplicator(db)
         self.enricher = Enricher()
+        self.quality_gate = DeviceQualityGate()
         self.device_service = DeviceService(db)
 
     async def process(self, collection_result: CollectionResult) -> dict:
@@ -103,6 +119,25 @@ class CollectionPipeline:
                             not current_value or len(str(new_value)) > len(str(current_value)) + 200
                         ):
                             supplemental_fields[field] = new_value
+                    elif field in {"full_description", "eligibility_criteria", "funding_details"}:
+                        if new_value and (
+                            not current_value
+                            or (
+                                field == "full_description"
+                                and str(new_value).startswith("## ")
+                                and not str(current_value).startswith("## ")
+                            )
+                            or len(str(new_value)) > len(str(current_value)) + 80
+                        ):
+                            supplemental_fields[field] = new_value
+                    elif field == "validation_status":
+                        if new_value and new_value != current_value:
+                            supplemental_fields[field] = new_value
+                    elif field == "tags":
+                        if new_value:
+                            merged_tags = sorted(set((current_value or []) + (new_value or [])))
+                            if merged_tags != (current_value or []):
+                                supplemental_fields[field] = merged_tags
                     elif field == "country":
                         if new_value and new_value != current_value:
                             supplemental_fields[field] = new_value
@@ -133,11 +168,11 @@ class CollectionPipeline:
             return "updated"
 
         enriched = self.enricher.enrich(normalized, source_level=self.source_level)
-
-        if enriched.get("confidence_score", 0) < settings.AUTO_PUBLISH_MIN_CONFIDENCE:
-            enriched["validation_status"] = "pending_review"
-        else:
-            enriched["validation_status"] = "auto_published"
+        quality_decision = self.quality_gate.evaluate(enriched)
+        enriched["validation_status"] = quality_decision.validation_status
+        enriched["quality_gate_score"] = quality_decision.score
+        if quality_decision.reasons:
+            enriched["tags"] = sorted(set((enriched.get("tags") or []) + [f"quality:{reason}" for reason in quality_decision.reasons]))
 
         create_data = {key: value for key, value in enriched.items() if key in DEVICE_CREATE_FIELDS}
         device_schema = DeviceCreate(**create_data)

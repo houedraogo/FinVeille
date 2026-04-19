@@ -1,11 +1,15 @@
 from datetime import date, timedelta
 
 from app.utils.text_utils import (
+    build_contextual_eligibility,
+    build_contextual_funding,
+    build_structured_sections,
     clean_editorial_text,
     dedupe_text_fields,
     derive_device_status,
     extract_cdata_text,
     extract_close_date,
+    has_recurrence_evidence,
     localize_investment_text,
     looks_english_text,
     sanitize_text,
@@ -128,3 +132,53 @@ def test_dedupe_text_fields_removes_funding_when_already_in_full_description():
     assert full is not None
     assert funding is None
     assert eligibility == "Ouvert aux entrepreneurs africains."
+
+
+def test_build_structured_sections_creates_all_business_sections_with_fallbacks():
+    value = build_structured_sections(
+        presentation="Dispositif de soutien a l'innovation pour les PME.",
+        eligibility="PME implantee en France avec projet innovant.",
+        funding="Subvention jusqu'a 30 000 EUR.",
+        close_date=date(2026, 6, 15),
+        procedure=None,
+    )
+
+    assert value is not None
+    assert "## Presentation" in value
+    assert "## Criteres d'eligibilite" in value
+    assert "## Montant / avantages" in value
+    assert "## Calendrier" in value
+    assert "- Cloture : 15/06/2026" in value
+    assert "## Demarche" in value
+    assert "source officielle" in value
+
+
+def test_build_contextual_eligibility_uses_beneficiaries_and_scope():
+    value = build_contextual_eligibility(
+        text="Aide regionale pour soutenir les entreprises industrielles dans leurs investissements.",
+        beneficiaries=["PME", "ETI"],
+        country="France",
+        geographic_scope="regional",
+    )
+
+    assert "pme et eti" in value.lower()
+    assert "echelle regionale" in value.lower()
+    assert "source officielle" in value.lower()
+
+
+def test_build_contextual_funding_reuses_financing_sentence_when_present():
+    value = build_contextual_funding(
+        text="Le dispositif prend en charge 50 % des depenses eligibles dans la limite de 20 000 EUR.",
+        device_type="subvention",
+    )
+
+    assert "50 %" in value
+    assert "20 000 EUR" in value or "20 000 eur" in value.lower()
+
+
+def test_has_recurrence_evidence_detects_open_ended_program():
+    assert has_recurrence_evidence("Ce dispositif est ouvert en continu, sans date limite de depot.")
+
+
+def test_has_recurrence_evidence_ignores_standard_open_call():
+    assert not has_recurrence_evidence("Appel a projets en cours pour soutenir l'innovation des PME.")
