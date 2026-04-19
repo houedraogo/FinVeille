@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Download, KeyRound, ShieldCheck, Trash2 } from "lucide-react";
@@ -7,7 +8,7 @@ import { Download, KeyRound, ShieldCheck, Trash2 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import { security } from "@/lib/api";
 
-export default function SecuritySettingsPage() {
+function SecurityContent() {
   const searchParams = useSearchParams();
   const resetToken = searchParams.get("reset_token") || "";
   const [email, setEmail] = useState("");
@@ -41,7 +42,7 @@ export default function SecuritySettingsPage() {
   };
 
   return (
-    <AppLayout>
+    <>
       <div className="mb-6">
         <p className="text-sm font-medium text-primary-600">Parametres</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-950">Securite et donnees</h1>
@@ -82,6 +83,16 @@ export default function SecuritySettingsPage() {
           <button type="button" onClick={deleteAccount} className="btn-secondary mt-3 border-red-200 text-xs text-red-700">Demander la suppression</button>
         </section>
       </div>
+    </>
+  );
+}
+
+export default function SecuritySettingsPage() {
+  return (
+    <AppLayout>
+      <Suspense fallback={<div className="p-8 text-slate-500">Chargement...</div>}>
+        <SecurityContent />
+      </Suspense>
     </AppLayout>
   );
 }
