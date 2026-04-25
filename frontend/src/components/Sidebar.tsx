@@ -203,6 +203,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const searchParams = useSearchParams();
   const [userEmail, setUserEmail] = useState<string>("Connecté");
   const [role, setRole] = useState<AppRole>("reader");
+  const [financingScope, setFinancingScope] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -215,11 +216,13 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       // ignore
     }
     setRole(getCurrentRole());
+    setFinancingScope(localStorage.getItem("kafundo_financing_scope"));
   }, []);
 
   const visibleGroups = useMemo(
     () => {
-      const groups = canAccessAdmin(role) ? ADMIN_NAV_GROUPS : NAV_GROUPS;
+      const isAdmin = canAccessAdmin(role);
+      const groups = isAdmin ? ADMIN_NAV_GROUPS : NAV_GROUPS;
       return groups.map((group) => ({
         ...group,
         items: group.items.filter((item) => {
@@ -227,9 +230,17 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           if (item.href.startsWith("/admin")) return canAccessAdmin(role);
           return true;
         }),
-      })).filter((group) => group.items.length > 0);
+      })).filter((group) => {
+        if (group.items.length === 0) return false;
+        // For regular users, hide financing groups not matching their scope
+        if (!isAdmin && financingScope) {
+          if (group.label === "Financement Public" && financingScope === "private") return false;
+          if (group.label === "Financement Privé" && financingScope === "public") return false;
+        }
+        return true;
+      });
     },
-    [role]
+    [role, financingScope]
   );
 
   const isActive = (item: any) => {

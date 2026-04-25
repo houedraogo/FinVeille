@@ -89,6 +89,7 @@ export default function DevicesPageContent({
   const [editingSavedSearchId, setEditingSavedSearchId] = useState<string | null>(null);
   const [exportsAllowed, setExportsAllowed] = useState(true);
   const [profileActive, setProfileActive] = useState(false);
+  const [userIsStaff, setUserIsStaff] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
@@ -127,7 +128,9 @@ export default function DevicesPageContent({
     // No pending search → apply the user's saved profile as default filters
     // (skip for admins who manage the full catalog)
     const role = getCurrentRole();
-    if (canAccessAdmin(role)) return;
+    const isStaff = canAccessAdmin(role);
+    setUserIsStaff(isStaff);
+    if (isStaff) return;
 
     relevance.getProfile().then((profile: any) => {
       if (!profile) return;
@@ -530,13 +533,15 @@ export default function DevicesPageContent({
               </Link>
             </span>
           </div>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="shrink-0 text-xs text-primary-500 hover:text-primary-800 underline"
-          >
-            Voir tout
-          </button>
+          {userIsStaff && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="shrink-0 text-xs text-primary-500 hover:text-primary-800 underline"
+            >
+              Voir tout
+            </button>
+          )}
         </div>
       )}
 
@@ -577,19 +582,21 @@ export default function DevicesPageContent({
             <span className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-primary-400 border-t-transparent animate-spin" />
           )}
         </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={clsx("btn-secondary", hasFilters && "border-primary-500 text-primary-600")}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-          Filtres
-          {hasFilters ? (
-            <span className="bg-primary-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-              {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) +
-               Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate)}
-            </span>
-          ) : null}
-        </button>
+        {userIsStaff && (
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={clsx("btn-secondary", hasFilters && "border-primary-500 text-primary-600")}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Filtres
+            {hasFilters ? (
+              <span className="bg-primary-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) +
+                 Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate)}
+              </span>
+            ) : null}
+          </button>
+        )}
         <select className="input w-auto" value={sortBy} onChange={(e) => { setSortBy(e.target.value); setPage(1); }}>
           <option value="relevance">✦ Pertinence profil</option>
           <option value="close_date">Date limite</option>
@@ -600,33 +607,35 @@ export default function DevicesPageContent({
         </select>
       </div>
 
-      <div className="mb-4 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_12px_35px_-28px_rgba(15,23,42,0.35)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {quickFilters.map(([kind, label]) => (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => applyQuickFilter(kind)}
-                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
-              >
-                {label}
-              </button>
-            ))}
+      {userIsStaff && (
+        <div className="mb-4 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_12px_35px_-28px_rgba(15,23,42,0.35)]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {quickFilters.map(([kind, label]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => applyQuickFilter(kind)}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveSearch}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+            >
+              <BookmarkPlus className="h-3.5 w-3.5" />
+              Sauvegarder cette recherche
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleSaveSearch}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
-          >
-            <BookmarkPlus className="h-3.5 w-3.5" />
-            Sauvegarder cette recherche
-          </button>
         </div>
-      </div>
+      )}
 
       {/* Panneau filtres */}
-      {showFilters && (
+      {userIsStaff && showFilters && (
         <div className="card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-700">Filtres</h3>
