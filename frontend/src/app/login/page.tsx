@@ -132,14 +132,13 @@ export default function LoginPage() {
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
         <div className="text-center mb-8">
           <Image
-            src="/brand/kafundo-logo-transparent.png"
-            alt="Kafundo - Trouve et sécurise tes financements plus facilement"
-            width={360}
-            height={130}
-            className="mx-auto mb-3 h-auto w-full max-w-[280px]"
+            src="/brand/kafundo-logo-white-bg.png"
+            alt="Kafundo — Trouve et sécurise tes financements plus facilement"
+            width={400}
+            height={140}
+            className="mx-auto mb-2 h-auto w-full max-w-[300px] object-contain"
             priority
           />
-          <p className="text-sm text-gray-500">Trouve et sécurise tes financements plus facilement</p>
         </div>
 
         <div className="mb-5 space-y-3">

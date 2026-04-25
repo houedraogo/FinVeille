@@ -247,22 +247,22 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}
     >
-      <div className="px-5 py-5 border-b border-primary-700 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="px-4 py-4 border-b border-primary-700 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2.5 min-w-0">
           <Image
             src="/brand/kafundo-picto.png"
             alt="Kafundo"
-            width={38}
-            height={38}
-            className="h-9 w-9 rounded-xl object-cover"
+            width={40}
+            height={40}
+            className="h-10 w-10 rounded-xl object-cover shrink-0"
             priority
           />
-          <div>
-            <span className="text-lg font-bold tracking-tight">Kafundo</span>
-            <p className="text-xs text-primary-400 leading-none">Trouve tes financements</p>
+          <div className="min-w-0">
+            <span className="block text-base font-bold tracking-tight text-white leading-tight">Kafundo</span>
+            <span className="block text-[10px] text-primary-300 leading-tight truncate">Trouve tes financements</span>
           </div>
-        </div>
-        <button onClick={onClose} className="md:hidden p-1 text-primary-400 hover:text-white">
+        </Link>
+        <button onClick={onClose} className="md:hidden p-1 text-primary-400 hover:text-white shrink-0">
           <X className="w-5 h-5" />
         </button>
       </div>
