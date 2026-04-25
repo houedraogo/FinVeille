@@ -24,7 +24,7 @@ const METRIC_LABELS: Record<string, string> = {
   users: "utilisateurs",
   alerts: "alertes",
   saved_searches: "recherches",
-  pipeline_projects: "pipeline",
+  pipeline_projects: "suivi",
 };
 
 function KpiCard({
@@ -124,6 +124,7 @@ export default function SuperAdminWorkspacePage() {
 
   const totals = operations?.totals || {};
   const organizations = operations?.organizations || [];
+  const subscribers = operations?.subscribers || [];
   const paidOrganizations = useMemo(
     () => organizations.filter((item: any) => item.plan_slug && item.plan_slug !== "free").length,
     [organizations],
@@ -146,13 +147,13 @@ export default function SuperAdminWorkspacePage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/admin" className="btn-secondary text-xs">
+            <Link href="/admin/data-quality" className="btn-secondary text-xs">
               <Gauge className="h-3.5 w-3.5" />
               Qualite donnees
             </Link>
-            <Link href="/billing" className="btn-primary text-xs">
+            <Link href="/admin/billing" className="btn-primary text-xs">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Plans SaaS
+              Voir les abonnements
             </Link>
           </div>
         </div>
@@ -171,10 +172,59 @@ export default function SuperAdminWorkspacePage() {
             <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
               <KpiCard label="Organisations" value={(totals.organizations || 0).toLocaleString("fr")} sub={`${paidOrganizations} client(s) payant(s)`} tone="blue" />
               <KpiCard label="Utilisateurs" value={(totals.users || 0).toLocaleString("fr")} sub="Comptes actifs ou invites" tone="slate" />
-              <KpiCard label="Abonnements" value={(totals.active_subscriptions || 0).toLocaleString("fr")} sub="Actifs, trialing ou past_due" tone="green" />
+              <KpiCard label="Abonnes" value={(subscribers.length || 0).toLocaleString("fr")} sub="Organisations sur plan payant" tone="green" />
               <KpiCard label="Limites atteintes" value={(totals.limits_reached || 0).toLocaleString("fr")} sub="Clients a surveiller" tone={totals.limits_reached ? "amber" : "green"} />
               <KpiCard label="Demandes RGPD" value={(totals.pending_deletions || 0).toLocaleString("fr")} sub="Suppressions en attente" tone={totals.pending_deletions ? "red" : "slate"} />
               <KpiCard label="Erreurs recentes" value={(operations.recent_errors?.length || 0).toLocaleString("fr")} sub="Collectes failed/partial" tone={operations.recent_errors?.length ? "red" : "green"} />
+            </div>
+
+            <div id="abonnes" className="mb-6">
+              <Panel title="Abonnes et plans payants" description="Organisations clientes ayant souscrit une offre Pro, Team, Expert ou Accompagnement Financement." icon={Users}>
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="grid grid-cols-[1.2fr_0.7fr_0.9fr_1.2fr_0.9fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <span>Client</span>
+                    <span>Plan</span>
+                    <span>Statut</span>
+                    <span>Proprietaire</span>
+                    <span>Renouvellement</span>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {subscribers.length === 0 ? (
+                      <p className="px-4 py-8 text-center text-sm text-slate-400">Aucun client payant pour le moment.</p>
+                    ) : (
+                      subscribers.map((subscriber: any) => {
+                        const owner = subscriber.owners?.[0];
+                        return (
+                          <div key={subscriber.organization_id} className="grid grid-cols-[1.2fr_0.7fr_0.9fr_1.2fr_0.9fr] gap-3 px-4 py-4 text-sm">
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-950">{subscriber.organization_name}</p>
+                              <p className="text-xs text-slate-400">{subscriber.organization_slug}</p>
+                            </div>
+                            <div>
+                              <span className="rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700">{subscriber.plan}</span>
+                              <p className="mt-1 text-xs text-slate-400">{subscriber.price_monthly_eur ? `${subscriber.price_monthly_eur} EUR / mois` : "Tarif sur mesure"}</p>
+                            </div>
+                            <div>
+                              <span className={subscriber.subscription_status === "active" ? "rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700" : "rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"}>
+                                {subscriber.subscription_status}
+                              </span>
+                              <p className="mt-1 text-xs text-slate-400">{subscriber.member_count || 0} membre(s)</p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-slate-800">{owner?.full_name || owner?.email || subscriber.billing_email || "Non renseigne"}</p>
+                              <p className="truncate text-xs text-slate-400">{owner?.email || subscriber.billing_email || "Email absent"}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-800">{subscriber.current_period_end ? formatDateRelative(subscriber.current_period_end) : "Non defini"}</p>
+                              {subscriber.stripe_customer_id && <p className="mt-1 truncate text-[11px] text-slate-400">{subscriber.stripe_customer_id}</p>}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </Panel>
             </div>
 
             <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.65fr]">

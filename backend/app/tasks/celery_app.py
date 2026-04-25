@@ -1,11 +1,11 @@
-from celery import Celery
+﻿from celery import Celery
 from celery.schedules import crontab
 
 from app.config import settings
 
 
 celery_app = Celery(
-    "finveille",
+    "kafundo",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
     include=[
@@ -53,6 +53,12 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=0, hour=8),
         "options": {"queue": "alerts"},
     },
+    "send-new-opportunity-alerts": {
+        "task": "app.tasks.alert_tasks.send_new_opportunity_alerts_task",
+        "schedule": crontab(minute=20, hour="*/2"),
+        "args": [2],
+        "options": {"queue": "alerts"},
+    },
     "update-expired-status": {
         "task": "app.tasks.quality_tasks.update_expired_devices",
         "schedule": crontab(minute=0, hour=1),
@@ -65,6 +71,10 @@ celery_app.conf.beat_schedule = {
     "daily-quality-audit": {
         "task": "app.tasks.quality_tasks.daily_quality_audit",
         "schedule": crontab(minute=30, hour=6),
+    },
+    "daily-catalog-quality-control": {
+        "task": "app.tasks.quality_tasks.daily_catalog_quality_control",
+        "schedule": crontab(minute=45, hour=6),
     },
     "weekly-quality-report": {
         "task": "app.tasks.quality_tasks.weekly_quality_report",

@@ -1,8 +1,8 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+﻿const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("finveille_token");
+  return localStorage.getItem("kafundo_token");
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -19,7 +19,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     const error = await response.json().catch(() => ({ detail: "Erreur réseau" }));
     if (response.status === 401) {
       if (typeof window !== "undefined") {
-        localStorage.removeItem("finveille_token");
+        localStorage.removeItem("kafundo_token");
       }
       throw new Error("Session expirée. Veuillez vous reconnecter.");
     }
@@ -86,6 +86,49 @@ export const billing = {
   portal: () => apiFetch<any>("/api/v1/billing/portal", { method: "POST" }),
 };
 
+// Relevance / Profil
+export const relevance = {
+  getProfile: () => apiFetch<any>("/api/v1/me/profile"),
+  saveProfile: (data: any) =>
+    apiFetch<any>("/api/v1/me/profile", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  listProjects: () => apiFetch<any[]>("/api/v1/funding-projects"),
+  createProject: (data: any) =>
+    apiFetch<any>("/api/v1/funding-projects", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateProject: (id: string, data: any) =>
+    apiFetch<any>(`/api/v1/funding-projects/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deleteProject: (id: string) =>
+    apiFetch<void>(`/api/v1/funding-projects/${id}`, { method: "DELETE" }),
+  recommendations: (params: Record<string, string | number | undefined> = {}) => {
+    const qs = buildQueryString(params);
+    return apiFetch<any>(`/api/v1/recommendations${qs ? `?${qs}` : ""}`);
+  },
+  refreshRecommendations: (params: Record<string, string | number | undefined> = {}) => {
+    const qs = buildQueryString(params);
+    return apiFetch<any>(`/api/v1/recommendations/refresh${qs ? `?${qs}` : ""}`, {
+      method: "POST",
+    });
+  },
+  getDeviceRelevance: (deviceId: string, params: Record<string, string | number | undefined> = {}) => {
+    const qs = buildQueryString(params);
+    return apiFetch<any>(`/api/v1/devices/${deviceId}/relevance${qs ? `?${qs}` : ""}`);
+  },
+  refreshDeviceRelevance: (deviceId: string, params: Record<string, string | number | undefined> = {}) => {
+    const qs = buildQueryString(params);
+    return apiFetch<any>(`/api/v1/devices/${deviceId}/relevance${qs ? `?${qs}` : ""}`, {
+      method: "POST",
+    });
+  },
+};
+
 // Security / RGPD
 export const security = {
   forgotPassword: (email: string) =>
@@ -127,14 +170,30 @@ export const devices = {
     ),
   history: (id: string) => apiFetch<any[]>(`/api/v1/devices/${id}/history`),
   scrape: (id: string) => apiFetch<any>(`/api/v1/devices/${id}/scrape`, { method: "POST" }),
-  exportCsv: (params: Record<string, string | string[] | number | undefined> = {}) => {
+  analyze: (id: string) => apiFetch<any>(`/api/v1/devices/${id}/analyze`, { method: "POST" }),
+  rewrite: (id: string) => apiFetch<any>(`/api/v1/devices/${id}/rewrite`, { method: "POST" }),
+  exportCsv: (params: Record<string, string | string[] | number | boolean | undefined> = {}) => {
     const qs = buildQueryString(params);
     return `${API_BASE}/api/v1/devices/export/csv?${qs}`;
   },
-  exportExcel: (params: Record<string, string | string[] | number | undefined> = {}) => {
+  exportExcel: (params: Record<string, string | string[] | number | boolean | undefined> = {}) => {
     const qs = buildQueryString(params);
     return `${API_BASE}/api/v1/devices/export/excel?${qs}`;
   },
+};
+
+// Workspace (pipeline documents, team, activity, reporting)
+export const workspace = {
+  addDocument: (deviceId: string, doc: { name: string; url?: string | null; doc_type?: string; note?: string | null }) =>
+    apiFetch<any>(`/api/v1/workspace/pipeline/${deviceId}/documents`, {
+      method: "POST",
+      body: JSON.stringify({ name: doc.name, url: doc.url ?? null, doc_type: doc.doc_type ?? "url", note: doc.note ?? null }),
+    }),
+  removeDocument: (deviceId: string, docId: string) =>
+    apiFetch<void>(`/api/v1/workspace/pipeline/${deviceId}/documents/${docId}`, { method: "DELETE" }),
+  team: () => apiFetch<any>("/api/v1/workspace/team"),
+  activity: (limit = 20) => apiFetch<any>(`/api/v1/workspace/activity?limit=${limit}`),
+  reporting: () => apiFetch<any>("/api/v1/workspace/reporting"),
 };
 
 // Dashboard
@@ -178,10 +237,21 @@ export const admin = {
   users: () => apiFetch<any[]>("/api/v1/admin/users"),
   organizations: () => apiFetch<any[]>("/api/v1/admin/organizations"),
   operations: () => apiFetch<any>("/api/v1/admin/operations"),
+  organizationOperations: (id: string) => apiFetch<any>(`/api/v1/admin/operations/organizations/${id}`),
+  qualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit"),
+  catalogAudit: () => apiFetch<any>("/api/v1/admin/quality/catalog-audit"),
+  sourceQualityReport: () => apiFetch<any>("/api/v1/admin/quality/source-report"),
+  runQualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit/run", { method: "POST" }),
+  runCatalogQualityControl: () => apiFetch<any>("/api/v1/admin/quality/catalog-audit/run", { method: "POST" }),
   collectAll: () => apiFetch("/api/v1/admin/collect/all", { method: "POST" }),
   emailStatus: () => apiFetch<any>("/api/v1/admin/email/status"),
   testEmail: () => apiFetch<any>("/api/v1/admin/email/test", { method: "POST" }),
   enrich: (batchSize = 50) => apiFetch<any>(`/api/v1/admin/enrich?batch_size=${batchSize}`, { method: "POST" }),
+  rewrite: (batchSize = 20, statusFilter = "pending") =>
+    apiFetch<any>(`/api/v1/admin/rewrite?batch_size=${batchSize}&status_filter=${statusFilter}`, { method: "POST" }),
+  sendDigest: () => apiFetch<any>("/api/v1/admin/email/digest", { method: "POST" }),
+  sendDeadlineReminders: (daysAhead = 7) =>
+    apiFetch<any>(`/api/v1/admin/email/deadline-reminders?days_ahead=${daysAhead}`, { method: "POST" }),
   dedup: () => apiFetch<any>("/api/v1/admin/dedup"),
   dedupMergeAll: () => apiFetch<any>("/api/v1/admin/dedup/merge", { method: "POST" }),
   dedupMergeGroup: (canonicalId: string, duplicateIds: string[]) =>

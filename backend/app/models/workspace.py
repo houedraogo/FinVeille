@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -32,7 +32,12 @@ class DevicePipeline(Base):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
     device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     pipeline_status = Column(String(80), nullable=False)
+    priority = Column(String(20), nullable=False, default="moyenne")
+    reminder_date = Column(Date, nullable=True)
+    match_project_id = Column(UUID(as_uuid=True), ForeignKey("match_projects.id", ondelete="SET NULL"), nullable=True, index=True)
     note = Column(Text, nullable=False, default="")
+    # documents: liste de {id, name, url, type, note, added_at}
+    documents = Column(JSON, nullable=True, default=list)
     snapshot = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

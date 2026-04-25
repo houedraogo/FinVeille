@@ -113,8 +113,8 @@ function NewDeviceFormPage() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Ajouter un dispositif</h1>
-            <p className="text-sm text-gray-500">Saisie manuelle d'un dispositif de financement</p>
+            <h1 className="text-2xl font-bold text-gray-900">Ajouter une opportunité</h1>
+            <p className="text-sm text-gray-500">Saisie manuelle d'une opportunité de financement</p>
           </div>
         </div>
 
@@ -125,7 +125,7 @@ function NewDeviceFormPage() {
             <h2 className="mb-4 text-sm font-semibold text-gray-700">Informations principales</h2>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
-                <Field label="Titre du dispositif" required>
+                <Field label="Titre de l'opportunité" required>
                   <input
                     className="input"
                     value={form.title}
@@ -225,7 +225,7 @@ function NewDeviceFormPage() {
                   className="h-4 w-4 rounded border-gray-300 accent-primary-600"
                 />
                 <label htmlFor="recurring" className="text-sm text-gray-700">
-                  Dispositif récurrent
+                  Financement récurrent
                 </label>
               </div>
             </div>
@@ -281,7 +281,7 @@ function NewDeviceFormPage() {
             </button>
             <button type="submit" disabled={saving} className="btn-primary text-xs">
               {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-              {saving ? "Enregistrement..." : "Créer le dispositif"}
+              {saving ? "Enregistrement..." : "Créer l'opportunité"}
             </button>
           </div>
         </form>
@@ -295,7 +295,7 @@ export default function NewDevicePage() {
     <RoleGate
       allow={["admin", "editor"]}
       title="Création réservée à l'équipe"
-      message="La création manuelle de dispositifs est réservée aux profils équipe et super admin."
+      message="La création manuelle d'opportunités est réservée aux profils équipe et super admin."
       backHref="/devices"
     >
       <NewDeviceFormPage />

@@ -5,10 +5,13 @@ from datetime import date
 from typing import Any, Dict, Optional
 
 import dateparser
+from bs4 import BeautifulSoup
 from unidecode import unidecode
 
 from app.collector.base_connector import RawItem
 from app.collector.source_profiles import get_source_profile
+from app.services.content_section_builder import build_content_sections, render_sections_markdown
+from app.services.taxonomy_classifier import classify_taxonomy
 from app.utils.text_utils import (
     build_contextual_eligibility,
     build_contextual_funding,
@@ -19,6 +22,7 @@ from app.utils.text_utils import (
     extract_keywords,
     has_recurrence_evidence,
     looks_english_text,
+    localize_investment_text,
     sanitize_text,
 )
 
@@ -50,6 +54,7 @@ COUNTRY_MAP = {
     "benin": "Bénin",
     "guinée": "Guinée",
     "guinee": "Guinée",
+    "guinea": "Guinée",
     "madagascar": "Madagascar",
     "rdc": "RD Congo",
     "congo": "RD Congo",
@@ -157,6 +162,18 @@ OPEN_DATE_FIELDS = [
     "published_at",
 ]
 
+UNUSABLE_CONTENT_MARKERS = (
+    "aucun contenu exploitable trouve",
+    "aucun contenu editorial exploitable trouve",
+    "impossible d'acceder a l'url",
+    "token invalide ou expire",
+    "javascript dynamique",
+    "structure html trop pauvre",
+    "access denied",
+    "forbidden",
+    "not found",
+)
+
 
 class Normalizer:
     def __init__(self, source: dict):
@@ -173,6 +190,9 @@ class Normalizer:
     def normalize(self, item: RawItem) -> Optional[Dict[str, Any]]:
         raw_body = clean_editorial_text(item.raw_content or "")
         metadata = item.metadata if isinstance(item.metadata, dict) else {}
+        if self._is_unusable_content(raw_body, metadata):
+            logger.info("[Normalizer] Item ignore car contenu source inexploitable: %s", item.title[:120])
+            return None
         if looks_english_text(raw_body) and not self.config.get("allow_english_text"):
             logger.info(f"[Normalizer] Item ignoré car description anglaise: {item.title[:120]}")
             return None
@@ -184,7 +204,19 @@ class Normalizer:
         initial_status = self._extract_metadata_status(item) or self._detect_status(text)
         is_recurring = False
         recurrence_notes = None
-        if initial_status == "open" and not close_date and has_recurrence_evidence(text):
+        normalized_status_text = unidecode(text)
+        has_reliable_recurrence_evidence = has_recurrence_evidence(text) and not any(
+            marker in normalized_status_text
+            for marker in (
+                "sans date limite communiquee",
+                "date limite non communiquee",
+                "cloture non communiquee",
+                "aucune date limite communiquee",
+                "sans date limite explicite",
+                "date limite explicite",
+            )
+        )
+        if initial_status == "open" and not close_date and has_reliable_recurrence_evidence:
             initial_status = "recurring"
             is_recurring = True
             recurrence_notes = (
@@ -192,9 +224,25 @@ class Normalizer:
                 "le texte source indique un fonctionnement sans fenetre de cloture unique."
             )
         elif (
-            self.config.get("assume_recurring_without_close_date")
-            or (self.profile and self.profile.key == "data_aides_entreprises")
-        ) and not close_date and initial_status == "open":
+            self.profile
+            and self.profile.default_status_without_close_date == "recurring"
+            and not close_date
+            and initial_status == "open"
+        ):
+            initial_status = "recurring"
+            is_recurring = True
+            recurrence_notes = (
+                "Classe automatiquement comme dispositif recurrent: "
+                "le profil source indique un fonctionnement sans fenetre de cloture unique."
+            )
+        elif (
+            self.profile
+            and self.profile.default_status_without_close_date == "standby"
+            and not close_date
+            and initial_status == "open"
+        ):
+            initial_status = "standby"
+        elif self.config.get("assume_recurring_without_close_date") and not close_date and initial_status == "open":
             initial_status = "recurring"
             is_recurring = True
             recurrence_notes = (
@@ -217,7 +265,16 @@ class Normalizer:
             extra_fields.get("funding_details"),
             extra_fields.get("eligibility_criteria"),
         )
-        if self.profile and self.profile.key in {"les_aides", "data_aides_entreprises"}:
+        if self.profile and self.profile.key in {
+            "les_aides",
+            "data_aides_entreprises",
+            "banque_des_territoires",
+            "ademe",
+            "prix_pierre_castel",
+            "private_investor",
+            "africa_business_heroes",
+            "global_south_opportunities",
+        }:
             eligibility_criteria = extra_fields.get("eligibility_criteria") or eligibility_criteria
             funding_details = extra_fields.get("funding_details") or funding_details
 
@@ -233,14 +290,37 @@ class Normalizer:
             close_date=close_date,
             recurrence_notes=recurrence_notes,
         )
+        taxonomy = classify_taxonomy(
+            {
+                "title": normalized_title,
+                "organism": self.organism,
+                "device_type": self._detect_device_type(text),
+                "short_description": short_description,
+                "full_description": final_full_description,
+                "eligibility_criteria": eligibility_criteria,
+                "funding_details": funding_details,
+                "source_raw": self._build_source_raw(item),
+                "status": initial_status,
+                "is_recurring": is_recurring,
+                "recurrence_notes": recurrence_notes,
+            },
+            self.source,
+        )
+        device_type = taxonomy.device_type
+        profile_device_type = self.config.get("default_device_type") or (
+            self.profile.default_device_type if self.profile else None
+        )
+        if profile_device_type and (device_type == "autre" or self.config.get("force_device_type")):
+            device_type = str(profile_device_type)
 
+        source_raw = self._build_source_raw(item)
         payload = {
             "title": normalized_title,
             "organism": self.organism,
             "country": self._detect_country(text) or self.default_country,
             "source_url": item.url,
-            "source_raw": self._build_source_raw(item),
-            "device_type": self._detect_device_type(text),
+            "source_raw": source_raw,
+            "device_type": device_type,
             "sectors": self._detect_sectors(text) or ["transversal"],
             "beneficiaries": self._detect_beneficiaries(text),
             "short_description": short_description,
@@ -257,6 +337,7 @@ class Normalizer:
             "recurrence_notes": recurrence_notes,
             "language": self.source.get("language", "fr"),
             "source_id": self.source.get("id"),
+            "tags": [taxonomy.taxonomy_tag],
         }
         if funding_details:
             payload["funding_details"] = funding_details
@@ -264,6 +345,9 @@ class Normalizer:
             if key in {"full_description", "funding_details", "eligibility_criteria"}:
                 continue
             payload[key] = value
+        sections = build_content_sections(payload, self.source)
+        payload["content_sections_json"] = sections
+        payload["full_description"] = render_sections_markdown(sections) or payload["full_description"]
         return payload
 
     def _normalize_title_for_source(self, title: str, raw_body: str, metadata: dict) -> str:
@@ -288,10 +372,26 @@ class Normalizer:
         open_date: Optional[date],
     ) -> Dict[str, Any]:
         source_url = (self.source.get("url") or "").lower()
-        profile_fields = self._build_profile_sections(metadata, close_date, open_date)
-        if profile_fields:
-            return profile_fields
-        if "africabusinessheroes.org" not in source_url:
+        if self.profile and self.profile.key == "private_investor":
+            investor_fields = self._build_private_investor_fields(
+                normalized_title,
+                raw_body,
+                metadata,
+                close_date,
+                open_date,
+            )
+            if investor_fields:
+                return investor_fields
+        if "globalsouthopportunities.com" in source_url or (self.profile and self.profile.key == "global_south_opportunities"):
+            return self._build_global_south_opportunities_fields(normalized_title, raw_body, close_date, open_date)
+
+        is_abh = "africabusinessheroes.org" in source_url or (
+            self.profile and self.profile.key == "africa_business_heroes"
+        )
+        if not is_abh:
+            profile_fields = self._build_profile_sections(metadata, close_date, open_date, raw_body=raw_body)
+            if profile_fields:
+                return profile_fields
             return {}
 
         body = clean_editorial_text(raw_body)
@@ -356,6 +456,236 @@ class Normalizer:
             "keywords": extract_keywords(normalized_title + " entrepreneurs africains concours"),
         }
 
+    def _build_private_investor_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        metadata: dict,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            body = self._get_profile_text(
+                metadata,
+                tuple(
+                    dict.fromkeys(
+                        tuple(getattr(self.profile, "short_description_fields", ()))
+                        + tuple(getattr(self.profile, "full_description_fields", ()))
+                    )
+                ),
+            ) or ""
+        if not body:
+            return {}
+
+        localized = localize_investment_text(f"{normalized_title}\n{body}")
+        presentation = localized
+        if localized.startswith("## "):
+            presentation = localized.split("\n", 1)[1] if "\n" in localized else localized
+
+        funding = self._get_profile_text(metadata, getattr(self.profile, "funding_fields", ()))
+        if not funding:
+            funding = (
+                "Le ticket, les conditions d'investissement et les modalites de prise de contact "
+                "doivent etre confirmes directement sur la source officielle."
+            )
+
+        procedure = (
+            "La prise de contact et l'etude du dossier se font directement aupres de l'equipe "
+            "d'investissement via le site officiel du fonds."
+        )
+        full_description = build_structured_sections(
+            presentation=presentation,
+            funding=funding,
+            open_date=open_date,
+            close_date=close_date,
+            procedure=procedure,
+            recurrence_notes=(
+                "Ce fonds fonctionne comme un dispositif permanent ou recurrent, sans fenetre de cloture unique."
+                if not close_date
+                else None
+            ),
+        )
+
+        return {
+            "short_description": sanitize_text(presentation)[:500],
+            "full_description": full_description,
+            "funding_details": sanitize_text(funding),
+            "device_type": "investissement",
+            "aid_nature": "capital",
+            "geographic_scope": "international",
+            "keywords": extract_keywords(normalized_title),
+        }
+
+    def _build_global_south_opportunities_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        sections = self._extract_global_south_sections(raw_body)
+        presentation_source = sections.get("presentation") or body
+        eligibility_source = sections.get("eligibility")
+        funding_source = sections.get("funding")
+        procedure_source = sections.get("procedure")
+
+        opportunity_type = self._detect_device_type((normalized_title + " " + body).lower())
+        country = self._detect_country((normalized_title + " " + body).lower()) or "International"
+        amount_label = self._extract_amount_label(body)
+
+        close_sentence = (
+            f"La date limite reperee est le {close_date.strftime('%d/%m/%Y')}."
+            if close_date
+            else "La date limite doit etre confirmee sur la page officielle."
+        )
+        amount_sentence = (
+            f"Le texte source mentionne un financement ou avantage pouvant atteindre {amount_label}."
+            if amount_label
+            else "Le montant ou l'avantage exact doit etre confirme sur la source officielle."
+        )
+
+        short_description = (
+            f"Opportunite de financement relayee par Global South Opportunities. "
+            f"Elle concerne principalement {country}. {close_sentence}"
+        )
+
+        presentation = self._summarize_english_section_for_gso(
+            presentation_source,
+            fallback=(
+                f"Global South Opportunities relaie cette opportunite sous le titre "
+                f"\"{normalized_title}\". La fiche doit etre verifiee sur la source officielle "
+                "avant toute candidature."
+            ),
+        )
+        eligibility = self._summarize_english_section_for_gso(
+            eligibility_source,
+            fallback=(
+                "Les beneficiaires eligibles et les conditions d'acces doivent etre confirmes "
+                "dans l'article detaille et sur le site officiel du programme."
+            ),
+        )
+        funding = self._summarize_english_section_for_gso(
+            funding_source,
+            fallback=amount_sentence,
+        )
+        procedure = self._summarize_english_section_for_gso(
+            procedure_source,
+            fallback=(
+                "La demarche de candidature est decrite dans l'article source. "
+                "Le depot doit etre effectue via le lien officiel indique par Global South Opportunities."
+            ),
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            open_date=open_date,
+            close_date=close_date,
+            procedure=procedure,
+        )
+
+        return {
+            "short_description": short_description,
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": opportunity_type,
+            "aid_nature": "subvention" if opportunity_type in {"subvention", "concours", "aap"} else "a_confirmer",
+            "country": country,
+            "geographic_scope": "international" if country == "International" else "national",
+            "keywords": extract_keywords(normalized_title),
+        }
+
+    def _extract_global_south_sections(self, raw_body: str) -> dict[str, str]:
+        soup = BeautifulSoup(raw_body or "", "lxml")
+        buckets: dict[str, list[str]] = {
+            "presentation": [],
+            "eligibility": [],
+            "funding": [],
+            "procedure": [],
+        }
+        current = "presentation"
+        skip_markers = (
+            "for more opportunities",
+            "follow us on",
+            "disclaimer",
+            "final thoughts",
+            "final overview",
+        )
+
+        for node in soup.find_all(["h2", "h3", "h4", "p", "li"]):
+            text = clean_editorial_text(node.get_text(" ", strip=True))
+            if not text:
+                continue
+            normalized = unidecode(text.lower())
+            if any(marker in normalized for marker in skip_markers):
+                continue
+            if node.name in {"h2", "h3", "h4"}:
+                if any(marker in normalized for marker in ("eligible", "eligibility", "who should apply", "who can apply", "requirements")):
+                    current = "eligibility"
+                elif any(marker in normalized for marker in ("funding", "grant cover", "benefit", "award", "prize", "amount", "support")):
+                    current = "funding"
+                elif any(marker in normalized for marker in ("how to apply", "application process", "submission", "deadline", "timeline", "dates")):
+                    current = "procedure"
+                continue
+            if len(text) < 20:
+                continue
+            buckets[current].append(text)
+
+        return {
+            key: " ".join(values[:8])[:1800]
+            for key, values in buckets.items()
+            if values
+        }
+
+    def _summarize_english_section_for_gso(self, text: Optional[str], fallback: str) -> str:
+        cleaned = clean_editorial_text(text or "")
+        if not cleaned:
+            return fallback
+
+        normalized = unidecode(cleaned.lower())
+        parts = []
+        if "open to" in normalized or "eligible" in normalized or "applicants" in normalized:
+            parts.append("La source precise les profils de candidats eligibles et les conditions de participation.")
+        if "grant" in normalized or "funding" in normalized or "support" in normalized or "award" in normalized:
+            parts.append("Le dispositif apporte un financement, une recompense ou un appui operationnel selon les modalites du programme.")
+        if "deadline" in normalized or "apply" in normalized or "submission" in normalized:
+            parts.append("La candidature doit etre deposee selon le calendrier et les consignes indiquees par l'organisme officiel.")
+        if "climate" in normalized:
+            parts.append("La thematique climat ou transition environnementale est mentionnee dans la source.")
+        if "agricultur" in normalized or "food" in normalized:
+            parts.append("La source mentionne des projets lies a l'agriculture, aux systemes alimentaires ou au developpement rural.")
+        if "research" in normalized or "scient" in normalized:
+            parts.append("La source cible notamment des projets de recherche, d'innovation ou de production de connaissances.")
+        if "entrepreneur" in normalized or "startup" in normalized:
+            parts.append("La source vise des entrepreneurs, startups ou structures porteuses de solutions innovantes.")
+
+        if not parts:
+            parts.append(fallback)
+        parts.append("Les informations detaillees doivent etre confirmees sur le site officiel avant candidature.")
+        return " ".join(dict.fromkeys(parts))
+
+    def _extract_amount_label(self, text: str) -> Optional[str]:
+        cleaned = sanitize_text(text or "")
+        match = re.search(
+            r"(?:up to|jusqu(?:'|’)a|jusqu(?:'|’)à)\s*(?:cad\s*)?([$€£]?\s?\d[\d\s,.]*(?:\s?(?:usd|eur|cad|gbp|€|\$|£))?)",
+            cleaned,
+            re.IGNORECASE,
+        )
+        if not match:
+            match = re.search(
+                r"([$€£]\s?\d[\d\s,.]*|\d[\d\s,.]*\s?(?:usd|eur|cad|gbp|€|\$|£))",
+                cleaned,
+                re.IGNORECASE,
+            )
+        return clean_editorial_text(match.group(1)) if match else None
+
     def _build_short_description(self, item: RawItem, raw_body: str, metadata: dict, close_date: Optional[date]) -> Optional[str]:
         profile_short = self._get_profile_text(metadata, getattr(self.profile, "short_description_fields", ()))
         if profile_short and not self._should_replace_english_body_with_metadata(profile_short, metadata):
@@ -401,6 +731,18 @@ class Normalizer:
             return " ".join(part for part in parts if part).strip()
         return sanitize_text(str(value))
 
+    def _is_unusable_content(self, raw_body: str, metadata: dict) -> bool:
+        value = " ".join(
+            part
+            for part in (
+                raw_body or "",
+                " ".join(str(v) for v in metadata.values()) if metadata else "",
+            )
+            if part
+        )
+        normalized = unidecode(sanitize_text(value).lower())
+        return any(marker in normalized for marker in UNUSABLE_CONTENT_MARKERS)
+
     def _get_profile_text(self, metadata: dict, field_names: tuple[str, ...]) -> Optional[str]:
         if not metadata or not field_names:
             return None
@@ -422,21 +764,103 @@ class Normalizer:
             return None
         return "\n\n".join(parts)
 
+    def _extract_profile_sections_from_text(self, raw_body: str) -> Dict[str, str]:
+        text = clean_editorial_text(raw_body or "")
+        if len(text) < 80:
+            return {}
+
+        buckets: dict[str, list[str]] = {
+            "presentation": [],
+            "details": [],
+            "eligibility": [],
+            "funding": [],
+            "procedure": [],
+        }
+        current = "details"
+        heading_markers = {
+            "eligibility": (
+                "eligib", "beneficiaire", "beneficiaires", "conditions", "criteres",
+                "qui peut", "public vise", "candidats", "requirements",
+            ),
+            "funding": (
+                "montant", "financement", "dotation", "recompense", "prix", "subvention",
+                "pret", "avantage", "aide", "budget", "award", "funding", "prize",
+            ),
+            "procedure": (
+                "demarche", "candidature", "postuler", "depot", "calendrier", "deadline",
+                "date limite", "selection", "how to apply", "application",
+            ),
+            "presentation": ("presentation", "objectif", "description", "programme", "a propos"),
+        }
+
+        lines = [line.strip(" -\t") for line in re.split(r"[\n\r]+", text) if line.strip()]
+        if len(lines) <= 1:
+            lines = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if len(part.strip()) > 35]
+
+        for line in lines:
+            clean = sanitize_text(line)
+            if len(clean) < 20:
+                continue
+            normalized = unidecode(clean.lower())
+            is_heading = len(clean) <= 95 and not clean.endswith(".")
+            if is_heading:
+                matched_heading = None
+                for bucket, markers in heading_markers.items():
+                    if any(marker in normalized for marker in markers):
+                        matched_heading = bucket
+                        break
+                if matched_heading:
+                    current = matched_heading
+                    continue
+
+            target = current
+            if current in {"details", "presentation"}:
+                for bucket in ("eligibility", "funding", "procedure"):
+                    if any(marker in normalized for marker in heading_markers[bucket]):
+                        target = bucket
+                        break
+            buckets[target].append(clean)
+
+        if not buckets["presentation"] and buckets["details"]:
+            buckets["presentation"] = buckets["details"][:3]
+            buckets["details"] = buckets["details"][3:]
+
+        return {
+            key: "\n".join(dict.fromkeys(parts[:10])).strip()
+            for key, parts in buckets.items()
+            if parts
+        }
+
     def _build_profile_sections(
         self,
         metadata: dict,
         close_date: Optional[date],
         open_date: Optional[date],
+        raw_body: str = "",
     ) -> Dict[str, Any]:
-        if not self.profile or self.profile.key not in {"les_aides", "data_aides_entreprises"}:
+        if not self.profile or self.profile.key not in {
+            "les_aides",
+            "data_aides_entreprises",
+            "banque_des_territoires",
+            "ademe",
+            "prix_pierre_castel",
+            "global_south_opportunities",
+        }:
             return {}
 
         presentation = self._get_profile_text(metadata, self.profile.short_description_fields)
         details = self._get_profile_text(metadata, self.profile.full_description_fields)
         eligibility = self._get_profile_text(metadata, self.profile.eligibility_fields)
         funding = self._get_profile_text(metadata, self.profile.funding_fields)
+        procedure = self._get_profile_text(metadata, self.profile.procedure_fields)
+        text_sections = self._extract_profile_sections_from_text(raw_body)
+        presentation = presentation or text_sections.get("presentation")
+        details = details or text_sections.get("details")
+        eligibility = eligibility or text_sections.get("eligibility")
+        funding = funding or text_sections.get("funding")
+        procedure = procedure or text_sections.get("procedure")
 
-        if not any([presentation, details, eligibility, funding]):
+        if not any([presentation, details, eligibility, funding, procedure]):
             return {}
 
         details_clean = sanitize_text(details or "")
@@ -467,10 +891,11 @@ class Normalizer:
                 funding=funding,
                 open_date=open_date,
                 close_date=close_date,
-                procedure=self._build_procedure_text(sanitize_text(presentation or details or "")),
+                procedure=procedure or self._build_procedure_text(sanitize_text(presentation or details or "")),
             ),
             "eligibility_criteria": sanitize_text(eligibility) if eligibility else None,
             "funding_details": sanitize_text(funding) if funding else None,
+            "procedure": sanitize_text(procedure) if procedure else None,
         }
 
         country = self._get_profile_text(metadata, getattr(self.profile, "country_fields", ()))
@@ -486,7 +911,7 @@ class Normalizer:
         close_date: Optional[date],
         open_date: Optional[date],
     ) -> Optional[str]:
-        profile_full = self._build_profile_sections(metadata, close_date, open_date).get("full_description")
+        profile_full = self._build_profile_sections(metadata, close_date, open_date, raw_body=raw_body).get("full_description")
         if profile_full:
             return profile_full[:4000]
 
@@ -613,7 +1038,7 @@ class Normalizer:
             parts.append(nice_title)
         if country:
             parts.append(f"Ce projet est porté au {country}.")
-        sectors = [str(value).strip() for value in (sector_1, sector_2) if value]
+        sectors = [self._localize_sector_label(str(value).strip()) for value in (sector_1, sector_2) if value]
         if sectors:
             parts.append("Il concerne principalement les secteurs suivants : " + ", ".join(sectors) + ".")
         if total_commitment:
@@ -632,6 +1057,108 @@ class Normalizer:
         if self._is_world_bank_source() and looks_english_text(cleaned_text):
             return True
         return False
+
+    def _localize_sector_label(self, value: str) -> str:
+        normalized = unidecode((value or "").lower()).strip()
+        if not normalized:
+            return value
+        canonical = normalized.replace("&", "and")
+        exact = {
+            "agricultural extension, research, and other support activities": "appui agricole, recherche et services connexes",
+            "public administration - agriculture, fishing & forestry": "administration publique agricole, pêche et forêt",
+            "public administration - energy and extractives": "administration publique de l'énergie et des industries extractives",
+            "public administration - industry, trade and services": "administration publique de l'industrie, du commerce et des services",
+            "public administration - health": "administration publique de la santé",
+            "public administration - transportation": "administration publique des transports",
+            "public administration - water, sanitation and waste management": "administration publique de l'eau, de l'assainissement et des déchets",
+            "health facilities and construction": "infrastructures et équipements de santé",
+            "social protection": "protection sociale",
+            "renewable energy solar": "énergie solaire renouvelable",
+            "energy transmission and distribution": "transport et distribution d'énergie",
+            "energie transmission and distribution": "transport et distribution d'énergie",
+            "oil and gas": "pétrole et gaz",
+            "rural and inter-urban roads": "routes rurales et interurbaines",
+            "ict services": "services numériques",
+            "workforce development and vocational education": "développement des compétences et formation professionnelle",
+            "financial sector": "secteur financier",
+            "fishing and forestry": "pêche et forêt",
+            "agricultural markets, commercialization and agri-business": "marchés agricoles, commercialisation et agro-industrie",
+            "other water supply, sanitation and waste management": "eau, assainissement et gestion des déchets",
+            "other non-bank financial institutions": "institutions financières non bancaires",
+            "other agriculture": "autres activités agricoles",
+            "other energy and extractives": "autres activités énergie et industries extractives",
+            "other industry, trade and services": "industrie, commerce et services",
+            "central government": "administration centrale",
+            "sub-national government": "administrations territoriales",
+            "water supply": "approvisionnement en eau",
+            "sanitation": "assainissement",
+            "health": "santé",
+            "education": "éducation",
+            "energy": "énergie",
+            "transportation": "transports",
+        }
+        if canonical in exact:
+            return exact[canonical]
+        replacements = (
+            ("public administration", "administration publique"),
+            ("other administration publique", "autres administrations publiques"),
+            ("administration publique - water", "administration publique de l'eau"),
+            ("administration publique - industry", "administration publique de l'industrie"),
+            ("administration publique - education", "administration publique de l'éducation"),
+            ("administration publique - éducation", "administration publique de l'éducation"),
+            ("energie transmission and distribution", "transport et distribution d'énergie"),
+            ("energy transmission and distribution", "transport et distribution d'énergie"),
+            ("renewable energy", "énergies renouvelables"),
+            ("oil and gas", "pétrole et gaz"),
+            ("energy and extractives", "énergie et industries extractives"),
+            ("other industry, trade and services", "industrie, commerce et services"),
+            ("industry, trade and services", "industrie, commerce et services"),
+            ("financial sector", "secteur financier"),
+            ("workforce development and vocational education", "développement des compétences et formation professionnelle"),
+            ("other public administration", "autres administrations publiques"),
+            ("public administration - education", "administration publique de l'éducation"),
+            ("fishing and forestry", "pêche et forêt"),
+            ("other agriculture", "autres activités agricoles"),
+            ("agricultural markets, commercialization and agri-business", "marchés agricoles, commercialisation et agro-industrie"),
+            ("other water supply, sanitation and waste management", "eau, assainissement et gestion des déchets"),
+            ("water supply, sanitation and waste management", "eau, assainissement et gestion des déchets"),
+            ("other non-bank financial institutions", "institutions financières non bancaires"),
+            ("sub-national government", "administrations territoriales"),
+            ("central government", "administration centrale"),
+            ("central agencies", "agences centrales"),
+            ("health facilities", "infrastructures de santé"),
+            ("water, sanitation and waste management", "eau, assainissement et gestion des déchets"),
+            ("rural and inter-urban roads", "routes rurales et interurbaines"),
+            ("agricultural extension", "conseil agricole"),
+            ("irrigation and drainage", "irrigation et drainage"),
+            ("capital markets", "marchés de capitaux"),
+            ("micro- and sme finance", "microfinance et financement des PME"),
+            ("ict infrastructure", "infrastructures numériques"),
+            ("information and communications technologies", "technologies de l'information et de la communication"),
+            ("information and communications technology", "technologies de l'information et de la communication"),
+            ("ports/waterways", "ports et voies navigables"),
+            ("urban transport", "transport urbain"),
+            ("primary education", "enseignement primaire"),
+            ("secondary education", "enseignement secondaire"),
+            ("tertiary education", "enseignement supérieur"),
+            ("research", "recherche"),
+            ("support activities", "activités d'appui"),
+            ("social protection", "protection sociale"),
+            ("ict services", "services numériques"),
+            ("transportation", "transports"),
+            ("forestry", "forêt"),
+            ("crops", "cultures agricoles"),
+            ("agriculture", "agriculture"),
+            ("health", "santé"),
+            ("education", "éducation"),
+            ("energy", "énergie"),
+        )
+        localized = canonical
+        for source, target in replacements:
+            localized = re.sub(source, target, localized, flags=re.IGNORECASE)
+        if localized != canonical:
+            return sanitize_text(localized)
+        return sanitize_text(value)
 
     def _is_world_bank_source(self) -> bool:
         source_url = (self.source.get("url") or "").lower()
@@ -824,6 +1351,9 @@ class Normalizer:
                 r"date de fermeture[:\s]+(.{5,40}?)(?:\n|\.)",
                 r"date limite[:\s]+(.{5,30})",
                 r"deadline[:\s]+(.{5,30})",
+                r"(?:submission|application|final)?\s*deadline\s+(?:is|set for|falls on|closes on)\s+(.{5,35})",
+                r"apply\s+(?:by|before)\s+(.{5,30})",
+                r"applications?\s+(?:close|closes|end|ends)\s+(?:on\s+)?(.{5,30})",
                 r"jusqu'au\s+(.{5,25})",
                 r"au\s+(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})",
                 r"au\s+(\d{1,2}\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[ûu]t|septembre|octobre|novembre|d[ée]cembre)\s+\d{4})",
@@ -849,6 +1379,9 @@ class Normalizer:
                 match.group(1).strip(),
                 flags=re.IGNORECASE,
             )
+            year_match = re.search(r"(.{0,45}?\d{4})", candidate)
+            if year_match:
+                candidate = year_match.group(1)
             parsed = dateparser.parse(
                 candidate,
                 languages=["fr", "en"],

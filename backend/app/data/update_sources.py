@@ -1,8 +1,8 @@
-"""
+﻿"""
 Met a jour les sources existantes, desactive les sources fragiles
 et ajoute un socle de sources plus fiables cote public et prive.
 
-Usage : docker exec finveille-backend python -m app.data.update_sources
+Usage : docker exec kafundo-backend python -m app.data.update_sources
 """
 import asyncio
 import json
@@ -189,6 +189,30 @@ NEW_SOURCES = [
             "pagination": {"max_pages": 1},
         },
         "notes": "Source officielle AFD ciblee sur la liste des appels a projets ouverts et a venir.",
+    },
+    {
+        "name": "Global South Opportunities - Funding",
+        "organism": "Global South Opportunities",
+        "country": "International",
+        "source_type": "agregateur",
+        "category": "public",
+        "level": 2,
+        "url": "https://www.globalsouthopportunities.com/category/funding/feed/",
+        "collection_mode": "rss",
+        "check_frequency": "daily",
+        "reliability": 3,
+        "config": {
+            "source_kind": "editorial_funding",
+            "allow_english_text": True,
+            "assume_standby_without_close_date": True,
+            "close_date_fields": ["deadline", "application_deadline"],
+            "status_fields": ["status"],
+        },
+        "is_active": True,
+        "notes": (
+            "Flux RSS WordPress de la categorie Funding. Source relais/agregateur : "
+            "les informations doivent etre confirmees sur le site officiel du dispositif."
+        ),
     },
     {
         "name": "Banque Mondiale - projets Senegal",

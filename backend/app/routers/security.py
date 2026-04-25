@@ -51,14 +51,14 @@ async def forgot_password(
         reset_url = f"{settings.PUBLIC_APP_URL}/settings/security?reset_token={token}"
         sent = NotificationService.send_email(
             user.email,
-            "Reinitialisation de votre mot de passe FinVeille",
+            "Reinitialisation de votre mot de passe Kafundo",
             f"<p>Bonjour,</p><p>Pour reinitialiser votre mot de passe, ouvrez ce lien :</p><p><a href='{reset_url}'>{reset_url}</a></p>",
         )
         await record_email_event(
             db,
             email=user.email,
             template="password_reset",
-            subject="Reinitialisation de votre mot de passe FinVeille",
+            subject="Reinitialisation de votre mot de passe Kafundo",
             status="sent" if sent else "skipped",
             user_id=user.id,
         )

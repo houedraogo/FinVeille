@@ -131,6 +131,44 @@ export interface DeviceNatureBanner {
   detail: string;
 }
 
+export interface AiReadinessMeta {
+  label: string;
+  detail: string;
+  className: string;
+}
+
+export function getAiReadinessMeta(device: Pick<Device, "ai_readiness_label" | "ai_readiness_score">): AiReadinessMeta {
+  const score = device.ai_readiness_score ?? 0;
+  const metas: Record<string, AiReadinessMeta> = {
+    pret_pour_recommandation_ia: {
+      label: "Très recommandé",
+      detail: `Très bonne opportunité pour ton profil. Pertinence : ${score}%.`,
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    },
+    utilisable_avec_prudence: {
+      label: "À confirmer",
+      detail: `Opportunité intéressante, mais certaines informations doivent être confirmées. Pertinence : ${score}%.`,
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+    },
+    a_verifier: {
+      label: "À vérifier",
+      detail: `À vérifier avant de la considérer comme prioritaire. Pertinence : ${score}%.`,
+      className: "border-orange-200 bg-orange-50 text-orange-800",
+    },
+    non_exploitable: {
+      label: "Non recommandé",
+      detail: `Informations insuffisantes pour recommander cette opportunité. Pertinence : ${score}%.`,
+      className: "border-red-200 bg-red-50 text-red-700",
+    },
+  };
+
+  return metas[device.ai_readiness_label || ""] || {
+    label: "Pertinence à calculer",
+    detail: "La pertinence de cette opportunité n'a pas encore été calculée.",
+    className: "border-slate-200 bg-slate-50 text-slate-600",
+  };
+}
+
 export function getDeviceNatureBanner(device: Pick<Device, "title" | "organism" | "source_url" | "status" | "is_recurring" | "close_date">): DeviceNatureBanner | null {
   const sourceContext = `${device.organism} ${device.title} ${device.source_url}`.toLowerCase();
   const looksInstitutionalProject =
@@ -141,8 +179,8 @@ export function getDeviceNatureBanner(device: Pick<Device, "title" | "organism" 
   if (device.is_recurring || device.status === "recurring") {
     return {
       kind: "recurring",
-      label: "Dispositif permanent",
-      detail: "Ce dispositif fonctionne sans fenêtre de clôture unique ou selon un rythme récurrent.",
+      label: "Financement permanent",
+      detail: "Cette opportunité fonctionne sans date limite unique ou selon un rythme récurrent.",
     };
   }
 
@@ -165,7 +203,7 @@ export function getDeviceNatureBanner(device: Pick<Device, "title" | "organism" 
   if (device.status === "open" && !device.close_date) {
     return {
       kind: "missing_close_date",
-      label: "Clôture non communiquée par la source",
+      label: "Date limite non communiquée",
       detail: "La source officielle ne précise pas de date limite exploitable à ce stade.",
     };
   }

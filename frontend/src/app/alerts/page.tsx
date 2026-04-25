@@ -56,7 +56,7 @@ export default function AlertsPage() {
       if (msg.includes("401") || msg.toLowerCase().includes("unauthorized")) {
         setError("Session expirée. Veuillez vous reconnecter.");
       } else {
-        setError(`Impossible de charger les alertes : ${msg}`);
+        setError(`Impossible de charger ta veille : ${msg}`);
       }
     } finally {
       setLoading(false);
@@ -74,7 +74,7 @@ export default function AlertsPage() {
   });
 
   const handleCreate = async () => {
-    if (!form.name.trim()) { alert("Veuillez nommer cette alerte."); return; }
+    if (!form.name.trim()) { alert("Veuillez nommer cette veille."); return; }
     setSaving(true);
     try {
       const payload = {
@@ -110,7 +110,7 @@ export default function AlertsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Supprimer cette alerte définitivement ?")) return;
+    if (!confirm("Supprimer cette veille définitivement ?")) return;
     try {
       await alerts.delete(id);
       setAlertList(prev => prev.filter(a => a.id !== id));
@@ -139,9 +139,9 @@ export default function AlertsPage() {
       {/* En-tête */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mes alertes</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Ma veille</h1>
           <p className="text-sm text-gray-500">
-            {alertList.filter(a => a.is_active).length} alerte(s) active(s) •{" "}
+            {alertList.filter(a => a.is_active).length} veille(s) active(s) •{" "}
             Notifications par email & dashboard
           </p>
         </div>
@@ -152,8 +152,23 @@ export default function AlertsPage() {
             Actualiser
           </button>
           <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1.5">
-            <Plus className="w-4 h-4" /> Nouvelle alerte
+            <Plus className="w-4 h-4" /> Nouvelle veille
           </button>
+        </div>
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
+          <p className="text-sm font-semibold">Notifications intelligentes</p>
+          <p className="mt-1 text-xs leading-5 opacity-85">Tu reçois uniquement les opportunités qui correspondent vraiment à tes critères.</p>
+        </div>
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-orange-800">
+          <p className="text-sm font-semibold">Rappels deadlines</p>
+          <p className="mt-1 text-xs leading-5 opacity-85">Ajoute une date limite dans ta veille pour ne plus rater les financements urgents.</p>
+        </div>
+        <div className="rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-primary-800">
+          <p className="text-sm font-semibold">Emails utiles, pas spam</p>
+          <p className="mt-1 text-xs leading-5 opacity-85">Le bon rythme : un résumé clair, des priorités, et seulement les changements importants.</p>
         </div>
       </div>
 
@@ -176,13 +191,13 @@ export default function AlertsPage() {
         <div className="card p-5 mb-6 border-primary-200 bg-primary-50/30">
           <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Bell className="w-4 h-4 text-primary-600" />
-            Créer une alerte de veille
+            Créer une veille
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             {/* Nom */}
             <div className="md:col-span-2">
-              <label className="label">Nom de l'alerte *</label>
+              <label className="label">Nom de la veille *</label>
               <input className="input" placeholder="Ex : Subventions énergie Afrique de l'Ouest"
                 value={form.name}
                 onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
@@ -278,7 +293,7 @@ export default function AlertsPage() {
           <div className="flex gap-2 mt-5 pt-4 border-t border-gray-100">
             <button onClick={handleCreate} disabled={saving} className="btn-primary text-xs">
               {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
-              {saving ? "Création..." : "Créer l'alerte"}
+              {saving ? "Création..." : "Créer la veille"}
             </button>
             <button onClick={() => { setShowForm(false); resetForm(); }} className="btn-secondary text-xs">
               Annuler
@@ -292,7 +307,7 @@ export default function AlertsPage() {
         <div className="card p-4 mb-4 border-blue-200 bg-blue-50">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-blue-800">
-              Aperçu : {preview.count} dispositif(s) correspond(ent) à ces critères
+              Aperçu : {preview.count} opportunité(s) correspondent à ces critères
             </h3>
             <button onClick={() => setPreview(null)} className="text-xs text-blue-600 hover:text-blue-800">
               Fermer ✕
@@ -312,7 +327,7 @@ export default function AlertsPage() {
       {/* Chargement */}
       {loading && (
         <div className="flex items-center justify-center py-16 text-gray-400">
-          <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Chargement des alertes...
+          <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Chargement de ta veille...
         </div>
       )}
 
@@ -322,10 +337,10 @@ export default function AlertsPage() {
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Bell className="w-7 h-7 opacity-40" />
           </div>
-          <p className="font-medium text-gray-600 mb-1">Aucune alerte configurée</p>
-          <p className="text-sm mb-4">Créez une alerte pour être notifié des nouveaux dispositifs</p>
+          <p className="font-medium text-gray-600 mb-1">Tu ne suis encore aucune opportunité</p>
+          <p className="text-sm mb-4">Crée une veille pour repérer automatiquement les nouvelles opportunités.</p>
           <button onClick={() => setShowForm(true)} className="btn-primary text-sm">
-            <Plus className="w-4 h-4" /> Créer ma première alerte
+            <Plus className="w-4 h-4" /> Créer ma première veille
           </button>
         </div>
       )}
@@ -385,7 +400,7 @@ export default function AlertsPage() {
                     onClick={() => handlePreview(alert.id)}
                     disabled={previewLoading}
                     className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-                    title="Aperçu des dispositifs correspondants">
+                    title="Aperçu des opportunités correspondantes">
                     <Eye className="w-4 h-4" />
                   </button>
                   <button

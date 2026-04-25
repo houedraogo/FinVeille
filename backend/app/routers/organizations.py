@@ -178,14 +178,14 @@ async def invite_to_organization(
     invite_url = f"{settings.PUBLIC_APP_URL}/settings/team?invitation_token={invitation.token}"
     sent = NotificationService.send_email(
         invitation.email,
-        "Invitation a rejoindre FinVeille",
-        f"<p>Bonjour,</p><p>Vous avez ete invite a rejoindre une organisation FinVeille.</p><p><a href='{invite_url}'>{invite_url}</a></p>",
+        "Invitation a rejoindre Kafundo",
+        f"<p>Bonjour,</p><p>Vous avez ete invite a rejoindre une organisation Kafundo.</p><p><a href='{invite_url}'>{invite_url}</a></p>",
     )
     await record_email_event(
         db,
         email=invitation.email,
         template="organization_invitation",
-        subject="Invitation a rejoindre FinVeille",
+        subject="Invitation a rejoindre Kafundo",
         status="sent" if sent else "skipped",
         user_id=current_user.id,
         metadata={"invitation_id": str(invitation.id)},

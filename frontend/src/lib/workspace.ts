@@ -1,12 +1,12 @@
-export const SAVED_SEARCHES_KEY = "finveille_saved_searches";
-export const PENDING_SAVED_SEARCH_KEY = "finveille_pending_saved_search";
-export const MATCH_STORAGE_KEY = "finveille_match_state";
-export const FAVORITE_DEVICES_KEY = "finveille_favorite_devices";
-export const DEVICES_VIEW_MODE_KEY = "finveille_devices_view_modes";
-export const DEVICE_PIPELINE_KEY = "finveille_device_pipeline";
-export const USER_PREFERENCES_KEY = "finveille_user_preferences";
-const WORKSPACE_MIGRATION_KEY = "finveille_workspace_api_migrated";
-const WORKSPACE_MATCH_SYNC_KEY = "finveille_workspace_match_synced_at";
+﻿export const SAVED_SEARCHES_KEY = "kafundo_saved_searches";
+export const PENDING_SAVED_SEARCH_KEY = "kafundo_pending_saved_search";
+export const MATCH_STORAGE_KEY = "kafundo_match_state";
+export const FAVORITE_DEVICES_KEY = "kafundo_favorite_devices";
+export const DEVICES_VIEW_MODE_KEY = "kafundo_devices_view_modes";
+export const DEVICE_PIPELINE_KEY = "kafundo_device_pipeline";
+export const USER_PREFERENCES_KEY = "kafundo_user_preferences";
+const WORKSPACE_MIGRATION_KEY = "kafundo_workspace_api_migrated";
+const WORKSPACE_MATCH_SYNC_KEY = "kafundo_workspace_match_synced_at";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface SavedSearchFilters {
@@ -16,6 +16,7 @@ export interface SavedSearchFilters {
   sectors: string[];
   statuses: string[];
   closingSoon: string;
+  hasCloseDate?: boolean;
   sortBy: string;
 }
 
@@ -46,12 +47,34 @@ export interface FavoriteDevice {
 
 export type DevicesViewMode = "cards" | "table";
 
-export type DevicePipelineStatus = "a_etudier" | "candidature_en_cours" | "non_pertinent";
+export type DevicePipelineStatus =
+  | "a_etudier"
+  | "interessant"
+  | "candidature_en_cours"
+  | "soumis"
+  | "refuse"
+  | "non_pertinent";
+
+export type DevicePipelinePriority = "faible" | "moyenne" | "haute";
+
+export interface PipelineDocument {
+  id: string;
+  name: string;
+  url?: string | null;
+  doc_type: string; // "url" | "note" | "brouillon"
+  note?: string | null;
+  added_at: string;
+}
 
 export interface UserPreferences {
   defaultViewMode: DevicesViewMode;
   emailDigest: boolean;
   productTips: boolean;
+  onboardingCompleted?: boolean;
+  onboardingProfile?: string | null;
+  onboardingCountries?: string[];
+  onboardingSectors?: string[];
+  onboardingDeviceTypes?: string[];
 }
 
 export interface DevicePipelineEntry {
@@ -67,7 +90,11 @@ export interface DevicePipelineEntry {
   currency: string;
   sourceUrl: string;
   pipelineStatus: DevicePipelineStatus;
+  priority: DevicePipelinePriority;
+  reminderDate: string | null;
+  matchProjectId: string | null;
   note: string;
+  documents: PipelineDocument[];
   updatedAt: string;
 }
 
@@ -77,6 +104,7 @@ interface PendingSavedSearch {
 }
 
 export interface MatchWorkspaceSnapshot {
+  id?: string | null;
   fileName: string | null;
   fileSize: number | null;
   total: number;
@@ -96,12 +124,12 @@ function isBrowser() {
 
 function emitWorkspaceUpdate() {
   if (!isBrowser()) return;
-  window.dispatchEvent(new CustomEvent("finveille:workspace-update"));
+  window.dispatchEvent(new CustomEvent("kafundo:workspace-update"));
 }
 
 function getToken(): string | null {
   if (!isBrowser()) return null;
-  return localStorage.getItem("finveille_token");
+  return localStorage.getItem("kafundo_token");
 }
 
 async function workspaceFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -139,7 +167,7 @@ function normalizeSavedSearch(item: any): SavedSearch {
   return {
     id: String(item.id),
     name: String(item.name || "Recherche sauvegardee"),
-    title: String(item.title || "Dispositifs"),
+    title: String(item.title || "Opportunités"),
     path: String(item.path || "/devices"),
     filters: (item.filters || {}) as SavedSearchFilters,
     resultCount: item.result_count ?? null,
@@ -151,7 +179,7 @@ function normalizeFavorite(item: any): FavoriteDevice {
   const snapshot = item.snapshot || {};
   return {
     id: String(snapshot.id || item.device_id),
-    title: String(snapshot.title || "Dispositif sauvegarde"),
+    title: String(snapshot.title || "Opportunité sauvegardée"),
     organism: String(snapshot.organism || ""),
     country: String(snapshot.country || ""),
     region: snapshot.region ?? null,
@@ -167,9 +195,10 @@ function normalizeFavorite(item: any): FavoriteDevice {
 
 function normalizePipeline(item: any): DevicePipelineEntry {
   const snapshot = item.snapshot || {};
+  const priority = String(item.priority || snapshot.priority || "moyenne");
   return {
     id: String(snapshot.id || item.device_id),
-    title: String(snapshot.title || "Dispositif suivi"),
+    title: String(snapshot.title || "Opportunité suivie"),
     organism: String(snapshot.organism || ""),
     country: String(snapshot.country || ""),
     region: snapshot.region ?? null,
@@ -180,7 +209,11 @@ function normalizePipeline(item: any): DevicePipelineEntry {
     currency: String(snapshot.currency || "EUR"),
     sourceUrl: String(snapshot.sourceUrl || snapshot.source_url || ""),
     pipelineStatus: String(item.pipeline_status || snapshot.pipelineStatus || "a_etudier") as DevicePipelineStatus,
+    priority: (["faible", "moyenne", "haute"].includes(priority) ? priority : "moyenne") as DevicePipelinePriority,
+    reminderDate: item.reminder_date ?? snapshot.reminderDate ?? snapshot.reminder_date ?? null,
+    matchProjectId: item.match_project_id ? String(item.match_project_id) : snapshot.matchProjectId ?? snapshot.match_project_id ?? null,
     note: String(item.note || snapshot.note || ""),
+    documents: Array.isArray(item.documents) ? item.documents : [],
     updatedAt: String(item.updated_at || snapshot.updatedAt || new Date().toISOString()),
   };
 }
@@ -207,7 +240,11 @@ function pipelinePayload(entry: DevicePipelineEntry) {
   return {
     device_id: entry.id,
     pipeline_status: entry.pipelineStatus,
+    priority: entry.priority,
+    reminder_date: entry.reminderDate,
+    match_project_id: entry.matchProjectId,
     note: entry.note,
+    documents: entry.documents ?? [],
     snapshot: entry,
   };
 }
@@ -289,6 +326,7 @@ export async function syncWorkspace() {
   const latestMatch = Array.isArray(snapshot.match_projects) ? snapshot.match_projects[0] : null;
   if (latestMatch) {
     safeSetJson(MATCH_STORAGE_KEY, {
+      id: latestMatch.id ?? null,
       fileName: latestMatch.file_name ?? null,
       fileSize: latestMatch.file_size ?? null,
       result: latestMatch.result || { total: 0, matches: [] },
@@ -387,6 +425,7 @@ export function readLatestMatchSnapshot(): MatchWorkspaceSnapshot | null {
     const parsed = JSON.parse(raw) as any;
     const matches = Array.isArray(parsed?.result?.matches) ? parsed.result.matches : [];
     return {
+      id: parsed?.id ?? null,
       fileName: parsed?.fileName ?? null,
       fileSize: parsed?.fileSize ?? null,
       total: Number(parsed?.result?.total ?? matches.length ?? 0),
@@ -481,7 +520,22 @@ export function listPipelineDevices(): DevicePipelineEntry[] {
     const raw = localStorage.getItem(DEVICE_PIPELINE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => {
+      const status = String(item.pipelineStatus || "a_etudier");
+      const priority = String(item.priority || "moyenne");
+      return {
+        ...item,
+        pipelineStatus: (["a_etudier", "interessant", "candidature_en_cours", "soumis", "refuse", "non_pertinent"].includes(status)
+          ? status
+          : "a_etudier") as DevicePipelineStatus,
+        priority: (["faible", "moyenne", "haute"].includes(priority) ? priority : "moyenne") as DevicePipelinePriority,
+        reminderDate: item.reminderDate ?? null,
+        matchProjectId: item.matchProjectId ?? null,
+        documents: Array.isArray(item.documents) ? item.documents : [],
+        updatedAt: item.updatedAt || new Date().toISOString(),
+      };
+    });
   } catch {
     return [];
   }
@@ -532,4 +586,110 @@ export function saveUserPreferences(preferences: UserPreferences) {
   localStorage.setItem(USER_PREFERENCES_KEY, JSON.stringify(preferences));
   emitWorkspaceUpdate();
   void saveRemotePreferences(preferences).catch(() => undefined);
+}
+
+// ─── Pipeline document helpers ─────────────────────────────────────────────
+
+export async function addPipelineDocument(
+  deviceId: string,
+  doc: { name: string; url?: string | null; doc_type?: string; note?: string | null }
+): Promise<PipelineDocument> {
+  // Backend returns the full pipeline response; extract the newly added document (last one)
+  const pipelineResp = await workspaceFetch<any>(`/api/v1/workspace/pipeline/${deviceId}/documents`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: doc.name,
+      url: doc.url ?? null,
+      doc_type: doc.doc_type ?? "url",
+      note: doc.note ?? null,
+    }),
+  });
+  const docs: PipelineDocument[] = Array.isArray(pipelineResp.documents) ? pipelineResp.documents : [];
+  const added = docs.find((d) => d.name === doc.name) ?? docs[docs.length - 1];
+  if (!added) throw new Error("Document introuvable dans la réponse");
+  return added;
+}
+
+export async function removePipelineDocument(deviceId: string, docId: string): Promise<void> {
+  // Backend returns updated pipeline response; we ignore the body
+  await workspaceFetch<any>(`/api/v1/workspace/pipeline/${deviceId}/documents/${docId}`, {
+    method: "DELETE",
+  });
+}
+
+// ─── Team view ────────────────────────────────────────────────────────────
+
+export interface TeamMemberPipelineItem {
+  device_id: string;
+  pipeline_status: string;
+  priority: string;
+  note: string;
+  documents_count: number;
+  snapshot: Record<string, any>;
+  updated_at: string | null;
+}
+
+export interface TeamMember {
+  user_id: string;
+  full_name: string | null;
+  email: string;
+  role: string;
+  pipeline: TeamMemberPipelineItem[];
+}
+
+export interface TeamView {
+  organization_id: string | null;
+  organization_name: string | null;
+  members: TeamMember[];
+}
+
+export async function fetchTeamView(): Promise<TeamView> {
+  return workspaceFetch<TeamView>("/api/v1/workspace/team");
+}
+
+// ─── Activity feed ────────────────────────────────────────────────────────
+
+export interface ActivityItem {
+  id: string;
+  activity_type: string;
+  label: string;
+  description: string;
+  device_id: string | null;
+  device_title: string | null;
+  user_id: string | null;
+  user_name: string | null;
+  occurred_at: string;
+}
+
+export interface ActivityFeed {
+  items: ActivityItem[];
+  total: number;
+}
+
+export async function fetchActivityFeed(limit = 20): Promise<ActivityFeed> {
+  return workspaceFetch<ActivityFeed>(`/api/v1/workspace/activity?limit=${limit}`);
+}
+
+// ─── Reporting décisionnel ────────────────────────────────────────────────────
+
+export interface PipelineReporting {
+  total: number;
+  active: number;
+  by_status: Record<string, number>;
+  submitted: number;
+  refused: number;
+  non_pertinent: number;
+  submission_rate: number;
+  refusal_rate: number;
+  total_amount_detected: number;
+  pipeline_count: number;
+  team_stats: {
+    member_count: number;
+    total_tracked: number;
+    total_submitted: number;
+  } | null;
+}
+
+export async function fetchReporting(): Promise<PipelineReporting> {
+  return workspaceFetch<PipelineReporting>("/api/v1/workspace/reporting");
 }

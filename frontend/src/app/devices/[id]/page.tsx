@@ -1,47 +1,66 @@
 "use client";
 
 import { useEffect, useState, type ElementType, type ReactNode } from "react";
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import DeviceCard from "@/components/DeviceCard";
 import { devices } from "@/lib/api";
 import { canModerateDevices, getCurrentRole, type AppRole } from "@/lib/auth";
 import { Device, DEVICE_TYPE_LABELS, STATUS_LABELS } from "@/lib/types";
-import { formatAmount, formatDate, formatDateRelative, daysUntil, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
+import { formatAmount, formatDate, formatDateRelative, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import {
+  addPipelineDocument,
   getPipelineDevice,
   isFavoriteDevice,
+  readLatestMatchSnapshot,
   removePipelineDevice,
+  removePipelineDocument,
   savePipelineDevice,
   toggleFavoriteDevice,
+  type DevicePipelinePriority,
   type DevicePipelineStatus,
+  type MatchWorkspaceSnapshot,
+  type PipelineDocument,
 } from "@/lib/workspace";
 import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
   Banknote,
+  Bell,
+  Brain,
   Building2,
   Calendar,
   CheckCircle,
+  CheckSquare,
   Clock,
   ExternalLink,
   FileText,
   History,
   Info,
+  LinkIcon,
+  Loader2,
   MapPin,
+  Paperclip,
   Percent,
+  Plus,
   RefreshCw,
   Share2,
   ShieldCheck,
   Sparkles,
   Tag,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
+  TrendingUp,
   Users,
   Heart,
   Flag,
   StickyNote,
+  X,
   XCircle,
+  Zap,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -236,6 +255,37 @@ function stripLeadingSectionHeading(text: string, headings: string[]): string {
   return cleaned.trim();
 }
 
+function getContentSection(device: Device, key: string): string {
+  const sections =
+    device.ai_rewrite_status === "done" && Array.isArray(device.ai_rewritten_sections_json)
+      ? device.ai_rewritten_sections_json
+      : Array.isArray(device.content_sections_json)
+        ? device.content_sections_json
+        : [];
+  const section = sections.find((item) => item?.key === key);
+  return sanitizeDisplayText(section?.content || "");
+}
+
+function extractMarkdownSection(text: string, headings: string[]): string {
+  const cleaned = sanitizeDisplayText(text);
+  if (!cleaned.includes("## ")) {
+    return stripLeadingSectionHeading(cleaned, headings);
+  }
+
+  const normalizedHeadings = headings.map((heading) => sanitizeDisplayText(heading).toLowerCase());
+  const blocks = cleaned.split(/\n(?=##\s+)/);
+  const block = blocks.find((item) => {
+    const firstLine = item.split("\n", 1)[0]?.replace(/^##\s*/, "").trim().toLowerCase();
+    return normalizedHeadings.includes(firstLine);
+  });
+
+  if (!block) {
+    return "";
+  }
+
+  return block.replace(/^##\s*[^\n]+\n?/, "").trim();
+}
+
 function normalizeForComparison(text: string): string {
   return sanitizeDisplayText(text)
     .toLowerCase()
@@ -287,7 +337,7 @@ function SectionCard({
             <Icon className="h-4 w-4" />
           </span>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-500">Fiche dispositif</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-500">Opportunité</p>
             <h2 className="text-base font-semibold text-slate-900">{title}</h2>
           </div>
         </div>
@@ -431,6 +481,453 @@ function InsightCard({
   );
 }
 
+function getDecisionBanner(device: Device, daysLeft: number | null) {
+  if (device.validation_status === "pending_review") {
+    return {
+      label: "A verifier",
+      detail: "Cette fiche contient des informations utiles, mais certaines donnees doivent encore etre confirmees.",
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+    };
+  }
+  if (device.is_recurring || device.status === "recurring") {
+    return {
+      label: "Financement permanent",
+      detail: "Cette opportunité fonctionne sans fenêtre de clôture unique ou selon un rythme récurrent.",
+      className: "border-blue-200 bg-blue-50 text-blue-800",
+    };
+  }
+  if (device.status === "expired" || device.status === "closed") {
+    return {
+      label: "Cloture",
+      detail: "La date limite est passée ou cette opportunité est indiquée comme fermée.",
+      className: "border-slate-200 bg-slate-100 text-slate-700",
+    };
+  }
+  if (!device.close_date) {
+    return {
+      label: "Cloture non communiquee",
+      detail: "La source ne fournit pas encore de date limite exploitable. Verifie la page officielle avant de candidater.",
+      className: "border-orange-200 bg-orange-50 text-orange-800",
+    };
+  }
+  if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 30) {
+    return {
+      label: "Appel en cours",
+      detail: `La cloture approche : ${daysLeft} jour${daysLeft > 1 ? "s" : ""} restant${daysLeft > 1 ? "s" : ""}.`,
+      className: daysLeft <= 7 ? "border-red-200 bg-red-50 text-red-700" : "border-orange-200 bg-orange-50 text-orange-800",
+    };
+  }
+  return {
+    label: "Appel en cours",
+    detail: "Cette opportunité est ouverte et dispose d'une date limite identifiee.",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  };
+}
+
+function buildDecisionSummary(device: Device, presentationContent: string, fundingContent: string, daysLeft: number | null) {
+  const parts = [];
+  const deviceType = DEVICE_TYPE_LABELS[device.device_type] || device.device_type;
+  const presentation = sanitizeDisplayText(presentationContent)
+    .replace(/^##\s*[^\n]+\n+/i, "")
+    .replace(/^\s*(Presentation|Présentation)\s+/i, "")
+    .trim();
+  parts.push(`Cette opportunité correspond à un financement de type ${deviceType.toLowerCase()} porté par ${device.organism}.`);
+  if (device.amount_max) {
+    parts.push(`Le montant peut atteindre ${formatAmount(device.amount_max, device.currency)}.`);
+  } else if (fundingContent) {
+    parts.push("Les avantages financiers ou l'accompagnement sont decrits dans cette opportunité.");
+  }
+  if (device.close_date && daysLeft !== null && daysLeft >= 0) {
+    parts.push(`La date limite est le ${formatDate(device.close_date)}.`);
+  } else if (device.is_recurring || device.status === "recurring") {
+    parts.push("Cette opportunité semble récurrente ou permanente.");
+  } else {
+    parts.push("La date limite doit etre confirmee sur la source officielle.");
+  }
+  if (presentation && presentation.length > 120) {
+    parts.push(presentation.slice(0, 180).replace(/\s+\S*$/, "") + ".");
+  }
+  return parts.join(" ");
+}
+
+// ─── Score helpers ────────────────────────────────────────────────────────────
+
+function ScoreBar({ score, colorClass }: { score: number; colorClass: string }) {
+  return (
+    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+      <div className={clsx("h-full rounded-full transition-all", colorClass)} style={{ width: `${Math.min(100, Math.max(0, score))}%` }} />
+    </div>
+  );
+}
+
+function ScoreChip({ label, score }: { label: string; score: number }) {
+  const color = score >= 70 ? "text-emerald-700 bg-emerald-50 border-emerald-200" : score >= 40 ? "text-amber-700 bg-amber-50 border-amber-200" : "text-red-700 bg-red-50 border-red-200";
+  const barColor = score >= 70 ? "bg-emerald-500" : score >= 40 ? "bg-amber-500" : "bg-red-400";
+  return (
+    <div className={clsx("rounded-xl border px-3 py-2.5", color)}>
+      <p className="text-[9px] font-semibold uppercase tracking-[0.16em] opacity-70">{label}</p>
+      <p className="mt-0.5 text-sm font-bold">{score}%</p>
+      <ScoreBar score={score} colorClass={barColor} />
+    </div>
+  );
+}
+
+function LevelChip({ label, level }: { label: string; level: string }) {
+  const cfg: Record<string, { cls: string; icon: string }> = {
+    faible: { cls: "text-emerald-700 bg-emerald-50 border-emerald-200", icon: "↓" },
+    moyenne: { cls: "text-amber-700 bg-amber-50 border-amber-200", icon: "→" },
+    haute: { cls: "text-orange-700 bg-orange-50 border-orange-200", icon: "↑" },
+    critique: { cls: "text-red-700 bg-red-50 border-red-200", icon: "⚡" },
+  };
+  const c = cfg[level] || cfg.moyenne;
+  return (
+    <div className={clsx("rounded-xl border px-3 py-2.5", c.cls)}>
+      <p className="text-[9px] font-semibold uppercase tracking-[0.16em] opacity-70">{label}</p>
+      <p className="mt-0.5 text-sm font-bold capitalize">{c.icon} {level}</p>
+    </div>
+  );
+}
+
+function GoNoGoCard({ goNoGo, priority, action }: { goNoGo: string; priority: string; action?: string }) {
+  const cfgs: Record<string, { label: string; detail: string; cls: string; badgeCls: string; Icon: ElementType }> = {
+    go: {
+      label: "Bonne opportunité pour votre profil",
+      detail: "Les signaux disponibles indiquent une opportunité accessible et potentiellement pertinente.",
+      cls: "border-emerald-300 bg-gradient-to-br from-emerald-50 to-emerald-100/60",
+      badgeCls: "bg-emerald-600 text-white",
+      Icon: ThumbsUp,
+    },
+    no_go: {
+      label: "Peu recommandé à ce stade",
+      detail: "Les critères ou conditions identifiés rendent la candidature difficile sans préparation avancée.",
+      cls: "border-red-200 bg-gradient-to-br from-red-50 to-red-100/40",
+      badgeCls: "bg-red-600 text-white",
+      Icon: ThumbsDown,
+    },
+    a_verifier: {
+      label: "Décision à prendre — informations à confirmer",
+      detail: "Des points restent flous. Vérifiez les critères sur la source officielle avant de décider.",
+      cls: "border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100/50",
+      badgeCls: "bg-amber-500 text-white",
+      Icon: AlertCircle,
+    },
+  };
+  const cfg = cfgs[goNoGo] || cfgs.a_verifier;
+  const priorityLabel: Record<string, string> = { haute: "Priorité haute", moyenne: "Priorité moyenne", faible: "Priorité faible" };
+  const { Icon } = cfg;
+  return (
+    <div className={clsx("rounded-2xl border px-4 py-4", cfg.cls)}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-current opacity-80" />
+          <p className="text-sm font-bold text-slate-900">{cfg.label}</p>
+        </div>
+        <span className={clsx("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold", cfg.badgeCls)}>
+          {priorityLabel[priority] || "Priorité moyenne"}
+        </span>
+      </div>
+      <p className="text-xs leading-5 text-slate-600 mb-1">{cfg.detail}</p>
+      {action && <p className="text-xs leading-5 font-medium text-slate-800 mt-2 border-t border-slate-200/70 pt-2">{action}</p>}
+    </div>
+  );
+}
+
+function DecisionPanel({
+  device,
+  onAnalyze,
+  analyzing,
+  analysisError,
+}: {
+  device: Device;
+  onAnalyze: () => void;
+  analyzing: boolean;
+  analysisError: string | null;
+}) {
+  const analysis = (device as any).decision_analysis as Record<string, any> | null;
+  const analyzedAt = (device as any).decision_analyzed_at as string | null;
+
+  if (!analysis) {
+    return (
+      <div className="rounded-[24px] border border-violet-200 bg-gradient-to-br from-violet-50 to-purple-50 p-5 shadow-sm">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+            <Brain className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-500">Analyse décisionnelle IA</p>
+            <p className="text-sm font-semibold text-violet-900">Aider à décider vite</p>
+          </div>
+        </div>
+        <p className="text-xs leading-5 text-violet-700 mb-1">
+          Go / No-go · Pourquoi intéressant · Points de vigilance · Effort estimé · Action conseillée.
+        </p>
+        <p className="text-[11px] text-violet-500 mb-4">Généré par IA en quelques secondes à partir de la fiche.</p>
+        {analysisError && (
+          <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{analysisError}</div>
+        )}
+        <button
+          type="button"
+          onClick={onAnalyze}
+          disabled={analyzing}
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-700 disabled:opacity-60"
+        >
+          {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+          {analyzing ? "Analyse en cours…" : "Analyser cette opportunité"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5">
+          <Brain className="h-4 w-4 text-violet-500" />
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-500">Analyse IA</p>
+        </div>
+        {analyzedAt && (
+          <p className="text-[10px] text-slate-400">{formatDateRelative(analyzedAt)}</p>
+        )}
+      </div>
+
+      <GoNoGoCard
+        goNoGo={analysis.go_no_go}
+        priority={analysis.recommended_priority}
+        action={analysis.recommended_action}
+      />
+
+      {/* Scores */}
+      <div className="grid grid-cols-3 gap-2">
+        <ScoreChip label="Éligibilité" score={analysis.eligibility_score ?? 50} />
+        <ScoreChip label="Intérêt strat." score={analysis.strategic_interest ?? 50} />
+        <LevelChip label="Urgence" level={analysis.urgency_level ?? "moyenne"} />
+        <LevelChip label="Difficulté" level={analysis.difficulty_level ?? "moyenne"} />
+        <LevelChip label="Effort dossier" level={analysis.effort_level ?? "moyenne"} />
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400">Confiance source</p>
+          <p className="mt-0.5 text-sm font-bold text-slate-700">{device.confidence_score ?? 0}%</p>
+          <ScoreBar score={device.confidence_score ?? 0} colorClass="bg-slate-400" />
+        </div>
+      </div>
+
+      {/* Text sections */}
+      {analysis.why_interesting && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600 flex items-center gap-1">
+            <TrendingUp className="h-3 w-3" /> Pourquoi c'est intéressant
+          </p>
+          <p className="text-xs leading-5 text-emerald-800">{analysis.why_interesting}</p>
+        </div>
+      )}
+
+      {analysis.why_cautious && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700 flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" /> Pourquoi être prudent
+          </p>
+          <p className="text-xs leading-5 text-amber-800">{analysis.why_cautious}</p>
+        </div>
+      )}
+
+      {analysis.points_to_confirm && (
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 flex items-center gap-1">
+            <CheckSquare className="h-3 w-3" /> Points à confirmer
+          </p>
+          <p className="text-xs leading-5 text-slate-700">{analysis.points_to_confirm}</p>
+        </div>
+      )}
+
+      {analysisError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{analysisError}</div>
+      )}
+
+      <button
+        type="button"
+        onClick={onAnalyze}
+        disabled={analyzing}
+        className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-60"
+      >
+        {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        {analyzing ? "Mise à jour…" : "Mettre à jour l'analyse"}
+      </button>
+    </div>
+  );
+}
+
+// ─── Document manager ─────────────────────────────────────────────────────────
+
+function DocumentManager({
+  deviceId,
+  documents,
+  onDocumentsChange,
+}: {
+  deviceId: string;
+  documents: PipelineDocument[];
+  onDocumentsChange: (docs: PipelineDocument[]) => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [note, setNote] = useState("");
+  const [docType, setDocType] = useState<"url" | "note" | "brouillon">("url");
+  const [saving, setSaving] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const doc = await addPipelineDocument(deviceId, {
+        name: name.trim(),
+        url: url.trim() || null,
+        doc_type: docType,
+        note: note.trim() || null,
+      });
+      onDocumentsChange([...documents, doc]);
+      setName(""); setUrl(""); setNote(""); setDocType("url");
+      setShowForm(false);
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async (docId: string) => {
+    setRemovingId(docId);
+    try {
+      await removePipelineDocument(deviceId, docId);
+      onDocumentsChange(documents.filter((d) => d.id !== docId));
+    } catch {
+      // silent
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const DOC_TYPE_LABELS: Record<string, string> = { url: "Lien", note: "Note", brouillon: "Brouillon" };
+  const DOC_TYPE_COLORS: Record<string, string> = {
+    url: "bg-blue-50 text-blue-700",
+    note: "bg-amber-50 text-amber-700",
+    brouillon: "bg-violet-50 text-violet-700",
+  };
+
+  return (
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+          <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+          Documents attachés
+          {documents.length > 0 && (
+            <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+              {documents.length}
+            </span>
+          )}
+        </h3>
+        <button
+          type="button"
+          onClick={() => setShowForm((v) => !v)}
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-primary-600 hover:bg-primary-50"
+        >
+          <Plus className="h-3 w-3" /> Ajouter
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+          <div className="flex gap-2">
+            <select
+              value={docType}
+              onChange={(e) => setDocType(e.target.value as "url" | "note" | "brouillon")}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+            >
+              <option value="url">Lien</option>
+              <option value="note">Note</option>
+              <option value="brouillon">Brouillon</option>
+            </select>
+            <input
+              type="text"
+              placeholder="Nom du document *"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs placeholder:text-slate-400"
+            />
+          </div>
+          {docType === "url" && (
+            <input
+              type="url"
+              placeholder="URL (Drive, Dropbox…)"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs placeholder:text-slate-400"
+            />
+          )}
+          {(docType === "note" || docType === "brouillon") && (
+            <textarea
+              placeholder="Contenu / note…"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs placeholder:text-slate-400 resize-none"
+            />
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={saving || !name.trim()}
+              className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {saving ? "…" : "Enregistrer"}
+            </button>
+            <button type="button" onClick={() => setShowForm(false)} className="text-xs text-slate-500 hover:text-slate-700">
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {documents.length === 0 && !showForm && (
+        <p className="text-xs text-slate-400 italic">Aucun document attaché à cette candidature.</p>
+      )}
+
+      {documents.length > 0 && (
+        <ul className="space-y-1.5">
+          {documents.map((doc) => (
+            <li key={doc.id} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5">
+              <span className={clsx("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold", DOC_TYPE_COLORS[doc.doc_type] || "bg-slate-100 text-slate-600")}>
+                {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
+              </span>
+              <div className="flex-1 min-w-0">
+                {doc.url ? (
+                  <a href={doc.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 truncate text-xs font-medium text-primary-700 hover:underline">
+                    <LinkIcon className="h-3 w-3 shrink-0" />
+                    {doc.name}
+                  </a>
+                ) : (
+                  <span className="truncate text-xs font-medium text-slate-700">{doc.name}</span>
+                )}
+                {doc.note && <p className="truncate text-[10px] text-slate-400">{doc.note}</p>}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRemove(doc.id)}
+                disabled={removingId === doc.id}
+                className="shrink-0 rounded p-0.5 text-slate-300 hover:text-red-400 disabled:opacity-40"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -446,17 +943,31 @@ export default function DeviceDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [rewriting, setRewriting] = useState(false);
+  const [rewriteMsg, setRewriteMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [favorite, setFavorite] = useState(false);
   const [role, setRole] = useState<AppRole>("reader");
   const [pipelineStatus, setPipelineStatus] = useState<DevicePipelineStatus | "">("");
+  const [pipelinePriority, setPipelinePriority] = useState<DevicePipelinePriority>("moyenne");
+  const [pipelineReminderDate, setPipelineReminderDate] = useState("");
+  const [pipelineMatchProjectId, setPipelineMatchProjectId] = useState("");
   const [pipelineNote, setPipelineNote] = useState("");
   const [pipelineFeedback, setPipelineFeedback] = useState<string | null>(null);
-  const cameFromMatch = searchParams.get("from") === "match";
+  const [pipelineDocuments, setPipelineDocuments] = useState<PipelineDocument[]>([]);
+  const [matchSnapshot, setMatchSnapshot] = useState<MatchWorkspaceSnapshot | null>(null);
+  const sourceView = searchParams.get("from");
+  const cameFromMatch = sourceView === "match";
+  const cameFromRecommendations = sourceView === "recommendations";
   const canModerate = canModerateDevices(role);
   const PIPELINE_LABELS: Record<DevicePipelineStatus, string> = {
     a_etudier: "A etudier",
+    interessant: "Interessant",
     candidature_en_cours: "Candidature en cours",
+    soumis: "Soumis",
+    refuse: "Refuse",
     non_pertinent: "Non pertinent",
   };
 
@@ -478,8 +989,9 @@ export default function DeviceDetailPage() {
         return devices.list({
           device_types: [loadedDevice.device_type],
           countries: [loadedDevice.country],
-          page_size: 4,
+          page_size: 5,
           status: "open",
+          sort_by: "relevance",
         });
       })
       .then((res: any) => {
@@ -493,7 +1005,12 @@ export default function DeviceDetailPage() {
     setFavorite(isFavoriteDevice(id));
     const tracked = getPipelineDevice(id);
     setPipelineStatus(tracked?.pipelineStatus || "");
+    setPipelinePriority(tracked?.priority || "moyenne");
+    setPipelineReminderDate(tracked?.reminderDate || "");
+    setPipelineMatchProjectId(tracked?.matchProjectId || "");
     setPipelineNote(tracked?.note || "");
+    setPipelineDocuments(tracked?.documents || []);
+    setMatchSnapshot(readLatestMatchSnapshot());
   }, [id]);
 
   const handleValidate = async () => {
@@ -507,7 +1024,7 @@ export default function DeviceDetailPage() {
   };
 
   const handleReject = async () => {
-    if (!confirm("Rejeter ce dispositif ?")) return;
+    if (!confirm("Rejeter cette opportunité ?")) return;
     setActionLoading(true);
     try {
       const updated = await devices.reject(id);
@@ -537,6 +1054,19 @@ export default function DeviceDetailPage() {
     }
   };
 
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const updated = await devices.analyze(id);
+      setDevice(updated as Device);
+    } catch (e: any) {
+      setAnalysisError(e.message || "L'analyse IA a échoué. Réessayez.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const handleScrape = async () => {
     setScraping(true);
     setScrapeMsg(null);
@@ -549,6 +1079,28 @@ export default function DeviceDetailPage() {
       setScrapeMsg({ type: "error", text: e.message || "Impossible d'enrichir cette fiche." });
     } finally {
       setScraping(false);
+    }
+  };
+
+  const handleRewrite = async () => {
+    setRewriting(true);
+    setRewriteMsg(null);
+    try {
+      const updated = await devices.rewrite(id);
+      setDevice(updated as Device);
+      const status = (updated as Device).ai_rewrite_status;
+      setRewriteMsg({
+        type: status === "done" || status === "needs_review" ? "success" : "error",
+        text: status === "done"
+          ? "Fiche reformulée avec succès par l'IA."
+          : status === "needs_review"
+          ? "Reformulation effectuée — à relire (certains points à vérifier)."
+          : "La reformulation a échoué. Vérifie que la fiche a des sections source.",
+      });
+    } catch (e: any) {
+      setRewriteMsg({ type: "error", text: e.message || "Impossible de reformuler cette fiche." });
+    } finally {
+      setRewriting(false);
     }
   };
 
@@ -582,7 +1134,7 @@ export default function DeviceDetailPage() {
 
     if (!pipelineStatus && !pipelineNote.trim()) {
       removePipelineDevice(device.id);
-      setPipelineFeedback("Le suivi personnel a été effacé pour cette fiche.");
+      setPipelineFeedback("Le suivi personnel a été effacé pour cette opportunité.");
       return;
     }
 
@@ -604,7 +1156,11 @@ export default function DeviceDetailPage() {
       currency: device.currency,
       sourceUrl: device.source_url,
       pipelineStatus,
+      priority: pipelinePriority,
+      reminderDate: pipelineReminderDate || null,
+      matchProjectId: pipelineMatchProjectId || null,
       note: pipelineNote.trim(),
+      documents: pipelineDocuments,
     });
     setPipelineFeedback("Suivi personnel enregistré dans Mon espace.");
   };
@@ -623,7 +1179,7 @@ export default function DeviceDetailPage() {
   if (!device) {
     return (
       <AppLayout>
-        <div className="py-20 text-center text-gray-400">Dispositif introuvable</div>
+        <div className="py-20 text-center text-gray-400">Opportunité introuvable</div>
       </AppLayout>
     );
   }
@@ -637,7 +1193,10 @@ export default function DeviceDetailPage() {
   const beneficiarySummary = device.beneficiaries?.length
     ? device.beneficiaries.map((item) => item.replace(/_/g, " ")).join(", ")
     : null;
-  const showShortDescription = shouldDisplaySummary(device.short_description, device.full_description);
+  const structuredPresentation = getContentSection(device, "presentation");
+  const structuredEligibility = getContentSection(device, "eligibility");
+  const structuredFunding = getContentSection(device, "funding");
+  const showShortDescription = !structuredPresentation && shouldDisplaySummary(device.short_description, device.full_description);
   const showEligibleExpenses = shouldDisplaySummary(device.eligible_expenses, device.full_description);
   const natureBannerTone =
     natureBanner?.kind === "open_call"
@@ -657,15 +1216,61 @@ export default function DeviceDetailPage() {
     stripLeadingSectionHeading(device.eligible_expenses || "", ["DÃ©penses concernÃ©es", "Montants & Financement"]),
   );
   const fundingContent = sanitizeDisplayText((device as any).funding_details || "");
+  const displayPresentationContent = sanitizeDisplayText(
+    structuredPresentation || extractMarkdownSection(device.full_description || "", ["Presentation"]) || presentationContent,
+  );
+  const displayEligibilityContent = sanitizeDisplayText(structuredEligibility || eligibilityContent);
+  const displayFundingContent = sanitizeDisplayText(structuredFunding || fundingContent);
   const hasDistinctFundingText =
-    fundingContent && normalizeForComparison(fundingContent) !== normalizeForComparison(presentationContent);
+    displayFundingContent && normalizeForComparison(displayFundingContent) !== normalizeForComparison(displayPresentationContent);
+  const decisionBanner = getDecisionBanner(device, daysLeft);
+  const decisionSummary = buildDecisionSummary(device, displayPresentationContent, displayFundingContent, daysLeft);
+  const aiReadiness = getAiReadinessMeta(device);
+  const smartActionHint =
+    daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
+      ? `Attention : deadline proche, il reste ${daysLeft} jour${daysLeft > 1 ? "s" : ""}. Priorise cette aide si elle correspond à ton projet.`
+      : device.ai_readiness_label === "pret_pour_recommandation_ia"
+        ? "Bonne opportunité pour ton profil : ajoute-la à ton suivi pour décider plus vite."
+        : device.amount_max
+          ? "Conseil : le montant est indiqué. Compare-le à ton besoin réel avant de candidater."
+          : "Astuce : ajoute cette opportunité à ton suivi pour la comparer avec d'autres financements.";
+  const primaryActionLabel = device.source_url
+    ? "Consulter la source officielle"
+    : pipelineStatus
+      ? "Mettre a jour mon suivi"
+      : "Ajouter à mon suivi";
+  const recommendationNarrative = device.relevance_label || aiReadiness.detail;
+  const addToStudyPipeline = () => {
+    setPipelineStatus("a_etudier");
+    setPipelinePriority(pipelinePriority || "moyenne");
+    savePipelineDevice({
+      id: device.id,
+      title: device.title,
+      organism: device.organism,
+      country: device.country,
+      region: device.region,
+      deviceType: device.device_type,
+      status: device.status,
+      closeDate: device.close_date,
+      amountMax: device.amount_max,
+      currency: device.currency,
+      sourceUrl: device.source_url,
+      pipelineStatus: "a_etudier",
+      priority: pipelinePriority || "moyenne",
+      reminderDate: pipelineReminderDate || null,
+      matchProjectId: pipelineMatchProjectId || null,
+      note: pipelineNote.trim(),
+      documents: pipelineDocuments,
+    });
+    setPipelineFeedback("Ajouté au suivi de tes opportunités dans le statut À étudier.");
+  };
 
   return (
     <AppLayout>
       <div className="max-w-5xl">
         <div className="mb-4 flex items-center justify-between">
           <button
-            onClick={() => (cameFromMatch ? router.push("/match") : router.back())}
+            onClick={() => (cameFromRecommendations ? router.push("/recommendations") : cameFromMatch ? router.push("/match") : router.back())}
             className="btn-secondary flex items-center gap-1.5 text-xs"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -693,6 +1298,15 @@ export default function DeviceDetailPage() {
                 >
                   {scraping ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                   {scraping ? "Enrichissement..." : "Enrichir"}
+                </button>
+                <button
+                  onClick={handleRewrite}
+                  disabled={rewriting}
+                  className="btn-secondary flex items-center gap-1.5 border-indigo-300 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                  title="Reformuler les sections avec l'IA"
+                >
+                  {rewriting ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Brain className="h-3 w-3" />}
+                  {rewriting ? "Reformulation…" : "Reformuler IA"}
                 </button>
                 <button onClick={() => setShowHistory(!showHistory)} className="btn-secondary text-xs">
                   <History className="h-3 w-3" />
@@ -759,6 +1373,22 @@ export default function DeviceDetailPage() {
           </div>
         )}
 
+        {rewriteMsg && (
+          <div
+            className={clsx(
+              "mb-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm",
+              rewriteMsg.type === "success" ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-red-200 bg-red-50 text-red-700",
+            )}
+          >
+            {rewriteMsg.type === "success" ? (
+              <Brain className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            )}
+            <span>{rewriteMsg.text}</span>
+          </div>
+        )}
+
         <div className={clsx("mb-4 rounded-[28px] bg-gradient-to-br p-6 text-white shadow-md", hero.from, hero.to)}>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
@@ -766,6 +1396,9 @@ export default function DeviceDetailPage() {
             </span>
             <span className="rounded-full bg-white/25 px-2.5 py-1 text-xs font-medium text-white">
               {STATUS_LABELS[device.status]}
+            </span>
+            <span className="rounded-full bg-white/25 px-2.5 py-1 text-xs font-medium text-white" title={aiReadiness.detail}>
+              {aiReadiness.label}
             </span>
             {device.is_recurring && (
               <span className="rounded-full bg-white/20 px-2.5 py-1 text-xs font-medium text-white">Récurrent</span>
@@ -786,7 +1419,7 @@ export default function DeviceDetailPage() {
 
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">Dispositif de financement</p>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">Opportunité de financement</p>
               <h1 className="mb-2 text-2xl font-bold leading-snug text-white">{device.title}</h1>
               {device.auto_summary && (
                 <p className="line-clamp-3 text-sm italic leading-relaxed text-white/80">
@@ -838,10 +1471,148 @@ export default function DeviceDetailPage() {
           </div>
         )}
 
-        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.25)]">
+          <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr] lg:items-start">
+            <div className="space-y-4">
+              <div className={clsx("inline-flex items-start gap-2 rounded-2xl border px-4 py-3", decisionBanner.className)}>
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{decisionBanner.label}</p>
+                  <p className="mt-1 text-sm leading-6">{decisionBanner.detail}</p>
+                </div>
+              </div>
+
+              <div className={clsx("inline-flex items-start gap-2 rounded-2xl border px-4 py-3", aiReadiness.className)}>
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Pertinence</p>
+                  <p className="mt-1 text-sm leading-6">{recommendationNarrative}</p>
+                  {device.ai_readiness_reasons?.length ? (
+                    <p className="mt-2 text-xs leading-5 opacity-80">
+                      Signaux : {device.ai_readiness_reasons.slice(0, 4).map((reason) => reason.replace(/_/g, " ")).join(", ")}.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              {device.relevance_label ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Pourquoi cette opportunité ressort</p>
+                  <p className="mt-1 text-sm font-semibold leading-6">{device.relevance_label}</p>
+                  {device.relevance_reasons?.length ? (
+                    <ul className="mt-2 space-y-1.5 text-sm leading-6">
+                      {device.relevance_reasons.slice(0, 3).map((reason) => (
+                        <li key={reason} className="flex items-start gap-2">
+                          <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-500">Lecture rapide</p>
+                <p className="mt-2 text-sm leading-7 text-slate-600">{decisionSummary}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Statut</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{STATUS_LABELS[device.status] || device.status}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Date limite</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {device.close_date ? formatDate(device.close_date) : device.is_recurring ? "Permanent" : "A confirmer"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Montant</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{device.amount_max ? formatAmount(device.amount_max, device.currency) : "A confirmer"}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Pays</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{device.country}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Type</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{DEVICE_TYPE_LABELS[device.device_type] || device.device_type}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* ── Panneau décisionnel IA ── */}
+              <DecisionPanel
+                device={device}
+                onAnalyze={handleAnalyze}
+                analyzing={analyzing}
+                analysisError={analysisError}
+              />
+
+              {/* ── Actions rapides ── */}
+              <div className="rounded-[24px] border border-primary-100 bg-primary-50/60 p-4">
+                <p className="text-sm font-semibold text-slate-950 mb-1">Actions rapides</p>
+                <div className={clsx("mb-3 rounded-2xl border px-3 py-3 text-xs leading-5", daysLeft !== null && daysLeft >= 0 && daysLeft <= 7 ? "border-orange-200 bg-orange-50 text-orange-800" : "border-primary-100 bg-white text-primary-800")}>
+                  {smartActionHint}
+                </div>
+                {device.source_url ? (
+                  <a
+                    href={device.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Accéder au dispositif officiel
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={addToStudyPipeline}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+                  >
+                    <Flag className="h-4 w-4" />
+                    Ajouter à mon suivi
+                  </button>
+                )}
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                  <button type="button" onClick={addToStudyPipeline} className="btn-secondary justify-center text-xs">
+                    <Flag className="h-3.5 w-3.5" />
+                    Ajouter à mon suivi
+                  </button>
+                  <Link href={`/alerts?device=${device.id}`} className="btn-secondary justify-center text-xs">
+                    <Bell className="h-3.5 w-3.5" />
+                    Créer une alerte similaire
+                  </Link>
+                </div>
+              </div>
+
+              {/* ── Accompagnement premium ── */}
+              <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-600 mb-1">Service premium</p>
+                <p className="text-sm font-semibold text-slate-800 mb-0.5">Besoin d'aide pour candidater ?</p>
+                <p className="text-xs leading-5 text-slate-500 mb-3">
+                  Un expert vous accompagne de la constitution du dossier jusqu'à l'obtention du financement.
+                </p>
+                <a
+                  href="mailto:contact@kafundo.com"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-600"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Se faire accompagner
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div className="hidden">
           <InsightCard
             label="Date limite"
-            value={device.close_date ? formatDate(device.close_date) : device.status === "recurring" ? "Dispositif récurrent" : "Non communiquée"}
+            value={device.close_date ? formatDate(device.close_date) : device.status === "recurring" ? "Financement récurrent" : "Non communiquée"}
             icon={Calendar}
             accent={!!device.close_date}
           />
@@ -880,26 +1651,26 @@ export default function DeviceDetailPage() {
 
             <FundingCard device={device} />
 
-            {(device.short_description || presentationContent) && (
-              <SectionCard title="Présentation du dispositif" icon={FileText}>
+            {(device.short_description || displayPresentationContent) && (
+              <SectionCard title="Présentation de l'opportunité" icon={FileText}>
                 {showShortDescription && device.short_description && <SectionField content={device.short_description} />}
-                {presentationContent && <SectionField content={presentationContent} />}
+                {displayPresentationContent && <SectionField content={displayPresentationContent} />}
               </SectionCard>
             )}
 
-            {(beneficiarySummary || eligibilityContent) && (
+            {(beneficiarySummary || displayEligibilityContent) && (
               <SectionCard title="Conditions d'attribution" icon={CheckCircle}>
                 {beneficiarySummary && (
                   <SectionField
-                    eyebrow="À qui s'adresse le dispositif ?"
+                    eyebrow="À qui s'adresse cette opportunité ?"
                     title="Entreprises éligibles"
                     content={beneficiarySummary}
                   />
                 )}
-                {eligibilityContent && (
+                {displayEligibilityContent && (
                   <SectionField
                     title="Critères d'éligibilité"
-                    content={eligibilityContent}
+                    content={displayEligibilityContent}
                   />
                 )}
               </SectionCard>
@@ -913,7 +1684,7 @@ export default function DeviceDetailPage() {
                     content={projectContent}
                   />
                 )}
-                {hasDistinctFundingText && <SectionField title="Montant / avantages" content={fundingContent} />}
+                {hasDistinctFundingText && <SectionField title="Montant / avantages" content={displayFundingContent} />}
                 {device.specific_conditions && <SectionField title="Quelles sont les particularités ?" content={device.specific_conditions} />}
               </SectionCard>
             )}
@@ -968,7 +1739,7 @@ export default function DeviceDetailPage() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
               >
                 <ExternalLink className="h-4 w-4" />
-                Accéder au dispositif
+                Accéder au financement
                 <ArrowRight className="ml-auto h-4 w-4" />
               </a>
             )}
@@ -1018,9 +1789,10 @@ export default function DeviceDetailPage() {
                 {[
                   { label: "Fiabilité", value: device.confidence_score },
                   { label: "Complétude", value: device.completeness_score },
-                  { label: "Pertinence", value: device.relevance_score },
-                ].map(({ label, value }) => (
-                  <div key={label}>
+                  { label: "Ciblage", value: device.relevance_score },
+                  { label: "Lisibilite", value: device.ai_readiness_score ?? 0 },
+                ].map(({ label, value }, index) => (
+                  <div key={`${label}-${index}`}>
                     <div className="mb-0.5 flex justify-between text-xs text-gray-500">
                       <span>{label}</span>
                       <span className="font-semibold">{value}%</span>
@@ -1061,7 +1833,7 @@ export default function DeviceDetailPage() {
                 <div className="space-y-3">
                   <div>
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                      Statut du pipeline
+                      Statut de suivi
                     </label>
                     <select
                       value={pipelineStatus}
@@ -1073,10 +1845,64 @@ export default function DeviceDetailPage() {
                     >
                       <option value="">Aucun suivi</option>
                       <option value="a_etudier">A étudier</option>
+                      <option value="interessant">Intéressant</option>
                       <option value="candidature_en_cours">Candidature en cours</option>
+                      <option value="soumis">Soumis</option>
+                      <option value="refuse">Refusé</option>
                       <option value="non_pertinent">Non pertinent</option>
                     </select>
                   </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Priorité
+                      </label>
+                      <select
+                        value={pipelinePriority}
+                        onChange={(e) => {
+                          setPipelinePriority(e.target.value as DevicePipelinePriority);
+                          setPipelineFeedback(null);
+                        }}
+                        className="input text-sm"
+                      >
+                        <option value="faible">Faible</option>
+                        <option value="moyenne">Moyenne</option>
+                        <option value="haute">Haute</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Date de rappel
+                      </label>
+                      <input
+                        type="date"
+                        value={pipelineReminderDate}
+                        onChange={(e) => {
+                          setPipelineReminderDate(e.target.value);
+                          setPipelineFeedback(null);
+                        }}
+                        className="input text-sm"
+                      />
+                    </div>
+                  </div>
+                  {matchSnapshot?.id && (
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Projet lié
+                      </label>
+                      <select
+                        value={pipelineMatchProjectId}
+                        onChange={(e) => {
+                          setPipelineMatchProjectId(e.target.value);
+                          setPipelineFeedback(null);
+                        }}
+                        className="input text-sm"
+                      >
+                        <option value="">Aucun projet lié</option>
+                        <option value={matchSnapshot.id}>{matchSnapshot.fileName || "Dernière analyse de projet"}</option>
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
                       <StickyNote className="h-3.5 w-3.5" />
@@ -1105,6 +1931,9 @@ export default function DeviceDetailPage() {
                         type="button"
                         onClick={() => {
                           setPipelineStatus("");
+                          setPipelinePriority("moyenne");
+                          setPipelineReminderDate("");
+                          setPipelineMatchProjectId("");
                           setPipelineNote("");
                           removePipelineDevice(id);
                           setPipelineFeedback("Le suivi personnel a été retiré.");
@@ -1118,6 +1947,15 @@ export default function DeviceDetailPage() {
                 </div>
               </div>
 
+              {/* ── Documents attachés (visible si le device est dans le pipeline) ── */}
+              {pipelineStatus && (
+                <DocumentManager
+                  deviceId={id}
+                  documents={pipelineDocuments}
+                  onDocumentsChange={setPipelineDocuments}
+                />
+              )}
+
               {hasEnrichedContent && (
                 <div className="mb-4 rounded-2xl border border-primary-100 bg-primary-50/60 p-4">
                   <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary-800">
@@ -1125,11 +1963,18 @@ export default function DeviceDetailPage() {
                     Source de vérité
                   </h2>
                   <div className="space-y-2 text-sm text-slate-700">
-                    <p className="font-medium text-primary-700">Texte enrichi automatiquement</p>
+                    <p className="font-medium text-primary-700">
+                      {device.ai_rewrite_status === "done" ? "Texte reformule automatiquement" : "Texte enrichi automatiquement"}
+                    </p>
                     {device.last_verified_at && (
                       <p>
                         Dernière vérification : <span className="font-medium">{formatDate(device.last_verified_at)}</span>{" "}
                         <span className="text-slate-500">({formatDateRelative(device.last_verified_at)})</span>
+                      </p>
+                    )}
+                    {device.ai_rewrite_checked_at && (
+                      <p>
+                        DerniÃ¨re reformulation : <span className="font-medium">{formatDate(device.ai_rewrite_checked_at)}</span>
                       </p>
                     )}
                     <p className="text-slate-600">
@@ -1184,10 +2029,24 @@ export default function DeviceDetailPage() {
 
         {similar.length > 0 && (
           <div className="mb-6">
-            <h2 className="mb-3 flex items-center gap-2 text-base font-semibold text-gray-700">
-              <ArrowRight className="h-4 w-4 text-primary-400" />
-              Dispositifs similaires
-            </h2>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-base font-semibold text-gray-700">
+                <ArrowRight className="h-4 w-4 text-primary-400" />
+                Opportunités similaires
+              </h2>
+              {similar.some((item) => item.relevance_label) && (
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                  Triées par pertinence pour ton profil
+                </span>
+              )}
+            </div>
+            {similar.some((item) => item.relevance_score > 0) && (
+              <p className="mb-3 text-sm text-slate-500">
+                {similar.filter((item) => item.relevance_score > device.relevance_score).length > 0
+                  ? `${similar.filter((item) => item.relevance_score > device.relevance_score).length} dispositif(s) proche(s) ont un meilleur score de pertinence que cette fiche pour ton profil.`
+                  : "Ces opportunités sont proches de celle-ci par type et pays."}
+              </p>
+            )}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               {similar.map((item) => (
                 <DeviceCard key={item.id} device={item} />

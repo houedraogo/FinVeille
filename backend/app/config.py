@@ -1,10 +1,10 @@
-from pydantic_settings import BaseSettings
+﻿from pydantic_settings import BaseSettings
 from typing import Optional
 
 
 class Settings(BaseSettings):
     # Application
-    APP_NAME: str = "FinVeille"
+    APP_NAME: str = "Kafundo"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 heures
 
     # Base de données
-    DATABASE_URL: str = "postgresql+asyncpg://finveille:changeme@localhost:5432/finveille"
-    DATABASE_SYNC_URL: str = "postgresql://finveille:changeme@localhost:5432/finveille"
+    DATABASE_URL: str = "postgresql+asyncpg://kafundo:changeme@localhost:5432/kafundo"
+    DATABASE_SYNC_URL: str = "postgresql://kafundo:changeme@localhost:5432/kafundo"
 
     # Redis / Celery
     REDIS_URL: str = "redis://:changeme@redis:6379/0"
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    EMAIL_FROM: str = "noreply@finveille.com"
+    EMAIL_FROM: str = "noreply@kafundo.com"
 
     # Collecte
     DEFAULT_REQUEST_TIMEOUT: int = 30
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_PRICE_PRO: Optional[str] = None
     STRIPE_PRICE_TEAM: Optional[str] = None
+    STRIPE_PRICE_EXPERT: Optional[str] = None
     STRIPE_PRICE_ENTERPRISE: Optional[str] = None
     STRIPE_CHECKOUT_SUCCESS_URL: str = "http://localhost:3000/billing?checkout=success"
     STRIPE_CHECKOUT_CANCEL_URL: str = "http://localhost:3000/billing?checkout=cancel"
@@ -56,6 +57,9 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     MISTRAL_API_KEY: Optional[str] = None
+    AI_REWRITE_PROVIDER: str = "openai"
+    AI_REWRITE_MODEL: str = "gpt-4o-mini"
+    AI_REWRITE_TIMEOUT_SECONDS: int = 45
 
     # CORS
     FRONTEND_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000"

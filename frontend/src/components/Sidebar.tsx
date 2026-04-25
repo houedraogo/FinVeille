@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -21,6 +22,9 @@ import {
   CreditCard,
   KeyRound,
   UsersRound,
+  Wand2,
+  ReceiptText,
+  LineChart,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -36,7 +40,7 @@ const NAV_GROUPS = [
     items: [
       {
         href: "/devices",
-        label: "Dispositifs publics",
+        label: "Opportunités publiques",
         icon: Landmark,
         activeFn: (pathname: string, _sp: URLSearchParams) => pathname === "/devices",
       },
@@ -75,12 +79,24 @@ const NAV_GROUPS = [
         activeFn: (pathname: string) => pathname === "/workspace",
       },
       {
-        href: "/match",
-        label: "Matching IA",
+        href: "/onboarding",
+        label: "Configurer ma veille",
+        icon: Wand2,
+        activeFn: (pathname: string) => pathname === "/onboarding",
+      },
+      {
+        href: "/recommendations",
+        label: "Opportunités recommandées",
         icon: Sparkles,
+        activeFn: (pathname: string) => pathname === "/recommendations",
+      },
+      {
+        href: "/match",
+        label: "Analyse de document",
+        icon: ChevronRight,
         activeFn: (pathname: string) => pathname === "/match",
       },
-      { href: "/alerts", label: "Mes alertes", icon: Bell },
+      { href: "/alerts", label: "Ma veille", icon: Bell },
       {
         href: "/profile",
         label: "Profil",
@@ -116,6 +132,67 @@ const NAV_GROUPS = [
   },
 ];
 
+const ADMIN_NAV_GROUPS = [
+  {
+    label: "Pilotage plateforme",
+    items: [
+      {
+        href: "/admin/workspace",
+        label: "Cockpit SaaS",
+        icon: ShieldCheck,
+        activeFn: (pathname: string) => pathname === "/admin/workspace",
+      },
+      {
+        href: "/admin/clients",
+        label: "Clients",
+        icon: UsersRound,
+        activeFn: (pathname: string) => pathname.startsWith("/admin/clients"),
+      },
+      {
+        href: "/admin/billing",
+        label: "Abonnements",
+        icon: ReceiptText,
+        activeFn: (pathname: string) => pathname === "/admin/billing",
+      },
+      {
+        href: "/admin/data-quality",
+        label: "Qualite donnees",
+        icon: LineChart,
+        activeFn: (pathname: string) => pathname === "/admin/data-quality" || pathname === "/admin",
+      },
+      {
+        href: "/sources",
+        label: "Sources publiques",
+        icon: Database,
+        activeFn: (pathname: string) => pathname === "/sources",
+      },
+      {
+        href: "/sources/private",
+        label: "Sources privees",
+        icon: Database,
+        activeFn: (pathname: string) => pathname === "/sources/private",
+      },
+    ],
+  },
+  {
+    label: "Catalogue",
+    items: [
+      {
+        href: "/devices",
+        label: "Opportunités publiques",
+        icon: Landmark,
+        activeFn: (pathname: string) => pathname === "/devices",
+      },
+      {
+        href: "/devices/private",
+        label: "Fonds & investisseurs",
+        icon: TrendingUp,
+        activeFn: (pathname: string) => pathname === "/devices/private",
+      },
+    ],
+  },
+];
+
 interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
@@ -129,7 +206,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("finveille_user");
+      const raw = localStorage.getItem("kafundo_user");
       if (raw) {
         const user = JSON.parse(raw);
         setUserEmail(user.email || user.name || "Connecté");
@@ -141,15 +218,17 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   }, []);
 
   const visibleGroups = useMemo(
-    () =>
-      NAV_GROUPS.map((group) => ({
+    () => {
+      const groups = canAccessAdmin(role) ? ADMIN_NAV_GROUPS : NAV_GROUPS;
+      return groups.map((group) => ({
         ...group,
         items: group.items.filter((item) => {
           if (item.href.startsWith("/sources")) return canManageSources(role);
           if (item.href.startsWith("/admin")) return canAccessAdmin(role);
           return true;
         }),
-      })).filter((group) => group.items.length > 0),
+      })).filter((group) => group.items.length > 0);
+    },
     [role]
   );
 
@@ -170,12 +249,17 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     >
       <div className="px-5 py-5 border-b border-primary-700 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-            <TrendingUp className="w-5 h-5 text-white" />
-          </div>
+          <Image
+            src="/brand/kafundo-picto.png"
+            alt="Kafundo"
+            width={38}
+            height={38}
+            className="h-9 w-9 rounded-xl object-cover"
+            priority
+          />
           <div>
-            <span className="text-lg font-bold tracking-tight">FinVeille</span>
-            <p className="text-xs text-primary-400 leading-none">France & Afrique</p>
+            <span className="text-lg font-bold tracking-tight">Kafundo</span>
+            <p className="text-xs text-primary-400 leading-none">Trouve tes financements</p>
           </div>
         </div>
         <button onClick={onClose} className="md:hidden p-1 text-primary-400 hover:text-white">
@@ -229,8 +313,8 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </div>
         <button
           onClick={() => {
-            localStorage.removeItem("finveille_token");
-            localStorage.removeItem("finveille_user");
+            localStorage.removeItem("kafundo_token");
+            localStorage.removeItem("kafundo_user");
             window.location.href = "/login";
           }}
           className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm text-primary-300 hover:bg-primary-800 hover:text-white transition-colors"

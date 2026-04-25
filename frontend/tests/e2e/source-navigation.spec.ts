@@ -1,8 +1,8 @@
-import { test, expect } from "@playwright/test";
+﻿import { test, expect } from "@playwright/test";
 
 test("ouvre la fiche source puis revient a la liste privee", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("finveille_token", "fake-token");
+    localStorage.setItem("kafundo_token", "fake-token");
   });
 
   await page.route("**/api/v1/sources*", async (route) => {

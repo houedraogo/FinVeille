@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from uuid import UUID
+from datetime import date
 import csv
 import io
 import json
@@ -20,8 +21,9 @@ from app.schemas.device import (
     DeviceListResponse, DeviceSearchParams,
     BulkActionRequest, BulkActionResult,
 )
-from app.dependencies import get_current_user, require_role
+from app.dependencies import get_current_user, get_optional_current_user, require_role
 from app.services.device_service import DeviceService
+from app.services.opportunity_relevance_service import OpportunityRelevanceService
 from app.utils.text_utils import localize_investment_text, looks_english_text
 
 logger = logging.getLogger(__name__)
@@ -281,21 +283,38 @@ async def list_devices(
     sectors: Optional[List[str]] = Query(None),
     beneficiaries: Optional[List[str]] = Query(None),
     status: Optional[List[str]] = Query(None),
+    validation_status: Optional[str] = Query(None),
     closing_soon_days: Optional[int] = Query(None),
+    has_close_date: Optional[bool] = Query(None),
+    close_date_before: Optional[date] = Query(None),
+    close_date_after: Optional[date] = Query(None),
+    min_ai_readiness: Optional[int] = Query(None, ge=0, le=100),
+    ai_readiness_labels: Optional[List[str]] = Query(None),
     sort_by: str = Query("updated_at"),
     sort_desc: bool = Query(True),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     params = DeviceSearchParams(
         q=q, countries=countries, device_types=device_types,
         sectors=sectors, beneficiaries=beneficiaries, status=status,
-        closing_soon_days=closing_soon_days, sort_by=sort_by,
+        validation_status=validation_status,
+        closing_soon_days=closing_soon_days,
+        has_close_date=has_close_date,
+        close_date_before=close_date_before,
+        close_date_after=close_date_after,
+        min_ai_readiness=min_ai_readiness,
+        ai_readiness_labels=ai_readiness_labels,
+        sort_by=sort_by,
         sort_desc=sort_desc, page=page, page_size=page_size,
     )
     service = DeviceService(db)
-    return await service.search(params)
+    result = await service.search(params)
+    if current_user:
+        await OpportunityRelevanceService(db).attach_runtime_relevance(result["items"], user=current_user)
+    return result
 
 
 @router.get("/stats")
@@ -361,13 +380,19 @@ async def export_csv(
     device_types: Optional[List[str]] = Query(None),
     sectors: Optional[List[str]] = Query(None),
     status: Optional[List[str]] = Query(None),
+    ai_readiness_labels: Optional[List[str]] = Query(None),
+    min_ai_readiness: Optional[int] = Query(None, ge=0, le=100),
     closing_soon_days: Optional[int] = Query(None),
+    has_close_date: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Export CSV streamé — BOM UTF-8 pour compatibilité Excel, max 5 000 lignes."""
     params = DeviceSearchParams(
         q=q, countries=countries, device_types=device_types,
         sectors=sectors, status=status, closing_soon_days=closing_soon_days,
+        has_close_date=has_close_date,
+        ai_readiness_labels=ai_readiness_labels,
+        min_ai_readiness=min_ai_readiness,
     )
     service = DeviceService(db)
 
@@ -393,7 +418,7 @@ async def export_csv(
         generate_csv(),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": 'attachment; filename="finveille-export.csv"',
+            "Content-Disposition": 'attachment; filename="kafundo-export.csv"',
             "Cache-Control": "no-store",
         },
     )
@@ -406,7 +431,10 @@ async def export_excel(
     device_types: Optional[List[str]] = Query(None),
     sectors: Optional[List[str]] = Query(None),
     status: Optional[List[str]] = Query(None),
+    ai_readiness_labels: Optional[List[str]] = Query(None),
+    min_ai_readiness: Optional[int] = Query(None, ge=0, le=100),
     closing_soon_days: Optional[int] = Query(None),
+    has_close_date: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Export Excel (.xlsx) avec formatage — max 5 000 lignes."""
@@ -420,6 +448,9 @@ async def export_excel(
     params = DeviceSearchParams(
         q=q, countries=countries, device_types=device_types,
         sectors=sectors, status=status, closing_soon_days=closing_soon_days,
+        has_close_date=has_close_date,
+        ai_readiness_labels=ai_readiness_labels,
+        min_ai_readiness=min_ai_readiness,
     )
     service = DeviceService(db)
 
@@ -431,7 +462,7 @@ async def export_excel(
     # ── Construire le classeur ────────────────────────────────────────────
     wb = Workbook()
     ws = wb.active
-    ws.title = "FinVeille Export"
+    ws.title = "Kafundo Export"
 
     # Styles
     header_fill   = PatternFill("solid", fgColor="1D4ED8")   # bleu primary
@@ -492,7 +523,7 @@ async def export_excel(
     # Onglet récapitulatif
     ws_info = wb.create_sheet("Infos export")
     from datetime import datetime
-    ws_info.append(["Export FinVeille"])
+    ws_info.append(["Export Kafundo"])
     ws_info.append(["Date", datetime.now().strftime("%d/%m/%Y %H:%M")])
     ws_info.append(["Filtres", f"q={q or ''} | pays={','.join(countries or [])} | types={','.join(device_types or [])}"])
     ws_info.append(["Nombre de lignes", len(rows)])
@@ -509,7 +540,7 @@ async def export_excel(
         content=buf.read(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": 'attachment; filename="finveille-export.xlsx"',
+            "Content-Disposition": 'attachment; filename="kafundo-export.xlsx"',
             "Cache-Control": "no-store",
         },
     )
@@ -550,10 +581,16 @@ async def bulk_action(
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)
-async def get_device(device_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_device(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
     device = await DeviceService(db).get_by_id(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Dispositif introuvable")
+    if current_user:
+        await OpportunityRelevanceService(db).attach_runtime_relevance([device], user=current_user)
     return device
 
 
@@ -698,6 +735,229 @@ async def scrape_device_details(
     updated = await service.update(device_id, update_data, updated_by="scraper")
     logger.info(f"[Scrape] Fiche '{device.title}' enrichie avec succès")
     return updated
+
+
+@router.post("/{device_id}/analyze", response_model=DeviceResponse)
+async def analyze_device(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Génère une analyse décisionnelle IA pour aider l'utilisateur à décider
+    vite : go/no-go, pourquoi intéressant, pourquoi prudent, action conseillée.
+    """
+    service = DeviceService(db)
+    device = await service.get_by_id(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositif introuvable")
+
+    # Construire le contexte du dispositif pour l'IA
+    amount_info = ""
+    if device.amount_min or device.amount_max:
+        currency = device.currency or "EUR"
+        if device.amount_min and device.amount_max:
+            amount_info = f"entre {int(device.amount_min):,} et {int(device.amount_max):,} {currency}"
+        elif device.amount_max:
+            amount_info = f"jusqu'à {int(device.amount_max):,} {currency}"
+        elif device.amount_min:
+            amount_info = f"à partir de {int(device.amount_min):,} {currency}"
+    elif device.funding_rate:
+        amount_info = f"taux de financement : {device.funding_rate}%"
+
+    deadline_info = ""
+    if device.close_date:
+        from datetime import date as date_class
+        days_left = (device.close_date - date_class.today()).days
+        if days_left < 0:
+            deadline_info = f"Date de clôture dépassée ({device.close_date})"
+        elif days_left <= 7:
+            deadline_info = f"⚠️ URGENT — clôture dans {days_left} jour(s) ({device.close_date})"
+        elif days_left <= 30:
+            deadline_info = f"Clôture proche — dans {days_left} jours ({device.close_date})"
+        else:
+            deadline_info = f"Clôture le {device.close_date} ({days_left} jours restants)"
+    elif device.is_recurring:
+        deadline_info = "Dispositif récurrent / permanent"
+
+    context_parts = [
+        f"Titre : {device.title}",
+        f"Organisme : {device.organism}",
+        f"Pays : {device.country}" + (f", {device.region}" if device.region else ""),
+        f"Type d'aide : {device.device_type}",
+        f"Secteurs : {', '.join(device.sectors or []) or 'Non précisé'}",
+        f"Bénéficiaires : {', '.join(device.beneficiaries or []) or 'Non précisé'}",
+        f"Montant : {amount_info or 'Non précisé'}",
+        f"Délai : {deadline_info or 'Non précisé'}",
+        f"Statut : {device.status}",
+    ]
+    if device.short_description:
+        context_parts.append(f"Description : {device.short_description[:500]}")
+    if device.eligibility_criteria:
+        context_parts.append(f"Critères d'éligibilité : {device.eligibility_criteria[:400]}")
+    if device.specific_conditions:
+        context_parts.append(f"Conditions spécifiques : {device.specific_conditions[:300]}")
+    if device.required_documents:
+        context_parts.append(f"Documents requis : {device.required_documents[:300]}")
+
+    device_context = "\n".join(context_parts)
+
+    prompt = f"""Tu es un expert en financement de projets africains et européens. Analyse ce dispositif de financement et génère une fiche décisionnelle structurée en JSON.
+
+Dispositif à analyser :
+{device_context}
+
+Génère une analyse JSON avec exactement ces champs :
+{{
+  "go_no_go": "go" | "no_go" | "a_verifier",
+  "recommended_priority": "haute" | "moyenne" | "faible",
+  "why_interesting": "2-3 phrases sur ce qui est vraiment intéressant dans ce dispositif",
+  "why_cautious": "2-3 phrases sur les points de vigilance, les risques ou les contraintes",
+  "points_to_confirm": "2-3 points concrets à vérifier avant de candidater",
+  "recommended_action": "1 phrase d'action concrète et directe pour l'utilisateur",
+  "urgency_level": "critique" | "haute" | "moyenne" | "faible",
+  "difficulty_level": "faible" | "moyenne" | "haute",
+  "effort_level": "faible" | "moyenne" | "haute",
+  "eligibility_score": <entier 0-100>,
+  "strategic_interest": <entier 0-100>
+}}
+
+Règles :
+- go_no_go = "go" si l'opportunité est clairement intéressante et accessible
+- go_no_go = "no_go" si les critères sont trop restrictifs ou le dispositif peu adapté
+- go_no_go = "a_verifier" si des informations manquent ou les critères sont flous
+- urgency_level = "critique" si deadline < 7 jours, "haute" si < 30 jours
+- difficulty_level = complexité administrative (documents, procédures)
+- effort_level = temps et ressources nécessaires pour candidater
+- eligibility_score = probabilité générale d'éligibilité (0=jamais éligible, 100=certainement éligible)
+- strategic_interest = valeur stratégique du financement (montant, portée, récurrence)
+- Sois concis, direct et actionnable. Pas de phrases vagues.
+- Réponds UNIQUEMENT avec le JSON, sans texte autour."""
+
+    try:
+        import anthropic as _anthropic
+        from app.config import settings
+
+        api_key = getattr(settings, "ANTHROPIC_API_KEY", None)
+        if not api_key:
+            raise HTTPException(status_code=503, detail="API IA non configurée sur ce serveur.")
+
+        client = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw_text = message.content[0].text.strip()
+        # Nettoyer le JSON si besoin (parfois l'IA entoure de ```json```)
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"):
+                raw_text = raw_text[4:]
+        raw_text = raw_text.strip()
+
+        analysis = json.loads(raw_text)
+
+        # Valider et normaliser les champs critiques
+        valid_go = {"go", "no_go", "a_verifier"}
+        valid_priority = {"haute", "moyenne", "faible"}
+        valid_urgency = {"critique", "haute", "moyenne", "faible"}
+        valid_level = {"faible", "moyenne", "haute"}
+
+        if analysis.get("go_no_go") not in valid_go:
+            analysis["go_no_go"] = "a_verifier"
+        if analysis.get("recommended_priority") not in valid_priority:
+            analysis["recommended_priority"] = "moyenne"
+        if analysis.get("urgency_level") not in valid_urgency:
+            analysis["urgency_level"] = "moyenne"
+        if analysis.get("difficulty_level") not in valid_level:
+            analysis["difficulty_level"] = "moyenne"
+        if analysis.get("effort_level") not in valid_level:
+            analysis["effort_level"] = "moyenne"
+
+        for score_field in ("eligibility_score", "strategic_interest"):
+            val = analysis.get(score_field)
+            if not isinstance(val, (int, float)):
+                analysis[score_field] = 50
+            else:
+                analysis[score_field] = max(0, min(100, int(val)))
+
+        analysis["model"] = "claude-opus-4-5"
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"[Analyze] JSON invalide : {e}")
+        raise HTTPException(status_code=502, detail="L'IA a retourné une réponse invalide. Réessayez.")
+    except Exception as e:
+        logger.error(f"[Analyze] Erreur IA : {e}")
+        raise HTTPException(status_code=502, detail=f"Erreur lors de l'analyse IA : {str(e)}")
+
+    # Stocker l'analyse dans la base
+    from datetime import datetime as datetime_class
+    device.decision_analysis = analysis
+    device.decision_analyzed_at = datetime_class.utcnow()
+    await db.commit()
+    await db.refresh(device)
+
+    logger.info(f"[Analyze] '{device.title}' → {analysis.get('go_no_go')} / priorité {analysis.get('recommended_priority')}")
+    return device
+
+
+@router.post("/{device_id}/rewrite", response_model=DeviceResponse)
+async def rewrite_device(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin", "editor"])),
+):
+    """
+    Lance la reformulation IA de la fiche (toutes les sections métier).
+    Appelle l'AIRewriter et stocke le résultat dans ai_rewritten_sections_json.
+    """
+    from app.services.ai_rewriter import AIRewriter, REWRITE_DONE, REWRITE_NEEDS_REVIEW
+    from datetime import datetime as datetime_class
+
+    service = DeviceService(db)
+    device = await service.get_by_id(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositif introuvable")
+
+    rewriter = AIRewriter()
+    if not rewriter.can_rewrite():
+        raise HTTPException(
+            status_code=422,
+            detail="Le service de reformulation IA n'est pas configuré (clé API manquante)."
+        )
+
+    # Build device dict for the rewriter
+    device_dict = {
+        "id": str(device.id),
+        "title": device.title,
+        "organism": device.organism,
+        "country": device.country,
+        "device_type": device.device_type,
+        "status": device.status,
+        "close_date": str(device.close_date or ""),
+        "amount_min": device.amount_min,
+        "amount_max": device.amount_max,
+        "currency": device.currency,
+        "content_sections_json": device.content_sections_json or [],
+    }
+
+    result = await rewriter.rewrite_device(device_dict)
+
+    device.ai_rewritten_sections_json = result.sections
+    device.ai_rewrite_status = result.status
+    device.ai_rewrite_model = result.model
+    device.ai_rewrite_checked_at = result.checked_at
+
+    await db.commit()
+    await db.refresh(device)
+
+    status_label = "reformulée" if result.status in (REWRITE_DONE, REWRITE_NEEDS_REVIEW) else "échouée"
+    logger.info(f"[Rewrite] '{device.title}' → {result.status} ({len(result.sections)} sections, {status_label})")
+    return device
 
 
 @router.delete("/{device_id}", status_code=204)

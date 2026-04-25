@@ -1,6 +1,6 @@
-"""
+﻿"""
 Importe les 228 dispositifs de financement depuis le fichier Excel de veille.
-Usage : docker exec finveille-backend python app/data/seed_excel.py
+Usage : docker exec kafundo-backend python app/data/seed_excel.py
 """
 import asyncio
 import json

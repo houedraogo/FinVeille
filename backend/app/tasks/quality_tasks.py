@@ -295,6 +295,11 @@ def daily_quality_audit():
     asyncio.run(_daily_quality_audit_async())
 
 
+@celery_app.task
+def daily_catalog_quality_control():
+    asyncio.run(_daily_catalog_quality_control_async())
+
+
 async def _update_expired_async():
     from sqlalchemy import update, and_
     from datetime import date, datetime, timezone
@@ -504,6 +509,10 @@ async def _daily_quality_audit_async():
     )
 
 
+async def _daily_catalog_quality_control_async():
+    await _log_catalog_quality_control("[Catalog Quality][daily]")
+
+
 async def build_quality_audit(db, *, source_window_days: int = 14, recent_source_days: int = 30, sample_limit: int = 5):
     from sqlalchemy import and_, func, or_, select
     from app.models.collection_log import CollectionLog
@@ -660,6 +669,417 @@ async def build_quality_audit(db, *, source_window_days: int = 14, recent_source
             "examples": noisy_sources[:sample_limit],
         },
     }
+
+
+def _audit_action_from_score(score: int, flags: list[str]) -> str:
+    if "inactive_never_collected" in flags or "expired_unreachable" in flags:
+        return "a_purger"
+    if "source_errors" in flags or "too_many_non_public_urls" in flags:
+        return "source_a_revoir"
+    if "pending_review" in flags or "open_without_date" in flags or "recurring_ambiguous" in flags:
+        return "a_verifier"
+    if "weak_text" in flags or "english_text" in flags or "html_raw" in flags:
+        return "a_enrichir"
+    if score >= 70:
+        return "source_a_revoir"
+    return "ok"
+
+
+async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 80):
+    """Audit global du catalogue, orientÃ© exploitation et nettoyage source par source."""
+    from sqlalchemy import and_, case, func, or_, select
+    from app.models.collection_log import CollectionLog
+    from app.models.device import Device
+    from app.models.source import Source
+
+    async def count_scalar(statement) -> int:
+        result = await db.execute(statement)
+        return int(result.scalar() or 0)
+
+    today = date.today()
+    now = datetime.utcnow()
+    recent_cutoff = now - timedelta(days=30)
+
+    weak_condition = or_(
+        Device.short_description.is_(None),
+        func.length(func.trim(func.coalesce(Device.short_description, ""))) < 80,
+        and_(
+            func.length(func.trim(func.coalesce(Device.full_description, ""))) < 160,
+            func.length(func.trim(func.coalesce(Device.eligibility_criteria, ""))) < 80,
+            func.length(func.trim(func.coalesce(Device.funding_details, ""))) < 80,
+        ),
+    )
+    generic_condition = or_(
+        Device.short_description.ilike("%criteres detailles ne sont pas fournis%"),
+        Device.short_description.ilike("%page officielle%doit etre consultee%"),
+        Device.full_description.ilike("%criteres detailles ne sont pas fournis%"),
+        Device.full_description.ilike("%source officielle pour confirmer%"),
+    )
+    english_condition = or_(
+        Device.language == "en",
+        Device.short_description.op("~*")(r"\m(the|and|with|funding|deadline|project|program)\M"),
+        Device.full_description.op("~*")(r"\m(the|and|with|funding|deadline|project|program)\M"),
+    )
+    html_condition = or_(
+        Device.short_description.ilike("%<div%"),
+        Device.short_description.ilike("%<p%"),
+        Device.full_description.ilike("%<div%"),
+        Device.full_description.ilike("%&lt;%"),
+    )
+    non_public_condition = or_(*[Device.source_url.ilike(pattern) for pattern in _NON_PUBLIC_URL_PATTERNS])
+    open_without_date_condition = and_(
+        Device.status == "open",
+        Device.close_date.is_(None),
+        Device.is_recurring.is_not(True),
+    )
+    open_with_past_close_date_condition = and_(
+        Device.status.in_(["open", "recurring"]),
+        Device.close_date.is_not(None),
+        Device.close_date < today,
+    )
+    expired_unreachable_condition = and_(
+        Device.status == "expired",
+        or_(Source.is_active.is_(False), Source.consecutive_errors >= 2, non_public_condition),
+    )
+    recurring_ambiguous_condition = and_(
+        or_(Device.status == "recurring", Device.is_recurring.is_(True)),
+        Device.close_date.is_(None),
+        or_(
+            Device.recurrence_notes.is_(None),
+            func.length(func.trim(func.coalesce(Device.recurrence_notes, ""))) < 40,
+        ),
+    )
+
+    total_devices = await count_scalar(select(func.count(Device.id)))
+    total_sources = await count_scalar(select(func.count(Source.id)))
+    active_sources = await count_scalar(select(func.count(Source.id)).where(Source.is_active.is_(True)))
+
+    async def grouped(column, label_key: str, limit: int = 20):
+        rows = (
+            await db.execute(
+                select(column.label(label_key), func.count(Device.id).label("count"))
+                .group_by(column)
+                .order_by(func.count(Device.id).desc())
+                .limit(limit)
+            )
+        ).all()
+        return [{label_key: row[0] or "Non renseigne", "count": int(row.count or 0)} for row in rows]
+
+    by_status = await grouped(Device.status, "status")
+    by_type = await grouped(Device.device_type, "device_type")
+    by_country = await grouped(Device.country, "country")
+    by_quality = [
+        {
+            "bucket": "haute",
+            "count": await count_scalar(select(func.count(Device.id)).where(Device.completeness_score >= 75)),
+        },
+        {
+            "bucket": "moyenne",
+            "count": await count_scalar(select(func.count(Device.id)).where(and_(Device.completeness_score >= 45, Device.completeness_score < 75))),
+        },
+        {
+            "bucket": "faible",
+            "count": await count_scalar(select(func.count(Device.id)).where(Device.completeness_score < 45)),
+        },
+    ]
+
+    risk_counts = {
+        "missing_close_date": await count_scalar(select(func.count(Device.id)).where(Device.close_date.is_(None))),
+        "weak_text": await count_scalar(select(func.count(Device.id)).where(weak_condition)),
+        "generic_text": await count_scalar(select(func.count(Device.id)).where(generic_condition)),
+        "english_text": await count_scalar(select(func.count(Device.id)).where(english_condition)),
+        "html_raw": await count_scalar(select(func.count(Device.id)).where(html_condition)),
+        "non_public_urls": await count_scalar(select(func.count(Device.id)).where(non_public_condition)),
+        "open_without_date": await count_scalar(select(func.count(Device.id)).where(open_without_date_condition)),
+        "open_with_past_close_date": await count_scalar(select(func.count(Device.id)).where(open_with_past_close_date_condition)),
+        "expired_unreachable": await count_scalar(select(func.count(Device.id)).select_from(Device).outerjoin(Source).where(expired_unreachable_condition)),
+        "pending_review": await count_scalar(select(func.count(Device.id)).where(Device.validation_status == "pending_review")),
+        "recurring_ambiguous": await count_scalar(select(func.count(Device.id)).where(recurring_ambiguous_condition)),
+    }
+
+    duplicate_groups = (
+        await db.execute(
+            select(
+                func.coalesce(Device.title_normalized, func.lower(Device.title)).label("key"),
+                func.count(Device.id).label("count"),
+            )
+            .group_by(func.coalesce(Device.title_normalized, func.lower(Device.title)))
+            .having(func.count(Device.id) > 1)
+            .order_by(func.count(Device.id).desc())
+            .limit(sample_limit)
+        )
+    ).all()
+    risk_counts["duplicate_groups"] = await count_scalar(
+        select(func.count()).select_from(
+            select(func.coalesce(Device.title_normalized, func.lower(Device.title)).label("key"))
+            .group_by(func.coalesce(Device.title_normalized, func.lower(Device.title)))
+            .having(func.count(Device.id) > 1)
+            .subquery()
+        ),
+    )
+
+    sample_specs = {
+        "weak_text": weak_condition,
+        "generic_text": generic_condition,
+        "english_text": english_condition,
+        "html_raw": html_condition,
+        "open_without_date": open_without_date_condition,
+        "open_with_past_close_date": open_with_past_close_date_condition,
+        "expired_unreachable": expired_unreachable_condition,
+        "pending_review": Device.validation_status == "pending_review",
+        "recurring_ambiguous": recurring_ambiguous_condition,
+    }
+    samples = {}
+    for key, condition in sample_specs.items():
+        rows = (
+            await db.execute(
+                select(Device.id, Device.title, Device.organism, Device.country, Device.status, Device.close_date)
+                .select_from(Device)
+                .outerjoin(Source)
+                .where(condition)
+                .order_by(Device.updated_at.desc().nullslast())
+                .limit(sample_limit)
+            )
+        ).all()
+        samples[key] = [
+            {
+                "id": str(row.id),
+                "title": row.title,
+                "organism": row.organism,
+                "country": row.country,
+                "status": row.status,
+                "close_date": row.close_date.isoformat() if row.close_date else None,
+            }
+            for row in rows
+        ]
+    samples["duplicate_groups"] = [{"title_key": row.key, "count": int(row.count or 0)} for row in duplicate_groups]
+
+    source_rows = (
+        await db.execute(
+            select(
+                Source.id,
+                Source.name,
+                Source.organism,
+                Source.country,
+                Source.category,
+                Source.is_active,
+                Source.last_checked_at,
+                Source.last_success_at,
+                Source.consecutive_errors,
+                func.count(Device.id).label("device_count"),
+                func.sum(case((Device.close_date.is_(None), 1), else_=0)).label("missing_dates"),
+                func.sum(case((weak_condition, 1), else_=0)).label("weak_texts"),
+                func.sum(case((generic_condition, 1), else_=0)).label("generic_texts"),
+                func.sum(case((english_condition, 1), else_=0)).label("english_texts"),
+                func.sum(case((html_condition, 1), else_=0)).label("html_raws"),
+                func.sum(case((non_public_condition, 1), else_=0)).label("non_public_urls"),
+                func.sum(case((open_without_date_condition, 1), else_=0)).label("open_without_dates"),
+                func.sum(case((Device.validation_status == "pending_review", 1), else_=0)).label("pending_reviews"),
+                func.sum(case((Device.validation_status == "auto_published", 1), else_=0)).label("published_devices"),
+                func.sum(case((Device.close_date.is_not(None), 1), else_=0)).label("dated_devices"),
+                func.sum(case((Device.status.in_(["open", "recurring"]), 1), else_=0)).label("active_devices"),
+                func.sum(case((recurring_ambiguous_condition, 1), else_=0)).label("recurring_ambiguous"),
+                func.avg(Device.completeness_score).label("avg_completeness"),
+                func.avg(Device.confidence_score).label("avg_confidence"),
+            )
+            .select_from(Source)
+            .outerjoin(Device, Device.source_id == Source.id)
+            .group_by(Source.id)
+            .order_by(func.count(Device.id).desc())
+            .limit(source_limit)
+        )
+    ).all()
+
+    log_rows = (
+        await db.execute(
+            select(
+                CollectionLog.source_id,
+                func.count(CollectionLog.id).label("runs"),
+                func.sum(case((CollectionLog.status.in_(["failed", "partial"]), 1), else_=0)).label("failed_runs"),
+                func.max(CollectionLog.error_message).label("last_error"),
+            )
+            .where(CollectionLog.started_at >= recent_cutoff)
+            .group_by(CollectionLog.source_id)
+        )
+    ).all()
+    logs_by_source = {
+        row.source_id: {
+            "runs": int(row.runs or 0),
+            "failed_runs": int(row.failed_runs or 0),
+            "last_error": row.last_error,
+        }
+        for row in log_rows
+    }
+
+    source_priorities = []
+    for row in source_rows:
+        device_count = int(row.device_count or 0)
+        missing_dates = int(row.missing_dates or 0)
+        weak_texts = int(row.weak_texts or 0)
+        generic_texts = int(row.generic_texts or 0)
+        english_texts = int(row.english_texts or 0)
+        html_raws = int(row.html_raws or 0)
+        non_public_urls = int(row.non_public_urls or 0)
+        open_without_dates = int(row.open_without_dates or 0)
+        pending_reviews = int(row.pending_reviews or 0)
+        published_devices = int(row.published_devices or 0)
+        dated_devices = int(row.dated_devices or 0)
+        active_devices = int(row.active_devices or 0)
+        recurring_ambiguous = int(row.recurring_ambiguous or 0)
+        log_info = logs_by_source.get(row.id, {"runs": 0, "failed_runs": 0, "last_error": None})
+        publishable_rate = round(published_devices / max(device_count, 1) * 100, 1)
+        date_rate = round(dated_devices / max(device_count, 1) * 100, 1)
+        error_rate = round(log_info["failed_runs"] / max(log_info["runs"], 1) * 100, 1)
+
+        flags = []
+        if not row.is_active and device_count == 0:
+            flags.append("inactive_never_collected")
+        if int(row.consecutive_errors or 0) >= 2 or log_info["failed_runs"] >= 2:
+            flags.append("source_errors")
+        if device_count and missing_dates / max(device_count, 1) >= 0.6:
+            flags.append("open_without_date")
+        if device_count and weak_texts / max(device_count, 1) >= 0.25:
+            flags.append("weak_text")
+        if generic_texts:
+            flags.append("generic_text")
+        if english_texts:
+            flags.append("english_text")
+        if html_raws:
+            flags.append("html_raw")
+        if non_public_urls:
+            flags.append("too_many_non_public_urls")
+        if pending_reviews:
+            flags.append("pending_review")
+        if recurring_ambiguous:
+            flags.append("recurring_ambiguous")
+
+        score = (
+            min(40, log_info["failed_runs"] * 12 + int(row.consecutive_errors or 0) * 8)
+            + min(25, round((weak_texts + generic_texts + html_raws) / max(device_count, 1) * 25))
+            + min(20, round(missing_dates / max(device_count, 1) * 20))
+            + min(15, pending_reviews * 3 + recurring_ambiguous * 2 + non_public_urls * 2)
+        )
+        if "inactive_never_collected" in flags:
+            score += 40
+
+        source_priorities.append(
+            {
+                "source_id": str(row.id),
+                "source_name": row.name,
+                "organism": row.organism,
+                "country": row.country,
+                "category": row.category,
+                "is_active": bool(row.is_active),
+                "device_count": device_count,
+                "published_devices": published_devices,
+                "active_devices": active_devices,
+                "date_rate": date_rate,
+                "publishable_rate": publishable_rate,
+                "error_rate_30d": error_rate,
+                "avg_completeness": round(float(row.avg_completeness or 0), 1),
+                "avg_confidence": round(float(row.avg_confidence or 0), 1),
+                "issues": {
+                    "missing_dates": missing_dates,
+                    "weak_texts": weak_texts,
+                    "generic_texts": generic_texts,
+                    "english_texts": english_texts,
+                    "html_raws": html_raws,
+                    "non_public_urls": non_public_urls,
+                    "open_without_dates": open_without_dates,
+                    "pending_reviews": pending_reviews,
+                    "recurring_ambiguous": recurring_ambiguous,
+                    "consecutive_errors": int(row.consecutive_errors or 0),
+                    "failed_runs_30d": log_info["failed_runs"],
+                },
+                "flags": flags,
+                "priority_score": score,
+                "recommended_action": _audit_action_from_score(score, flags),
+                "last_checked_at": row.last_checked_at.isoformat() if row.last_checked_at else None,
+                "last_success_at": row.last_success_at.isoformat() if row.last_success_at else None,
+                "last_error": log_info["last_error"],
+            }
+        )
+
+    source_priorities.sort(key=lambda item: item["priority_score"], reverse=True)
+
+    action_counts = {}
+    for item in source_priorities:
+        action_counts[item["recommended_action"]] = action_counts.get(item["recommended_action"], 0) + 1
+
+    return {
+        "generated_at": now.isoformat() + "Z",
+        "totals": {
+            "devices": int(total_devices),
+            "sources": int(total_sources),
+            "active_sources": int(active_sources),
+        },
+        "distributions": {
+            "by_source": source_priorities[:source_limit],
+            "by_status": by_status,
+            "by_type": by_type,
+            "by_country": by_country,
+            "by_quality": by_quality,
+        },
+        "risk_counts": risk_counts,
+        "samples": samples,
+        "source_priorities": source_priorities[:source_limit],
+        "action_counts": action_counts,
+        "action_labels": {
+            "a_enrichir": "A enrichir",
+            "a_purger": "A purger",
+            "a_verifier": "A verifier",
+            "source_a_revoir": "Source a revoir",
+            "ok": "OK",
+        },
+        "source_report": {
+            "columns": [
+                "source_name",
+                "device_count",
+                "publishable_rate",
+                "date_rate",
+                "error_rate_30d",
+                "avg_completeness",
+                "recommended_action",
+            ],
+            "rows": source_priorities[:source_limit],
+        },
+    }
+
+
+async def _log_catalog_quality_control(prefix: str):
+    async with _fresh_db() as db:
+        audit = await build_catalog_audit(db, sample_limit=5, source_limit=120)
+
+    risk = audit["risk_counts"]
+    actions = audit["action_counts"]
+    logger.warning(
+        "%s devices=%s sources=%s weak=%s english=%s open_without_date=%s past_open=%s actions=%s",
+        prefix,
+        audit["totals"]["devices"],
+        audit["totals"]["sources"],
+        risk.get("weak_text", 0),
+        risk.get("english_text", 0),
+        risk.get("open_without_date", 0),
+        risk.get("open_with_past_close_date", 0),
+        actions,
+    )
+
+    for source in audit["source_priorities"][:10]:
+        if source["recommended_action"] == "ok":
+            continue
+        logger.warning(
+            "[Catalog Quality][source] action=%s score=%s source=%s devices=%s publishable=%s%% dates=%s%% errors=%s%% flags=%s",
+            source["recommended_action"],
+            source["priority_score"],
+            source["source_name"],
+            source["device_count"],
+            source["publishable_rate"],
+            source["date_rate"],
+            source["error_rate_30d"],
+            ",".join(source["flags"]),
+        )
+
+    return audit
 
 
 async def _log_quality_audit(prefix: str, *, source_window_days: int, recent_source_days: int):

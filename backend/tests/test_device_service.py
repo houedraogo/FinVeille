@@ -1,10 +1,12 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
 from app.services.device_service import DeviceService
+from app.models.device import Device
+from app.schemas.device import DeviceSearchParams
 
 
 class FakeScalarResult:
@@ -69,10 +71,65 @@ def test_has_thin_description_detects_single_sentence():
 
 def test_has_thin_description_keeps_richer_content():
     assert not DeviceService.has_thin_description(
-        "Aide aux PME innovantes avec accompagnement a l'investissement. Le dispositif finance aussi les depenses de R&D.",
+        "Aide aux PME innovantes avec accompagnement a l'investissement. "
+        "Le dispositif finance aussi les depenses de R&D, les etudes techniques et les premiers recrutements. "
+        "La fiche precise les objectifs, les beneficiaires et les conditions de mobilisation.",
         None,
         None,
     )
+
+
+def test_build_match_reasons_explains_country_sector_type_and_deadline():
+    device = Device(
+        title="Aide solaire Senegal",
+        organism="Organisme",
+        country="Senegal",
+        device_type="subvention",
+        source_url="https://example.org",
+        sectors=["energie", "climat"],
+        beneficiaries=["pme"],
+        close_date=date.today(),
+        confidence_score=82,
+    )
+    params = DeviceSearchParams(
+        q="solaire",
+        countries=["Senegal"],
+        device_types=["subvention"],
+        sectors=["energie"],
+        closing_soon_days=30,
+    )
+
+    reasons = DeviceService.build_match_reasons(device, params)
+
+    assert any("solaire" in reason for reason in reasons)
+    assert "pays cible: Senegal" in reasons
+    assert "type recherche: subvention" in reasons
+    assert any("secteur correspondant" in reason for reason in reasons)
+
+
+def test_runtime_relevance_score_boosts_matching_filters():
+    device = Device(
+        title="Aide solaire Senegal",
+        organism="Organisme",
+        country="Senegal",
+        device_type="subvention",
+        source_url="https://example.org",
+        sectors=["energie"],
+        beneficiaries=["pme"],
+        close_date=date.today(),
+        confidence_score=80,
+        completeness_score=90,
+    )
+    params = DeviceSearchParams(
+        q="solaire",
+        countries=["Senegal"],
+        device_types=["subvention"],
+        sectors=["energie"],
+        beneficiaries=["pme"],
+        closing_soon_days=30,
+    )
+
+    assert DeviceService.runtime_relevance_score(device, params) >= 90
 
 
 @pytest.mark.asyncio
@@ -80,7 +137,10 @@ async def test_purge_unenrichable_devices_dry_run_returns_preview():
     thin_device = build_device()
     rich_device = build_device(
         id=uuid4(),
-        short_description="Aide aux PME innovantes avec accompagnement. Le dispositif finance aussi l'amorcage industriel.",
+        short_description=(
+            "Aide aux PME innovantes avec accompagnement. Le dispositif finance aussi l'amorcage industriel, "
+            "les etudes techniques, les investissements materiels et les premieres depenses de commercialisation."
+        ),
     )
     service = DeviceService(FakeDB([thin_device, rich_device]))
 

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
@@ -7,7 +7,7 @@ import LimitNotice from "@/components/LimitNotice";
 import { billing, devices } from "@/lib/api";
 import { DeviceListResponse, DEVICE_TYPE_LABELS } from "@/lib/types";
 import { COUNTRIES, SECTORS } from "@/lib/constants";
-import { formatAmount, formatDate } from "@/lib/utils";
+import { formatAmount, formatDate, getAiReadinessMeta } from "@/lib/utils";
 import { consumePendingSavedSearch, getSavedViewMode, getUserPreferences, saveSearch, saveUserPreferences, setSavedViewMode } from "@/lib/workspace";
 import {
   Search, SlidersHorizontal, Download, Plus,
@@ -17,9 +17,15 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
-const STATUSES = ["open", "recurring", "closed", "expired"];
+const STATUSES = ["open", "recurring", "standby", "closed", "expired"];
+const AI_READINESS_LABELS: Record<string, string> = {
+  pret_pour_recommandation_ia: "Très recommandé",
+  utilisable_avec_prudence: "À confirmer",
+  a_verifier: "À vérifier",
+  non_exploitable: "Non recommandé",
+};
 const STATUS_LABELS: Record<string, string> = {
-  open: "Ouvert", recurring: "Récurrent", closed: "Fermé", expired: "Expiré",
+  open: "Ouvert", recurring: "Récurrent", standby: "Clôture non communiquée", closed: "Fermé", expired: "Expiré",
 };
 
 interface Props {
@@ -70,7 +76,9 @@ export default function DevicesPageContent({
   const [filterTypes, setFilterTypes] = useState<string[]>([]);
   const [filterSectors, setFilterSectors] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
+  const [filterAiReadiness, setFilterAiReadiness] = useState<string[]>([]);
   const [closingSoon, setClosingSoon] = useState("");
+  const [hasCloseDate, setHasCloseDate] = useState(false);
   const [sortBy, setSortBy] = useState(defaultSort);
   const [page, setPage] = useState(1);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -90,7 +98,7 @@ export default function DevicesPageContent({
   }, []);
 
   useEffect(() => {
-    const preferredView = getSavedViewMode(pathname);
+    const preferredView = getSavedViewMode(pathname) || getUserPreferences().defaultViewMode;
     if (preferredView) {
       setViewMode(preferredView);
     }
@@ -105,6 +113,7 @@ export default function DevicesPageContent({
     setFilterSectors(pendingSearch.search.filters.sectors);
     setFilterStatuses(pendingSearch.search.filters.statuses);
     setClosingSoon(pendingSearch.search.filters.closingSoon);
+    setHasCloseDate(!!pendingSearch.search.filters.hasCloseDate);
     setSortBy(pendingSearch.search.filters.sortBy || defaultSort);
     setPage(1);
     setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
@@ -129,18 +138,21 @@ export default function DevicesPageContent({
         device_types: effectiveTypes,
         sectors: filterSectors.length ? filterSectors : undefined,
         status: filterStatuses.length ? filterStatuses : undefined,
+        ai_readiness_labels: filterAiReadiness.length ? filterAiReadiness : undefined,
         closing_soon_days: closingSoon ? parseInt(closingSoon) : undefined,
+        has_close_date: hasCloseDate || undefined,
         sort_by: sortBy,
+        sort_desc: sortBy !== "close_date",
         page,
-        page_size: 20,
+        page_size: viewMode === "table" ? 50 : 20,
       });
       setResult(data);
     } catch {
-      setError("Impossible de charger les dispositifs. Vérifiez votre connexion.");
+      setError("Impossible de charger les opportunités. Vérifiez votre connexion.");
     } finally {
       setLoading(false);
     }
-  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, closingSoon, sortBy, page, lockedDeviceTypes]);
+  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, sortBy, page, viewMode, lockedDeviceTypes]);
 
   useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
@@ -151,12 +163,12 @@ export default function DevicesPageContent({
 
   const clearFilters = () => {
     setFilterCountries([]); setFilterTypes([]); setFilterSectors([]);
-    setFilterStatuses([]); setClosingSoon(""); setPage(1);
+    setFilterStatuses([]); setFilterAiReadiness([]); setClosingSoon(""); setHasCloseDate(false); setPage(1);
     setEditingSavedSearchId(null);
   };
 
   const hasFilters = filterCountries.length || filterTypes.length || filterSectors.length ||
-    filterStatuses.length || closingSoon;
+    filterStatuses.length || filterAiReadiness.length || closingSoon || hasCloseDate;
   const pageIds = result?.items.map((d) => d.id) ?? [];
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
 
@@ -204,7 +216,7 @@ export default function DevicesPageContent({
       setBulkMsg({
         type: res.failed === 0 ? "success" : "error",
         text: res.failed === 0
-          ? `✓ ${res.processed} dispositif(s) traité(s) avec succès.`
+          ? `✓ ${res.processed} opportunité(s) traitée(s) avec succès.`
           : `${res.processed} traité(s), ${res.failed} en erreur.`,
       });
       clearSelection();
@@ -222,7 +234,7 @@ export default function DevicesPageContent({
       ? `${title} - ${q.trim()}`
       : `${title} - vue enregistrée`;
     const existingSearchName = editingSavedSearchId
-      ? window.localStorage.getItem("finveille_saved_searches")
+      ? window.localStorage.getItem("kafundo_saved_searches")
       : null;
     let suggestedName = defaultName;
 
@@ -255,6 +267,7 @@ export default function DevicesPageContent({
         sectors: filterSectors,
         statuses: filterStatuses,
         closingSoon,
+        hasCloseDate,
         sortBy,
       },
     });
@@ -278,11 +291,91 @@ export default function DevicesPageContent({
     device_types: effectiveTypesForExport,
     sectors: filterSectors.length ? filterSectors : undefined,
     status: filterStatuses.length ? filterStatuses : undefined,
+    ai_readiness_labels: filterAiReadiness.length ? filterAiReadiness : undefined,
     closing_soon_days: closingSoon ? parseInt(closingSoon) : undefined,
+    has_close_date: hasCloseDate || undefined,
   };
 
   const exportCsvUrl   = devices.exportCsv(exportParams);
   const exportExcelUrl = devices.exportExcel(exportParams);
+
+  const applyQuickFilter = (kind: string) => {
+    setPage(1);
+    setEditingSavedSearchId(null);
+
+    if (kind === "open") {
+      setFilterStatuses(["open"]);
+      return;
+    }
+    if (kind === "with_deadline") {
+      setHasCloseDate(true);
+      setFilterStatuses(["open"]);
+      setSortBy("close_date");
+      return;
+    }
+    if (kind === "subvention") {
+      setFilterTypes(["subvention"]);
+      return;
+    }
+    if (kind === "investissement") {
+      setFilterTypes(["investissement"]);
+      return;
+    }
+    if (kind === "afrique") {
+      setFilterCountries(["Afrique", "Afrique de l'Ouest"]);
+      return;
+    }
+    if (kind === "france") {
+      setFilterCountries(["France"]);
+      return;
+    }
+    if (kind === "30days") {
+      setClosingSoon("30");
+      setHasCloseDate(true);
+      setFilterStatuses(["open"]);
+      return;
+    }
+    if (kind === "ai_ready") {
+      setFilterAiReadiness(["pret_pour_recommandation_ia"]);
+      setSortBy("ai_readiness");
+    }
+  };
+
+  const buildRelevanceExplanation = (device: any) => {
+    if (device.match_reasons?.length) {
+      return `Correspondance : ${device.match_reasons.slice(0, 3).join(" + ")}.`;
+    }
+    const reasons: string[] = [];
+    if (filterCountries.includes(device.country)) reasons.push(`pays ${device.country}`);
+    if (filterTypes.includes(device.device_type)) reasons.push(`type ${DEVICE_TYPE_LABELS[device.device_type] || device.device_type}`);
+    const matchedSector = filterSectors.find((sector) => (device.sectors || []).includes(sector));
+    if (matchedSector) reasons.push(`secteur ${matchedSector}`);
+    if (q.trim()) reasons.push(`recherche "${q.trim()}"`);
+    if (closingSoon) reasons.push(`echeance dans ${closingSoon} jours`);
+    if (hasCloseDate && device.close_date) reasons.push("date limite renseignee");
+    if (filterAiReadiness.includes(device.ai_readiness_label)) reasons.push("forte pertinence");
+    if (!reasons.length) return "";
+    return `Correspond a votre ${reasons.slice(0, 3).join(" + ")}.`;
+  };
+
+  const quickFilters = [
+    ["open", "Ouverts"],
+    ["with_deadline", "Avec date limite"],
+    ["subvention", "Subventions"],
+    ["investissement", "Investissement"],
+    ["afrique", "Afrique"],
+    ["france", "France"],
+    ["30days", "Moins de 30 jours"],
+    ["ai_ready", "Recommandés"],
+  ].filter(([kind]) => {
+    if (kind === "investissement") {
+      return availableDeviceTypes.includes("investissement") || lockedDeviceTypes.includes("investissement") || lockedDeviceTypes.length === 0;
+    }
+    if (kind === "subvention") {
+      return availableDeviceTypes.includes("subvention") || lockedDeviceTypes.includes("subvention") || lockedDeviceTypes.length === 0;
+    }
+    return true;
+  });
 
   return (
     <AppLayout>
@@ -349,8 +442,8 @@ export default function DevicesPageContent({
                     <div className="p-2">
                       <LimitNotice
                         compact
-                        title="Export reserve aux plans Pro"
-                        message="Les exports CSV/Excel sont disponibles avec Pro, Team ou Enterprise."
+                        title="Export reserve aux offres avancees"
+                        message="Les exports CSV/Excel sont disponibles avec Team, Expert ou Accompagnement Financement."
                       />
                     </div>
                   ) : (
@@ -392,6 +485,28 @@ export default function DevicesPageContent({
         </div>
       </div>
 
+      {/* Bannière tri intelligent */}
+      {sortBy !== "relevance" && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-violet-50/70 px-4 py-2.5">
+          <p className="text-xs text-violet-800">
+            <span className="font-semibold">✦ Tri intelligent disponible</span> — Trier par pertinence profil pour voir les opportunités les plus adaptées à ton organisation en premier.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setSortBy("relevance"); setPage(1); }}
+            className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700"
+          >
+            Activer
+          </button>
+        </div>
+      )}
+      {sortBy === "relevance" && (
+        <div className="mb-3 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-2">
+          <span className="text-xs font-semibold text-emerald-700">✦ Tri intelligent activé</span>
+          <span className="text-xs text-emerald-600">— Les résultats sont triés par pertinence pour ton profil.</span>
+        </div>
+      )}
+
       {/* Barre de recherche */}
       <div className="flex gap-2 mb-3">
         <div className="flex-1 relative">
@@ -416,17 +531,43 @@ export default function DevicesPageContent({
           {hasFilters ? (
             <span className="bg-primary-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
               {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) +
-               Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(!!closingSoon)}
+               Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate)}
             </span>
           ) : null}
         </button>
-        <select className="input w-auto" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-          <option value="updated_at">Récents</option>
+        <select className="input w-auto" value={sortBy} onChange={(e) => { setSortBy(e.target.value); setPage(1); }}>
+          <option value="relevance">✦ Pertinence profil</option>
           <option value="close_date">Date limite</option>
           <option value="amount_max">Montant</option>
-          <option value="relevance">Pertinence</option>
+          <option value="updated_at">Nouveauté</option>
           <option value="confidence">Fiabilité</option>
+          <option value="ai_readiness">Score IA</option>
         </select>
+      </div>
+
+      <div className="mb-4 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_12px_35px_-28px_rgba(15,23,42,0.35)]">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {quickFilters.map(([kind, label]) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => applyQuickFilter(kind)}
+                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveSearch}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+          >
+            <BookmarkPlus className="h-3.5 w-3.5" />
+            Sauvegarder cette recherche
+          </button>
+        </div>
       </div>
 
       {/* Panneau filtres */}
@@ -503,6 +644,22 @@ export default function DevicesPageContent({
                   ))}
                 </div>
               </div>
+              <div>
+                <p className="label">Pertinence</p>
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(AI_READINESS_LABELS).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => toggleFilter(filterAiReadiness, setFilterAiReadiness, key)}
+                      className={clsx("badge cursor-pointer", filterAiReadiness.includes(key)
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200")}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {showClosingFilter && (
                 <div>
                   <label className="label">Clôture dans</label>
@@ -516,6 +673,18 @@ export default function DevicesPageContent({
                   </select>
                 </div>
               )}
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={hasCloseDate}
+                  onChange={(e) => {
+                    setHasCloseDate(e.target.checked);
+                    setPage(1);
+                  }}
+                  className="h-4 w-4 rounded border-gray-300 accent-primary-600"
+                />
+                Avec date limite renseignee
+              </label>
             </div>
           </div>
         </div>
@@ -567,12 +736,18 @@ export default function DevicesPageContent({
           {viewMode === "cards" ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {result?.items.map((device) => (
-                <DeviceCard
-                  key={device.id}
-                  device={device}
-                  selected={selectedIds.has(device.id)}
-                  onSelect={toggleSelect}
-                />
+                <div key={device.id} className="space-y-2">
+                  <DeviceCard
+                    device={device}
+                    selected={selectedIds.has(device.id)}
+                    onSelect={toggleSelect}
+                  />
+                  {buildRelevanceExplanation(device) && (
+                    <div className="rounded-2xl border border-primary-100 bg-primary-50/70 px-4 py-2 text-xs font-medium text-primary-700">
+                      {buildRelevanceExplanation(device)}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           ) : (
@@ -590,12 +765,13 @@ export default function DevicesPageContent({
                           aria-label="Sélectionner toute la page"
                         />
                       </th>
-                      <th className="px-4 py-3">Dispositif</th>
+                      <th className="px-4 py-3">Opportunité</th>
                       <th className="px-4 py-3">Type</th>
                       <th className="px-4 py-3">Pays</th>
                       <th className="px-4 py-3">Montant</th>
                       <th className="px-4 py-3">Clôture</th>
                       <th className="px-4 py-3">Statut</th>
+                      <th className="px-4 py-3">Pertinence</th>
                       <th className="px-4 py-3">Source</th>
                     </tr>
                   </thead>
@@ -625,6 +801,11 @@ export default function DevicesPageContent({
                           {device.short_description && (
                             <p className="mt-2 line-clamp-2 max-w-xl text-sm leading-6 text-slate-600">
                               {device.short_description}
+                            </p>
+                          )}
+                          {buildRelevanceExplanation(device) && (
+                            <p className="mt-2 inline-flex rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700">
+                              {buildRelevanceExplanation(device)}
                             </p>
                           )}
                         </td>
@@ -658,6 +839,16 @@ export default function DevicesPageContent({
                           >
                             {STATUS_LABELS[device.status] || device.status}
                           </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          {(() => {
+                            const meta = getAiReadinessMeta(device);
+                            return (
+                              <span className={clsx("rounded-full border px-2.5 py-1 text-xs font-medium", meta.className)} title={meta.detail}>
+                                {meta.label}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -77,7 +77,7 @@ async def _get_or_create_customer(
         metadata={
             "organization_id": str(organization_id),
             "user_id": str(current_user.id),
-            "app": "finveille",
+            "app": "kafundo",
         },
     )
 
@@ -253,16 +253,16 @@ async def sync_stripe_products(
             continue
 
         product = stripe.Product.create(
-            name=f"FinVeille {plan.name}",
+            name=f"Kafundo {plan.name}",
             description=plan.description,
-            metadata={"plan_slug": plan.slug, "app": "finveille"},
+            metadata={"plan_slug": plan.slug, "app": "kafundo"},
         )
         price = stripe.Price.create(
             product=product.id,
             unit_amount=int(plan.price_monthly_eur) * 100,
             currency=(plan.currency or "EUR").lower(),
             recurring={"interval": "month"},
-            metadata={"plan_slug": plan.slug, "app": "finveille"},
+            metadata={"plan_slug": plan.slug, "app": "kafundo"},
         )
         plan.stripe_price_id = price.id
         synced.append({"plan": plan.slug, "product_id": product.id, "stripe_price_id": price.id})

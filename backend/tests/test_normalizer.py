@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 from app.collector.base_connector import RawItem
 from app.collector.normalizer import Normalizer
+from app.collector.source_profiles import get_source_profile
 
 
 def make_source(**config):
@@ -178,7 +179,7 @@ def test_normalizer_replaces_english_world_bank_abstract_with_french_metadata_su
     assert "Ce projet est porté" in normalized["short_description"]
     assert normalized["full_description"] is not None
     assert "The project development objective" not in normalized["full_description"]
-    assert normalized["device_type"] == "autre"
+    assert normalized["device_type"] == "institutional_project"
 
 
 def test_normalizer_overrides_title_for_africa_business_heroes_source():
@@ -367,7 +368,7 @@ def test_normalizer_marks_les_aides_standby_when_no_date_or_recurrence_proof():
     assert normalized["is_recurring"] is False
 
 
-def test_normalizer_marks_data_aides_entreprises_recurring_without_close_date():
+def test_normalizer_marks_data_aides_entreprises_standby_without_close_date_or_recurrence_proof():
     normalizer = Normalizer(
         {
             "id": "source-aides-entreprises",
@@ -393,5 +394,159 @@ def test_normalizer_marks_data_aides_entreprises_recurring_without_close_date():
     normalized = normalizer.normalize(item)
 
     assert normalized is not None
+    assert normalized["status"] == "standby"
+    assert normalized["is_recurring"] is False
+
+
+def test_normalizer_skips_unusable_dynamic_or_error_pages():
+    normalizer = Normalizer(make_source())
+    item = RawItem(
+        title="Page vide",
+        url="https://example.org/page-vide",
+        raw_content=(
+            "Aucun contenu editorial exploitable trouve sur cette page. "
+            "Le site peut utiliser du JavaScript dynamique ou une structure HTML trop pauvre."
+        ),
+        metadata={},
+    )
+
+    assert normalizer.normalize(item) is None
+
+
+def test_normalizer_structures_editorial_profile_from_raw_text():
+    normalizer = Normalizer(
+        {
+            "id": "source-bdt",
+            "country": "France",
+            "organism": "Banque des Territoires",
+            "language": "fr",
+            "url": "https://www.banquedesterritoires.fr/programme",
+            "config": {},
+        }
+    )
+    item = RawItem(
+        title="Programme logement durable",
+        url="https://www.banquedesterritoires.fr/programme",
+        raw_content=(
+            "Presentation\n"
+            "Ce programme accompagne les territoires dans la rehabilitation de logements durables.\n\n"
+            "Criteres d'eligibilite\n"
+            "Les projets doivent etre portes par des collectivites ou des bailleurs sociaux eligibles.\n\n"
+            "Montant et financement\n"
+            "Le soutien prend la forme de prets et d'un accompagnement financier selon le montage du projet.\n\n"
+            "Demarche\n"
+            "La demande doit etre preparee avec la Banque des Territoires puis deposee via la page officielle."
+        ),
+        metadata={"deadline": "2026-12-31"},
+    )
+
+    normalized = normalizer.normalize(item)
+
+    assert normalized is not None
+    assert normalized["close_date"] == date(2026, 12, 31)
+    assert "## Criteres d'eligibilite" in normalized["full_description"]
+    assert "collectivites ou des bailleurs sociaux" in normalized["eligibility_criteria"]
+    assert "prets et d'un accompagnement financier" in normalized["funding_details"]
+
+
+def test_source_profiles_cover_priority_sources():
+    assert get_source_profile({"url": "https://data.aides-entreprises.fr/aides", "organism": ""}).key == "data_aides_entreprises"
+    assert get_source_profile({"url": "https://les-aides.fr/aides", "organism": ""}).key == "les_aides"
+    assert get_source_profile({"url": "https://projects.worldbank.org/project", "organism": ""}).key == "world_bank"
+    assert get_source_profile({"url": "https://www.banquedesterritoires.fr/programme", "organism": ""}).key == "banque_des_territoires"
+    assert get_source_profile({"url": "https://agirpourlatransition.ademe.fr/aide", "organism": ""}).key == "ademe"
+    assert get_source_profile({"url": "https://africabusinessheroes.org/fr/", "organism": ""}).key == "africa_business_heroes"
+
+
+def test_normalizer_structures_banque_des_territoires_profile_metadata():
+    normalizer = Normalizer(
+        {
+            "id": "source-bdt",
+            "country": "France",
+            "organism": "Banque des Territoires",
+            "language": "fr",
+            "url": "https://www.banquedesterritoires.fr/programme-agile",
+            "config": {},
+        }
+    )
+    item = RawItem(
+        title="Programme AGiLE",
+        url="https://www.banquedesterritoires.fr/programme-agile",
+        raw_content="",
+        metadata={
+            "title": "Programme AGiLE",
+            "summary": "Programme pour agir en faveur du logement etudiant.",
+            "content": "Le programme soutient la construction et la rehabilitation de logements etudiants.",
+            "conditions": "Les projets doivent etre portes par des acteurs territoriaux eligibles.",
+            "montant": "Financement et accompagnement a confirmer selon le montage du projet.",
+            "demarches": "Le dossier doit etre prepare puis depose depuis la page officielle du programme.",
+        },
+    )
+
+    normalized = normalizer.normalize(item)
+
+    assert normalized is not None
+    assert normalized["title"] == "Programme AGiLE"
+    assert "## Presentation" in normalized["full_description"]
+    assert "## Criteres d'eligibilite" in normalized["full_description"]
+    assert "## Montant / avantages" in normalized["full_description"]
+    assert "dossier doit etre prepare" in normalized["full_description"]
+    assert normalized["eligibility_criteria"].startswith("Les projets doivent")
+
+
+def test_normalizer_marks_ademe_project_without_date_as_standby():
+    normalizer = Normalizer(
+        {
+            "id": "source-ademe",
+            "country": "France",
+            "organism": "ADEME",
+            "language": "fr",
+            "url": "https://agirpourlatransition.ademe.fr/aides",
+            "config": {},
+        }
+    )
+    item = RawItem(
+        title="Projet transition",
+        url="https://agirpourlatransition.ademe.fr/projet",
+        raw_content="Projet environnemental sans date limite communiquee.",
+        metadata={"status": "active"},
+    )
+
+    normalized = normalizer.normalize(item)
+
+    assert normalized is not None
+    assert normalized["status"] == "standby"
+    assert normalized["is_recurring"] is False
+
+
+def test_normalizer_localizes_private_investor_english_text():
+    normalizer = Normalizer(
+        {
+            "id": "source-amoon",
+            "country": "International",
+            "organism": "aMoon",
+            "language": "fr",
+            "url": "https://amoon.fund/",
+            "config": {},
+        }
+    )
+    item = RawItem(
+        title="aMoon",
+        url="https://amoon.fund/",
+        raw_content=(
+            "We are in the age of discovery. We partner with exceptional entrepreneurs "
+            "who harness science and technology to transform healthcare. Through our "
+            "growth and late-stage funds, we invest in health, biotech and medtech companies "
+            "and support portfolio companies with advisors, research and co-investment."
+        ),
+        metadata={},
+    )
+
+    normalized = normalizer.normalize(item)
+
+    assert normalized is not None
+    assert normalized["device_type"] == "investissement"
     assert normalized["status"] == "recurring"
-    assert normalized["is_recurring"] is True
+    assert "We are in the age" not in normalized["full_description"]
+    assert "Ce fonds d'investissement" in normalized["full_description"]
+    assert "## Montant / avantages" in normalized["full_description"]

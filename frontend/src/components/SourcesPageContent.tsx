@@ -58,7 +58,7 @@ function getSourceCollectionPreview(source: Pick<Source, "collection_mode" | "so
   if (!source.is_active) {
     return "Source inactive conservée à titre de référence tant qu'elle n'est pas réactivée.";
   }
-  return "Cherchera une liste d'items et générera une fiche distincte pour chaque dispositif détecté.";
+  return "Cherchera une liste d'items et générera une opportunité distincte pour chaque financement détecté.";
 }
 
 function getLastCollectionLabel(source: Pick<Source, "collection_mode" | "source_kind" | "last_success_at">) {
@@ -336,7 +336,7 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
                 </td>
                 <td className="px-4 py-3 align-top">
                   <div className="flex items-center gap-1">
-                    <Link href={`/sources/${s.id}`} className="p-1 text-gray-400 hover:text-primary-600" title="Voir la fiche">
+                    <Link href={`/sources/${s.id}`} className="p-1 text-gray-400 hover:text-primary-600" title="Voir la source">
                       <ChevronRight className="w-3 h-3" />
                     </Link>
                     <button

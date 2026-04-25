@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+﻿import { expect, test } from "@playwright/test";
 
 const device = {
   id: "device-regression-1",
@@ -47,7 +47,7 @@ const device = {
 
 test("affiche les sections enrichies et la source de vérité sur la fiche dispositif", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("finveille_token", "fake-token");
+    localStorage.setItem("kafundo_token", "fake-token");
   });
 
   await page.route("**/api/v1/devices/device-regression-1", async (route) => {

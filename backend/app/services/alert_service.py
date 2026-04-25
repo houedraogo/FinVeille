@@ -1,6 +1,6 @@
 from typing import Optional, List
 from uuid import UUID
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,3 +77,88 @@ class AlertService:
             )
         )
         return result.scalars().all()
+
+    async def get_all_active_new_opportunity(self, frequencies: Optional[list[str]] = None) -> List[Alert]:
+        """
+        Retourne les alertes actives configurées pour détecter les nouvelles
+        opportunités (alert_types contient 'new', channels contient 'email').
+        """
+        result = await self.db.execute(
+            select(Alert).where(
+                Alert.is_active == True,
+            )
+        )
+        all_alerts = result.scalars().all()
+        # Filtre Python : PostgreSQL ARRAY overlap en pur Python pour éviter
+        # les problèmes de dialect sur les listes vides
+        return [
+            a for a in all_alerts
+            if "new" in (a.alert_types or [])
+            and "email" in (a.channels or [])
+            and (not frequencies or (a.frequency or "daily") in frequencies)
+        ]
+
+    def resolve_new_opportunity_since(
+        self,
+        alert: Alert,
+        fallback_since_dt: datetime,
+    ) -> datetime:
+        """Calcule la borne de reprise pour eviter les doublons d'envoi."""
+        last_triggered_at = alert.last_triggered_at
+        if not last_triggered_at:
+            return fallback_since_dt
+        if last_triggered_at.tzinfo is None:
+            last_triggered_at = last_triggered_at.replace(tzinfo=timezone.utc)
+        return max(fallback_since_dt, last_triggered_at)
+
+    async def match_new_devices(
+        self,
+        alert: Alert,
+        since_dt: datetime,
+    ) -> List[Device]:
+        """
+        Retourne les dispositifs ajoutés depuis `since_dt` qui correspondent
+        aux critères de l'alerte. Filtre sur `first_seen_at >= since_dt`.
+        """
+        criteria = alert.criteria or {}
+        effective_since_dt = self.resolve_new_opportunity_since(alert, since_dt)
+        q = (
+            select(Device)
+            .where(
+                Device.validation_status.in_(["auto_published", "approved"]),
+                Device.first_seen_at >= effective_since_dt,
+                Device.status.in_(["open", "recurring"]),
+            )
+            .order_by(Device.first_seen_at.desc())
+        )
+
+        if criteria.get("countries"):
+            q = q.where(Device.country.in_(criteria["countries"]))
+        if criteria.get("sectors"):
+            q = q.where(Device.sectors.overlap(criteria["sectors"]))
+        if criteria.get("device_types"):
+            q = q.where(Device.device_type.in_(criteria["device_types"]))
+        if criteria.get("beneficiaries"):
+            q = q.where(Device.beneficiaries.overlap(criteria["beneficiaries"]))
+        if criteria.get("amount_min"):
+            q = q.where(Device.amount_max >= criteria["amount_min"])
+        # Pas de close_within_days ici : on veut les nouvelles oppos, pas juste celles qui ferment vite
+
+        # Filtre sur keywords (full-text titre + description) côté Python
+        # pour éviter une jointure search_vector complexe
+        keywords: list[str] = [k.lower() for k in (criteria.get("keywords") or [])]
+        result = await self.db.execute(q.limit(200))
+        devices = result.scalars().all()
+
+        if keywords:
+            devices = [
+                d for d in devices
+                if any(
+                    kw in (d.title or "").lower()
+                    or kw in (d.short_description or "").lower()
+                    or kw in (d.full_description or "").lower()
+                    for kw in keywords
+                )
+            ]
+
+        return devices[:50]

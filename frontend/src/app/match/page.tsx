@@ -1,17 +1,17 @@
-"use client";
+﻿"use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
 import LimitNotice from "@/components/LimitNotice";
 import Link from "next/link";
 import {
-  Upload, FileText, Search, CheckCircle,
-  AlertCircle, ExternalLink, ChevronRight, X, Loader2,
+  Upload, FileText, FileSearch, CheckCircle,
+  AlertCircle, ExternalLink, ChevronRight, X, Loader2, ScanText,
 } from "lucide-react";
 import clsx from "clsx";
 import { billing } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const MATCH_STORAGE_KEY = "finveille_match_state";
+const MATCH_STORAGE_KEY = "kafundo_match_state";
 
 const DEVICE_TYPE_LABELS: Record<string, string> = {
   subvention: "Subvention", pret: "Prêt", aap: "Appel à projets",
@@ -158,7 +158,7 @@ export default function MatchPage() {
     form.append("file", file);
 
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("finveille_token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("kafundo_token") : null;
       const res = await fetch(`${API_BASE}/api/v1/match/`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -207,23 +207,60 @@ export default function MatchPage() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center gap-2 mb-1">
-            <Search className="w-6 h-6 text-primary-500" />
-            <h1 className="text-2xl font-bold text-gray-900">Matching de projet</h1>
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-primary-600">
+            <ScanText className="w-3.5 h-3.5" />
+            Analyse de document
           </div>
-          <p className="text-sm text-gray-500">
-            Importez votre pitch ou présentation — FinVeille analyse votre document et identifie
-            les dispositifs de financement les plus adaptés à votre projet.
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            Importez votre document — obtenez vos financements
+          </h1>
+          <p className="text-sm leading-6 text-gray-500 max-w-xl">
+            Kafundo lit votre pitch deck, note de synthèse ou présentation de projet,
+            en extrait le profil clé, puis sélectionne les dispositifs de financement
+            les plus adaptés parmi 2 500+ opportunités.
           </p>
         </div>
 
         {/* Zone d'upload */}
         {!matchingAllowed && (
-          <div className="mb-6">
+          <div className="mb-6 space-y-4">
             <LimitNotice
-              title="Matching IA reserve aux plans Pro"
-              message="Le matching de document est disponible avec les offres Pro, Team et Enterprise."
+              title="Analyse de document disponible à partir de l’offre Pro"
+              message="Cette fonctionnalité premium lit votre document projet, détecte les signaux clés et fait remonter les financements les plus cohérents. Elle n’est pas incluse dans l’offre Découverte."
             />
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary-600">
+                Ce que débloque l’offre Pro
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-900">Lecture automatique du document</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Kafundo extrait les pays, secteurs, types de financement et besoins de ton projet.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-900">Sélection des opportunités pertinentes</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Tu évites de parcourir tout le catalogue et tu vas plus vite vers les meilleures pistes.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-900">Aide à la priorisation</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Le résultat met en avant les financements à traiter en premier selon ton document.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Link href="/billing" className="btn-primary text-xs">
+                  Voir les offres
+                </Link>
+                <Link href="/recommendations" className="btn-secondary text-xs">
+                  Voir mes recommandations actuelles
+                </Link>
+              </div>
+            </div>
           </div>
         )}
 
@@ -249,10 +286,11 @@ export default function MatchPage() {
 
             {!file ? (
               <>
-                <Upload className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-                <p className="font-medium text-gray-700 mb-1">Glissez votre document ici</p>
-                <p className="text-sm text-gray-400">ou cliquez pour parcourir</p>
-                <p className="text-xs text-gray-300 mt-3">PDF · PPTX · TXT — max 10 Mo</p>
+                <FileSearch className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                <p className="font-semibold text-gray-700 mb-1">Glissez votre document projet ici</p>
+                <p className="text-sm text-gray-400">ou cliquez pour sélectionner un fichier</p>
+                <p className="text-xs text-gray-300 mt-3">Pitch deck · Note de synthèse · Présentation</p>
+                <p className="text-xs text-gray-300 mt-0.5">PDF · PPTX · TXT · MD — max 10 Mo</p>
               </>
             ) : (
               <div className="flex items-center justify-center gap-3">
@@ -274,15 +312,18 @@ export default function MatchPage() {
 
         {/* Bouton analyser */}
         {file && !result && (
-          <div className="mt-4 flex justify-center">
+          <div className="mt-4 flex flex-col items-center gap-2">
             <button
               onClick={analyse}
               disabled={loading}
               className="btn-primary px-8 py-3 text-base disabled:opacity-60 flex items-center gap-2"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
-              {loading ? "Analyse en cours…" : "Trouver les financements correspondants"}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileSearch className="w-5 h-5" />}
+              {loading ? "Analyse en cours…" : "Lancer l'analyse"}
             </button>
+            {!loading && (
+              <p className="text-xs text-gray-400">Résultats obtenus en quelques secondes</p>
+            )}
           </div>
         )}
 
@@ -290,8 +331,8 @@ export default function MatchPage() {
         {loading && (
           <div className="mt-6 flex items-center justify-center gap-10">
             {[
-              { key: "extracting", label: "Lecture du document" },
-              { key: "matching",   label: "Recherche des dispositifs" },
+              { key: "extracting", label: "Lecture & extraction du profil" },
+              { key: "matching",   label: "Matching des financements" },
             ].map(({ key, label }, i) => {
               const order = ["extracting", "matching"];
               const current = order.indexOf(step);
@@ -336,7 +377,7 @@ export default function MatchPage() {
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div>
                   <p className="text-xs font-semibold text-primary-600 uppercase tracking-wide mb-1">
-                    Profil détecté dans votre document
+                    Profil extrait de votre document
                   </p>
                   {result.profile.summary && (
                     <p className="text-sm text-gray-600 line-clamp-2">{result.profile.summary}</p>
@@ -374,17 +415,22 @@ export default function MatchPage() {
 
             {/* Header résultats */}
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800">
-                {result.total} dispositif{result.total > 1 ? "s" : ""} correspondant{result.total > 1 ? "s" : ""}
-              </h3>
-              <p className="text-xs text-gray-400">Classés par pertinence</p>
+              <div>
+                <h3 className="font-semibold text-gray-800">
+                  {result.total} financement{result.total > 1 ? "s" : ""} identifié{result.total > 1 ? "s" : ""} pour votre projet
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">Classés par score de pertinence — du plus adapté au moins adapté</p>
+              </div>
             </div>
 
             {result.total === 0 && (
               <div className="card p-10 text-center text-gray-400">
-                <Search className="w-8 h-8 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">Aucun dispositif trouvé</p>
-                <p className="text-sm mt-1">Essayez avec un document plus détaillé sur le projet, le secteur ou la géographie.</p>
+                <FileSearch className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                <p className="font-medium text-gray-600">Aucun financement identifié</p>
+                <p className="text-sm mt-1">
+                  Le document ne contient peut-être pas assez d'informations sur le secteur, le pays ou le type de projet.
+                  Essayez avec une note plus détaillée.
+                </p>
               </div>
             )}
 
@@ -441,7 +487,7 @@ export default function MatchPage() {
                             step,
                           })}
                           className="ml-auto flex items-center gap-1 text-primary-600 hover:text-primary-700 font-medium">
-                          Voir la fiche <ChevronRight className="w-3 h-3" />
+                          Analyser <ChevronRight className="w-3 h-3" />
                         </Link>
                       </div>
                     </div>

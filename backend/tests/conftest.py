@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -31,7 +31,7 @@ def _compile_tsvector_sqlite(_type, _compiler, **_kw):
 async def override_current_user():
     return SimpleNamespace(
         id="test-user",
-        email="admin@finveille.com",
+        email="admin@kafundo.com",
         full_name="Admin Test",
         role="admin",
         is_active=True,

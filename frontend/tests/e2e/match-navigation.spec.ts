@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+﻿import { test, expect } from "@playwright/test";
 
 const matchState = {
   fileName: "pitch.txt",
@@ -36,8 +36,8 @@ const matchState = {
 
 test("conserve les resultats de matching apres retour depuis la fiche dispositif", async ({ page }) => {
   await page.addInitScript((state) => {
-    localStorage.setItem("finveille_token", "fake-token");
-    localStorage.setItem("finveille_match_state", JSON.stringify(state));
+    localStorage.setItem("kafundo_token", "fake-token");
+    localStorage.setItem("kafundo_match_state", JSON.stringify(state));
   }, matchState);
 
   await page.route("**/api/v1/devices/device-1", async (route) => {

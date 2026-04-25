@@ -2,8 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FinVeille — Veille Financement Public",
-  description: "Plateforme de veille sur les dispositifs de financement public France & Afrique",
+  title: "Kafundo - Trouve et securise tes financements",
+  description:
+    "Kafundo aide a reperer, prioriser et securiser les meilleures opportunites de financement en France et en Afrique.",
+  icons: {
+    icon: "/brand/kafundo-picto.png",
+    apple: "/brand/kafundo-picto.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

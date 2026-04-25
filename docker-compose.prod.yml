@@ -1,7 +1,7 @@
-services:
+﻿services:
   postgres:
     image: postgres:15-alpine
-    container_name: finveille-postgres
+    container_name: kafundo-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -17,7 +17,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: finveille-redis
+    container_name: kafundo-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     volumes:
@@ -32,7 +32,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
-    container_name: finveille-backend
+    container_name: kafundo-backend
     restart: unless-stopped
     env_file:
       - .env.production
@@ -52,7 +52,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
-    container_name: finveille-worker
+    container_name: kafundo-worker
     restart: unless-stopped
     env_file:
       - .env.production
@@ -67,7 +67,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
-    container_name: finveille-beat
+    container_name: kafundo-beat
     restart: unless-stopped
     env_file:
       - .env.production
@@ -85,7 +85,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
-    container_name: finveille-frontend
+    container_name: kafundo-frontend
     restart: unless-stopped
     env_file:
       - .env.production
@@ -95,7 +95,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: finveille-nginx
+    container_name: kafundo-nginx
     restart: unless-stopped
     depends_on:
       frontend:
@@ -109,7 +109,7 @@ services:
 
   postgres-backup:
     image: postgres:15-alpine
-    container_name: finveille-postgres-backup
+    container_name: kafundo-postgres-backup
     restart: unless-stopped
     env_file:
       - .env.production

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from typing import Optional, List, Literal
+from typing import Any, Optional, List, Literal
 from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
@@ -22,6 +22,11 @@ class DeviceCreate(BaseModel):
     beneficiaries: Optional[List[str]] = None
     short_description: Optional[str] = None
     full_description: Optional[str] = None
+    content_sections_json: Optional[List[dict[str, Any]]] = None
+    ai_rewritten_sections_json: Optional[List[dict[str, Any]]] = None
+    ai_rewrite_status: str = "pending"
+    ai_rewrite_model: Optional[str] = None
+    ai_rewrite_checked_at: Optional[datetime] = None
     eligibility_criteria: Optional[str] = None
     eligible_expenses: Optional[str] = None
     specific_conditions: Optional[str] = None
@@ -41,6 +46,9 @@ class DeviceCreate(BaseModel):
     tags: Optional[List[str]] = None
     source_raw: Optional[str] = None
     validation_status: Optional[str] = None
+    ai_readiness_score: int = 0
+    ai_readiness_label: Optional[str] = None
+    ai_readiness_reasons: Optional[List[str]] = None
 
 
 class DeviceUpdate(BaseModel):
@@ -48,6 +56,10 @@ class DeviceUpdate(BaseModel):
     organism: Optional[str] = None
     short_description: Optional[str] = None
     full_description: Optional[str] = None
+    ai_rewritten_sections_json: Optional[List[dict[str, Any]]] = None
+    ai_rewrite_status: Optional[Literal["pending", "done", "failed", "needs_review"]] = None
+    ai_rewrite_model: Optional[str] = None
+    ai_rewrite_checked_at: Optional[datetime] = None
     eligibility_criteria: Optional[str] = None
     eligible_expenses: Optional[str] = None
     sectors: Optional[List[str]] = None
@@ -79,6 +91,11 @@ class DeviceResponse(BaseModel):
     beneficiaries: Optional[List[str]]
     short_description: Optional[str]
     full_description: Optional[str]
+    content_sections_json: Optional[List[dict[str, Any]]] = None
+    ai_rewritten_sections_json: Optional[List[dict[str, Any]]] = None
+    ai_rewrite_status: str = "pending"
+    ai_rewrite_model: Optional[str] = None
+    ai_rewrite_checked_at: Optional[datetime] = None
     eligibility_criteria: Optional[str]
     eligible_expenses: Optional[str]
     specific_conditions: Optional[str]
@@ -103,6 +120,17 @@ class DeviceResponse(BaseModel):
     confidence_score: int
     completeness_score: int
     relevance_score: int
+    relevance_label: Optional[str] = None
+    relevance_reasons: Optional[List[str]] = None
+    priority_level: Optional[str] = None
+    eligibility_confidence: Optional[str] = None
+    decision_hint: Optional[str] = None
+    ai_readiness_score: int = 0
+    ai_readiness_label: Optional[str] = None
+    ai_readiness_reasons: Optional[List[str]] = None
+    match_reasons: Optional[List[str]] = None
+    decision_analysis: Optional[dict[str, Any]] = None
+    decision_analyzed_at: Optional[datetime] = None
     validation_status: str
     first_seen_at: datetime
     last_verified_at: datetime
@@ -145,8 +173,11 @@ class DeviceSearchParams(BaseModel):
     close_date_before: Optional[date] = None
     close_date_after: Optional[date] = None
     closing_soon_days: Optional[int] = None
+    has_close_date: Optional[bool] = None
     source_id: Optional[UUID] = None
     min_confidence: Optional[int] = None
+    min_ai_readiness: Optional[int] = None
+    ai_readiness_labels: Optional[List[str]] = None
     validation_status: Optional[str] = None
     sort_by: str = "updated_at"
     sort_desc: bool = True

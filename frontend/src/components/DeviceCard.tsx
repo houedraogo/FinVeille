@@ -2,21 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Calendar, MapPin, Building2, ExternalLink, TrendingUp, Heart, Flag } from "lucide-react";
-import { Device, DEVICE_TYPE_LABELS, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
-import { formatAmount, formatDate, daysUntil, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
-import { getPipelineDevice, isFavoriteDevice, toggleFavoriteDevice, type DevicePipelineStatus } from "@/lib/workspace";
+import { Calendar, MapPin, Building2, ExternalLink, TrendingUp, Heart, Flag, ThumbsUp, ThumbsDown, AlertCircle } from "lucide-react";
 import clsx from "clsx";
+
+import { Device, DEVICE_TYPE_LABELS, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
+import { formatAmount, formatDate, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
+import { getPipelineDevice, isFavoriteDevice, toggleFavoriteDevice, type DevicePipelineStatus } from "@/lib/workspace";
 
 interface Props {
   device: Device;
   selected?: boolean;
   onSelect?: (id: string) => void;
+  /** Paramètre ?from= ajouté aux liens vers la fiche (ex: "recommendations", "match") */
+  fromParam?: string;
 }
 
 function EditorialSnippet({ label, content }: { label: string; content: string | null | undefined }) {
   const cleaned = sanitizeDisplayText(content);
-
   if (!cleaned) {
     return null;
   }
@@ -40,22 +42,59 @@ function MetaLine({ label, value, emphasized = false }: { label: string; value: 
   );
 }
 
-export default function DeviceCard({ device, selected = false, onSelect }: Props) {
+const GO_NO_GO_CONFIG = {
+  go: {
+    label: "Bonne opportunité",
+    cls: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    Icon: ThumbsUp,
+  },
+  no_go: {
+    label: "Peu recommandé",
+    cls: "bg-red-100 text-red-600 border-red-200",
+    Icon: ThumbsDown,
+  },
+  a_verifier: {
+    label: "À vérifier",
+    cls: "bg-amber-100 text-amber-700 border-amber-200",
+    Icon: AlertCircle,
+  },
+} as const;
+
+export default function DeviceCard({ device, selected = false, onSelect, fromParam }: Props) {
   const [favorite, setFavorite] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState<DevicePipelineStatus | null>(null);
   const daysLeft = device.close_date ? daysUntil(device.close_date) : null;
   const isClosingSoon = daysLeft !== null && daysLeft <= 30 && daysLeft >= 0;
   const natureBanner = getDeviceNatureBanner(device);
+  const aiReadiness = getAiReadinessMeta(device);
+  const smartHint = isClosingSoon
+    ? "Attention : deadline proche. Priorise cette opportunité si elle correspond à ton projet."
+    : device.relevance_label
+      ? device.decision_hint || "Conseil : regarde pourquoi cette opportunité ressort pour ton profil."
+      : device.ai_readiness_label === "pret_pour_recommandation_ia"
+        ? "Conseil : très bonne opportunité pour ton profil. Ajoute-la à ton suivi."
+        : device.amount_max
+          ? "Astuce : financement chiffré. Compare-le avec tes besoins avant de candidater."
+          : "Astuce : ajoute-la à ton suivi pour la comparer plus tard.";
+
   const PIPELINE_LABELS: Record<DevicePipelineStatus, string> = {
-    a_etudier: "A etudier",
+    a_etudier: "A étudier",
+    interessant: "Intéressant",
     candidature_en_cours: "Candidature en cours",
+    soumis: "Soumis",
+    refuse: "Refusé",
     non_pertinent: "Non pertinent",
   };
+
   const PIPELINE_COLORS: Record<DevicePipelineStatus, string> = {
     a_etudier: "bg-amber-100 text-amber-700",
+    interessant: "bg-emerald-100 text-emerald-700",
     candidature_en_cours: "bg-blue-100 text-blue-700",
+    soumis: "bg-indigo-100 text-indigo-700",
+    refuse: "bg-red-100 text-red-700",
     non_pertinent: "bg-slate-200 text-slate-600",
   };
+
   const snippets = [
     { label: "Présentation", content: device.short_description || device.auto_summary },
     { label: "Conditions", content: device.eligibility_criteria },
@@ -63,9 +102,9 @@ export default function DeviceCard({ device, selected = false, onSelect }: Props
     {
       label: "Calendrier",
       content: device.close_date
-        ? `Clôture le ${formatDate(device.close_date)}.`
+        ? `Date limite : ${formatDate(device.close_date)}.`
         : device.is_recurring
-          ? "Dispositif récurrent sans date de clôture unique."
+          ? "Financement récurrent sans date limite unique."
           : null,
     },
     { label: "Projet", content: device.eligible_expenses || device.specific_conditions },
@@ -105,7 +144,7 @@ export default function DeviceCard({ device, selected = false, onSelect }: Props
     >
       <div className="flex items-start gap-3">
         {onSelect && (
-          <label className="flex flex-shrink-0 items-start cursor-pointer pt-0.5">
+          <label className="flex flex-shrink-0 cursor-pointer items-start pt-0.5">
             <input
               type="checkbox"
               checked={selected}
@@ -131,25 +170,39 @@ export default function DeviceCard({ device, selected = false, onSelect }: Props
               </span>
             )}
             {isClosingSoon && daysLeft !== null && <span className="badge bg-orange-100 text-xs text-orange-700">J-{daysLeft}</span>}
+            <span className={clsx("badge border text-xs", aiReadiness.className)} title={aiReadiness.detail}>
+              {aiReadiness.label}
+            </span>
+            {device.decision_analysis && (() => {
+              const cfg = GO_NO_GO_CONFIG[device.decision_analysis.go_no_go] ?? GO_NO_GO_CONFIG.a_verifier;
+              const { Icon } = cfg;
+              return (
+                <span
+                  className={clsx("badge flex items-center gap-1 border text-xs", cfg.cls)}
+                  title={`Analyse IA · ${device.decision_analysis.recommended_action || ""}`}
+                >
+                  <Icon className="h-3 w-3" />
+                  {cfg.label}
+                </span>
+              );
+            })()}
             <button
               type="button"
               onClick={handleToggleFavorite}
               className={clsx(
                 "ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-                favorite
-                  ? "bg-rose-100 text-rose-700 hover:bg-rose-200"
-                  : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                favorite ? "bg-rose-100 text-rose-700 hover:bg-rose-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700",
               )}
               title={favorite ? "Retirer des favoris" : "Ajouter aux favoris"}
             >
               <Heart className={clsx("h-3.5 w-3.5", favorite && "fill-current")} />
-              {favorite ? "Favori" : "Favori"}
+              Favori
             </button>
           </div>
 
           <div className="mt-3 flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <Link href={`/devices/${device.id}`} className="group block">
+              <Link href={`/devices/${device.id}${fromParam ? `?from=${fromParam}` : ""}`} className="group block">
                 <h3 className="line-clamp-3 text-[1.45rem] font-semibold leading-[1.22] tracking-[-0.02em] text-slate-950 group-hover:text-primary-700">
                   {device.title}
                 </h3>
@@ -195,19 +248,72 @@ export default function DeviceCard({ device, selected = false, onSelect }: Props
             <MetaLine label="Montant" value={device.amount_max ? formatAmount(device.amount_max, device.currency) : "À confirmer"} emphasized={Boolean(device.amount_max)} />
           </div>
 
+          {device.relevance_label && (
+            <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Pourquoi elle ressort</p>
+              <p className="mt-1 text-sm font-semibold leading-6 text-emerald-900">{device.relevance_label}</p>
+              {device.relevance_reasons?.length ? (
+                <p className="mt-2 text-sm leading-6 text-emerald-800">{device.relevance_reasons.slice(0, 2).join(" ")}</p>
+              ) : null}
+            </div>
+          )}
+
+          {device.ai_readiness_label && device.ai_readiness_label !== "pret_pour_recommandation_ia" && (
+            <div className={clsx("mt-3 rounded-2xl border px-4 py-2.5", aiReadiness.className)}>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{aiReadiness.label}</p>
+              <p className="mt-1 line-clamp-2 text-sm leading-6">{aiReadiness.detail}</p>
+            </div>
+          )}
+
+          <div className={clsx("mt-3 rounded-2xl border px-4 py-2.5 text-sm leading-6", isClosingSoon ? "border-orange-200 bg-orange-50 text-orange-800" : "border-slate-200 bg-slate-50 text-slate-600")}>
+            {smartHint}
+          </div>
+
           <div className="mt-3 space-y-0">
             {snippets.length ? (
               snippets.map((item) => <EditorialSnippet key={item.label} label={item.label} content={item.content} />)
             ) : (
               <div className="border-t border-slate-100 pt-3">
                 <p className="text-sm leading-6 text-slate-500">
-                  La fiche contient encore peu d’informations éditoriales. Ouvre la source officielle pour consulter le détail complet.
+                  Cette opportunité contient encore peu d'informations éditoriales. Ouvre la source officielle pour consulter le détail complet.
                 </p>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {device.decision_analysis && (() => {
+        const analysis = device.decision_analysis;
+        const cfg = GO_NO_GO_CONFIG[analysis.go_no_go] ?? GO_NO_GO_CONFIG.a_verifier;
+        const { Icon } = cfg;
+        const hint = analysis.recommended_action || analysis.why_interesting;
+        return (
+          <div className={clsx("mt-3 rounded-2xl border px-4 py-3", cfg.cls)}>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em]">
+                Avis IA · {cfg.label}
+                {analysis.recommended_priority === "haute" && " · Priorité haute"}
+              </p>
+            </div>
+            {hint && <p className="text-xs leading-5 opacity-90">{hint}</p>}
+            {(analysis.eligibility_score !== undefined || analysis.strategic_interest !== undefined) && (
+              <div className="mt-2 flex items-center gap-3 text-[10px] opacity-75">
+                {analysis.eligibility_score !== undefined && (
+                  <span>Éligibilité {analysis.eligibility_score}%</span>
+                )}
+                {analysis.strategic_interest !== undefined && (
+                  <span>Intérêt {analysis.strategic_interest}%</span>
+                )}
+                {analysis.effort_level && (
+                  <span>Effort {analysis.effort_level}</span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className={clsx("mt-4 flex items-center justify-between border-t border-slate-100 pt-3", onSelect && "ml-7")}>
         <div className="flex flex-wrap gap-1.5">

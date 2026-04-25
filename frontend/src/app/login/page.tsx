@@ -1,8 +1,9 @@
-"use client";
+﻿"use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { auth } from "@/lib/api";
-import { Chrome, TrendingUp } from "lucide-react";
+import { Chrome } from "lucide-react";
 
 declare global {
   interface Window {
@@ -32,21 +33,27 @@ declare global {
 export default function LoginPage() {
   const router = useRouter();
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const manualLoginModeRef = useRef(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [disableGoogleAuth, setDisableGoogleAuth] = useState(false);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
   const finishAuth = (result: { access_token: string; user: unknown }) => {
-    localStorage.setItem("finveille_token", result.access_token);
-    if (result.user) localStorage.setItem("finveille_user", JSON.stringify(result.user));
-    router.push("/");
+    localStorage.setItem("kafundo_token", result.access_token);
+    if (result.user) localStorage.setItem("kafundo_user", JSON.stringify(result.user));
+    const user = (result.user || {}) as any;
+    const hasOnboarding = localStorage.getItem("kafundo_onboarding_completed") === "1";
+    router.push(hasOnboarding || user.platform_role === "super_admin" ? "/" : "/onboarding");
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    manualLoginModeRef.current = true;
+    setDisableGoogleAuth(true);
     setLoading(true);
     setError("");
     try {
@@ -60,7 +67,7 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
-    if (!googleClientId || !googleButtonRef.current) return;
+    if (!googleClientId || !googleButtonRef.current || disableGoogleAuth) return;
 
     const initializeGoogle = () => {
       if (!window.google?.accounts?.id || !googleButtonRef.current) return;
@@ -69,6 +76,9 @@ export default function LoginPage() {
       window.google.accounts.id.initialize({
         client_id: googleClientId,
         callback: async ({ credential }) => {
+          if (manualLoginModeRef.current) {
+            return;
+          }
           setGoogleLoading(true);
           setError("");
           try {
@@ -107,18 +117,22 @@ export default function LoginPage() {
     script.defer = true;
     script.dataset.googleIdentity = "true";
     script.addEventListener("load", initializeGoogle, { once: true });
-    document.head.appendChild(script);
+      document.head.appendChild(script);
   }, [googleClientId, router]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-900 to-primary-700 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <TrendingUp className="w-7 h-7 text-primary-600" />
-            <span className="text-2xl font-bold text-gray-900">FinVeille</span>
-          </div>
-          <p className="text-sm text-gray-500">Veille financement public France & Afrique</p>
+          <Image
+            src="/brand/kafundo-logo-transparent.png"
+            alt="Kafundo - Trouve et sécurise tes financements plus facilement"
+            width={360}
+            height={130}
+            className="mx-auto mb-3 h-auto w-full max-w-[280px]"
+            priority
+          />
+          <p className="text-sm text-gray-500">Trouve et sécurise tes financements plus facilement</p>
         </div>
 
         <div className="mb-5 space-y-3">
@@ -150,13 +164,25 @@ export default function LoginPage() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="label">Email</label>
-            <input type="email" className="input" placeholder="admin@finveille.com"
-              value={email} onChange={e => setEmail(e.target.value)} required />
+            <input type="email" className="input" placeholder="admin@kafundo.com"
+              value={email}
+              onChange={e => {
+                manualLoginModeRef.current = true;
+                setDisableGoogleAuth(true);
+                setEmail(e.target.value);
+              }}
+              required />
           </div>
           <div>
             <label className="label">Mot de passe</label>
             <input type="password" className="input"
-              value={password} onChange={e => setPassword(e.target.value)} required />
+              value={password}
+              onChange={e => {
+                manualLoginModeRef.current = true;
+                setDisableGoogleAuth(true);
+                setPassword(e.target.value);
+              }}
+              required />
           </div>
           {error && (
             <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</div>

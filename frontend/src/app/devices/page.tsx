@@ -6,10 +6,10 @@ const PUBLIC_TYPES = ["subvention", "pret", "aap", "accompagnement", "garantie",
 export default function PublicDevicesPage() {
   return (
     <DevicesPageContent
-      title="Dispositifs de financement public"
+      title="Opportunités de financement public"
       lockedDeviceTypes={PUBLIC_TYPES}
       availableDeviceTypes={PUBLIC_TYPES}
-      defaultSort="updated_at"
+      defaultSort="relevance"
       showClosingFilter={true}
     />
   );

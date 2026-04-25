@@ -199,9 +199,9 @@ INITIAL_SOURCES = [
 ]
 
 ADMIN_USER = {
-    "email": "admin@finveille.com",
-    "password": "Admin@2024!",
-    "full_name": "Administrateur FinVeille",
+    "email": "contact@kafundo.com",
+    "password": "Kafundo@2026!",
+    "full_name": "Administrateur Kafundo",
     "role": "admin",
 }
 

@@ -52,7 +52,7 @@ export default function AdminPage() {
   const handleFixExpired = async () => {
     try {
       const result = await admin.fixExpired() as { message?: string };
-      setActionMsg(result.message || "Dispositifs expirés corrigés !");
+      setActionMsg(result.message || "Opportunités expirées corrigées !");
       setActionType("success");
       fetchData();
     } catch (e: any) {
@@ -80,6 +80,24 @@ export default function AdminPage() {
     } catch (e: any) {
       setActionMsg(`Erreur : ${e.message}`);
       setActionType("error");
+    }
+  };
+
+  const [rewriting, setRewriting] = useState(false);
+  const handleBulkRewrite = async () => {
+    setRewriting(true);
+    try {
+      const result = await admin.rewrite(20, "pending") as {
+        processed?: number; succeeded?: number; failed?: number; skipped?: number; message?: string;
+      };
+      setActionMsg(result.message || `${result.succeeded}/${result.processed} fiches reformulées.`);
+      setActionType((result.failed ?? 0) > 0 && (result.succeeded ?? 0) === 0 ? "error" : "success");
+      fetchData();
+    } catch (e: any) {
+      setActionMsg(`Erreur reformulation : ${e.message}`);
+      setActionType("error");
+    } finally {
+      setRewriting(false);
     }
   };
 
@@ -159,6 +177,40 @@ export default function AdminPage() {
     }
   };
 
+  const [sendingDigest, setSendingDigest] = useState(false);
+  const handleSendDigest = async () => {
+    setSendingDigest(true);
+    try {
+      const result = await admin.sendDigest() as {
+        sent?: number; failed?: number; users_targeted?: number; message?: string;
+      };
+      setActionMsg(result.message || `Digest envoyé à ${result.sent ?? 0} utilisateur(s).`);
+      setActionType((result.failed ?? 0) > 0 && (result.sent ?? 0) === 0 ? "error" : "success");
+    } catch (e: any) {
+      setActionMsg(`Digest : ${e.message}`);
+      setActionType("error");
+    } finally {
+      setSendingDigest(false);
+    }
+  };
+
+  const [sendingReminders, setSendingReminders] = useState(false);
+  const handleSendDeadlineReminders = async () => {
+    setSendingReminders(true);
+    try {
+      const result = await admin.sendDeadlineReminders(7) as {
+        sent?: number; failed?: number; users_targeted?: number; reminders_sent?: number; message?: string;
+      };
+      setActionMsg(result.message || `Rappels J-7 envoyés (${result.reminders_sent ?? 0} rappel(s)).`);
+      setActionType((result.failed ?? 0) > 0 && (result.sent ?? 0) === 0 ? "error" : "success");
+    } catch (e: any) {
+      setActionMsg(`Rappels : ${e.message}`);
+      setActionType("error");
+    } finally {
+      setSendingReminders(false);
+    }
+  };
+
   return (
     <RoleGate
       allow={["admin"]}
@@ -187,6 +239,18 @@ export default function AdminPage() {
           </button>
           <button onClick={handleEnrich} className="btn-secondary text-xs flex items-center gap-1.5">
             <Sparkles className="w-3 h-3" /> Enrichir fiches
+          </button>
+          <button onClick={handleBulkRewrite} disabled={rewriting} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
+            {rewriting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {rewriting ? "Reformulation…" : "Reformuler IA (20)"}
+          </button>
+          <button onClick={handleSendDigest} disabled={sendingDigest} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
+            {sendingDigest ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+            {sendingDigest ? "Envoi digest…" : "Digest hebdo"}
+          </button>
+          <button onClick={handleSendDeadlineReminders} disabled={sendingReminders} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
+            {sendingReminders ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+            {sendingReminders ? "Envoi rappels…" : "Rappels J-7"}
           </button>
         </div>
       </div>
@@ -420,7 +484,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Dispositifs en attente de validation */}
+          {/* Opportunités en attente de validation */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold text-gray-700 flex items-center gap-2">
@@ -436,7 +500,7 @@ export default function AdminPage() {
               <div className="text-center py-12 bg-white rounded-xl border border-gray-100 text-gray-400">
                 <CheckCircle className="w-10 h-10 mx-auto mb-2 text-green-400" />
                 <p className="font-medium text-gray-600">Tout est validé !</p>
-                <p className="text-sm">Aucun dispositif en attente de validation</p>
+                <p className="text-sm">Aucune opportunité en attente de validation</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

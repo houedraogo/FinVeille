@@ -340,7 +340,7 @@ async def fetch_worldbank(limit: int) -> list:
     }
 
     headers = {
-        "User-Agent": "FinVeille/1.0 (research; contact: admin@finveille.com)",
+        "User-Agent": "Kafundo/1.0 (research; contact: admin@kafundo.com)",
         "Accept": "application/json",
     }
 
@@ -437,7 +437,7 @@ async def fetch_afd(limit: int) -> list:
     from app.collector.normalizer import COUNTRY_MAP
 
     items = []
-    headers = {"User-Agent": "FinVeille/1.0", "Accept": "application/json"}
+    headers = {"User-Agent": "Kafundo/1.0", "Accept": "application/json"}
 
     DATASETS = [
         "les-projets-de-l-afd",
@@ -540,7 +540,7 @@ async def fetch_ademe(limit: int) -> list:
     import httpx
 
     items = []
-    headers = {"User-Agent": "FinVeille/1.0", "Accept": "application/json"}
+    headers = {"User-Agent": "Kafundo/1.0", "Accept": "application/json"}
 
     # Dataset IDs réels (vérifiés)
     DATASETS = [
@@ -679,7 +679,7 @@ async def fetch_datagouv(limit: int) -> list:
     import httpx
 
     items = []
-    headers = {"User-Agent": "FinVeille/1.0", "Accept": "application/json"}
+    headers = {"User-Agent": "Kafundo/1.0", "Accept": "application/json"}
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         page = 1
@@ -769,7 +769,7 @@ async def fetch_eu_grants(limit: int) -> list:
 
     items = []
     headers = {
-        "User-Agent": "FinVeille/1.0",
+        "User-Agent": "Kafundo/1.0",
         "Accept": "application/json",
     }
 
@@ -842,7 +842,7 @@ async def fetch_ifc(limit: int) -> list:
     from app.collector.normalizer import COUNTRY_MAP
 
     items = []
-    headers = {"User-Agent": "FinVeille/1.0", "Accept": "application/json"}
+    headers = {"User-Agent": "Kafundo/1.0", "Accept": "application/json"}
     WB_COUNTRY_CODES = {
         "Senegal": "SN", "Cote d'Ivoire": "CI", "Morocco": "MA", "Tunisia": "TN",
         "Cameroon": "CM", "Mali": "ML", "Burkina Faso": "BF", "Niger": "NE",
@@ -934,7 +934,7 @@ async def fetch_proparco(limit: int) -> list:
     from app.collector.normalizer import COUNTRY_MAP
 
     items = []
-    headers = {"User-Agent": "FinVeille/1.0", "Accept": "application/json"}
+    headers = {"User-Agent": "Kafundo/1.0", "Accept": "application/json"}
 
     DATASETS = [
         "liste-des-prestations-et-des-subventions-contractes-par-proparco-dans-le-cadre-d",
@@ -1786,7 +1786,7 @@ async def insert_devices(items: list, source_name: str, source_id: Optional[str]
                 create_data.setdefault("organism", item.get("organism", source_name))
                 create_data.setdefault("country", item.get("country", "France"))
                 create_data.setdefault("device_type", item.get("device_type", "autre"))
-                create_data.setdefault("source_url", item.get("source_url", "https://finveille.com"))
+                create_data.setdefault("source_url", item.get("source_url", "https://kafundo.com"))
                 create_data.setdefault("status", item.get("status", "open"))
 
                 device_schema = DeviceCreate(**create_data)
@@ -1810,7 +1810,7 @@ async def run():
 
     print()
     print("=" * 60)
-    print("  FinVeille — Collecte de données RÉELLES")
+    print("  Kafundo - Collecte de donnees REELLES")
     print("=" * 60)
     print(f"  Sources  : {', '.join(args.sources)}")
     print(f"  Limite   : {args.limit} dispositifs / source")

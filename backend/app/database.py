@@ -43,6 +43,9 @@ async def create_tables():
     await ensure_workspace_columns()
     await ensure_billing_columns()
     await ensure_billing_defaults()
+    await ensure_device_content_columns()
+    await ensure_pipeline_documents_column()
+    await ensure_device_decision_columns()
     await ensure_search_vector_trigger()
 
 
@@ -94,6 +97,22 @@ async def ensure_workspace_columns():
             CREATE INDEX IF NOT EXISTS ix_saved_searches_organization_id
             ON saved_searches (organization_id)
         """))
+        await conn.execute(text("""
+            ALTER TABLE device_pipeline
+            ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'moyenne'
+        """))
+        await conn.execute(text("""
+            ALTER TABLE device_pipeline
+            ADD COLUMN IF NOT EXISTS reminder_date DATE NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE device_pipeline
+            ADD COLUMN IF NOT EXISTS match_project_id UUID NULL
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_device_pipeline_match_project_id
+            ON device_pipeline (match_project_id)
+        """))
 
 
 async def ensure_billing_columns():
@@ -139,6 +158,73 @@ async def ensure_billing_defaults():
 
     async with AsyncSessionLocal() as session:
         await ensure_default_plans(session)
+
+
+async def ensure_device_content_columns():
+    """Ajoute les colonnes de contenu structure pour les bases locales existantes."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS content_sections_json JSON NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS ai_rewritten_sections_json JSON NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS ai_rewrite_status VARCHAR(50) NOT NULL DEFAULT 'pending'
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS ai_rewrite_model VARCHAR(120) NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS ai_rewrite_checked_at TIMESTAMPTZ NULL
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_devices_ai_rewrite_status
+            ON devices (ai_rewrite_status)
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS ai_readiness_score SMALLINT NOT NULL DEFAULT 0
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS ai_readiness_label VARCHAR(80) NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS ai_readiness_reasons TEXT[] NULL
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_devices_ai_readiness_label
+            ON devices (ai_readiness_label)
+        """))
+
+
+async def ensure_pipeline_documents_column():
+    """Ajoute la colonne documents sur device_pipeline pour les bases existantes."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE device_pipeline
+            ADD COLUMN IF NOT EXISTS documents JSON NULL
+        """))
+
+
+async def ensure_device_decision_columns():
+    """Ajoute les colonnes d'analyse décisionnelle IA sur les bases existantes."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS decision_analysis JSON NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS decision_analyzed_at TIMESTAMPTZ NULL
+        """))
 
 
 async def ensure_search_vector_trigger():

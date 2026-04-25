@@ -30,15 +30,22 @@ interface Subscription {
 
 const LIMIT_LABELS: Record<string, string> = {
   users: "Utilisateurs",
-  alerts: "Alertes",
+  alerts: "Veilles actives",
   saved_searches: "Recherches sauvegardees",
-  pipeline_projects: "Projets suivis",
+  pipeline_projects: "Opportunités suivies",
 };
 
 const FEATURE_LABELS: Record<string, string> = {
-  matching_ai: "Matching IA",
+  matching_ai: "Recommandations",
+  smart_scoring: "Scoring intelligent",
+  custom_alerts: "Alertes personnalisees",
+  collaboration: "Collaboration d'equipe",
+  advanced_analysis: "Analyse avancee",
   exports: "Exports CSV/Excel",
+  api_access: "API",
+  strategic_watch: "Veille strategique",
   private_sources: "Sources privees",
+  funding_support: "Accompagnement financement",
 };
 
 function formatLimit(value: number | undefined) {
@@ -114,7 +121,7 @@ export default function BillingPage() {
           <p className="text-sm font-medium text-primary-600">Abonnement SaaS</p>
           <h1 className="mt-1 text-2xl font-bold text-slate-950">Plans et limites</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            Controlez l'usage de FinVeille par organisation : alertes, matching IA, exports, sources privees et pipeline.
+            Controlez l'usage de Kafundo par organisation : veilles, recommandations, exports, sources privees et suivi des opportunités.
           </p>
         </div>
         <button type="button" onClick={handlePortal} className="btn-secondary text-xs" disabled={busyPlan === "portal"}>
@@ -197,7 +204,7 @@ export default function BillingPage() {
 
                 <div className="mt-auto pt-5">
                   {isEnterprise ? (
-                    <Link href="mailto:admin@finveille.com" className="btn-secondary w-full justify-center text-xs">
+                    <Link href="mailto:admin@kafundo.com" className="btn-secondary w-full justify-center text-xs">
                       Contacter
                       <ExternalLink className="h-3.5 w-3.5" />
                     </Link>

@@ -4,7 +4,7 @@ from datetime import date, timedelta, datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, update, delete as sql_delete, text, bindparam, String as SA_String
+from sqlalchemy import select, func, and_, or_, update, delete as sql_delete, text, bindparam, String as SA_String, case
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,7 +53,17 @@ class DeviceService:
 
         if params.q:
             tsquery = func.plainto_tsquery("french", params.q)
-            query = query.where(Device.search_vector.op("@@")(tsquery))
+            like_query = f"%{params.q.strip()}%"
+            query = query.where(
+                or_(
+                    Device.search_vector.op("@@")(tsquery),
+                    Device.title.ilike(like_query),
+                    Device.organism.ilike(like_query),
+                    Device.country.ilike(like_query),
+                    Device.short_description.ilike(like_query),
+                    Device.full_description.ilike(like_query),
+                )
+            )
 
         if params.countries:
             query = query.where(Device.country.in_(params.countries))
@@ -65,13 +75,21 @@ class DeviceService:
             query = query.where(Device.beneficiaries.overlap(params.beneficiaries))
         if params.status:
             query = query.where(Device.status.in_(params.status))
+        elif not params.validation_status:
+            query = query.where(Device.status.in_(["open", "recurring", "standby"]))
         if params.validation_status:
             query = query.where(Device.validation_status == params.validation_status)
+        else:
+            query = query.where(Device.validation_status.in_(["auto_published", "approved", "validated"]))
         if params.closing_soon_days:
             deadline = date.today() + timedelta(days=params.closing_soon_days)
             query = query.where(
                 and_(Device.close_date <= deadline, Device.close_date >= date.today())
             )
+        if params.has_close_date is True:
+            query = query.where(Device.close_date.is_not(None))
+        elif params.has_close_date is False:
+            query = query.where(Device.close_date.is_(None))
         if params.close_date_before:
             query = query.where(Device.close_date <= params.close_date_before)
         if params.close_date_after:
@@ -82,10 +100,144 @@ class DeviceService:
             query = query.where(Device.amount_min <= params.amount_max)
         if params.min_confidence is not None:
             query = query.where(Device.confidence_score >= params.min_confidence)
+        if params.min_ai_readiness is not None:
+            query = query.where(Device.ai_readiness_score >= params.min_ai_readiness)
+        if params.ai_readiness_labels:
+            query = query.where(Device.ai_readiness_label.in_(params.ai_readiness_labels))
         if params.source_id:
             query = query.where(Device.source_id == params.source_id)
 
         return query
+
+    @staticmethod
+    def _deadline_score_expression():
+        today = date.today()
+        soon = today + timedelta(days=30)
+        later = today + timedelta(days=90)
+        return case(
+            (and_(Device.close_date >= today, Device.close_date <= soon), 0.18),
+            (and_(Device.close_date > soon, Device.close_date <= later), 0.10),
+            (Device.status == "recurring", 0.06),
+            (Device.status.in_(["expired", "closed"]), -0.35),
+            else_=0.0,
+        )
+
+    @staticmethod
+    def _status_score_expression(params: DeviceSearchParams):
+        if params.status and set(params.status) <= {"expired", "closed"}:
+            return 0.0
+        return case(
+            (Device.status == "open", 0.16),
+            (Device.status == "recurring", 0.12),
+            (Device.status == "standby", 0.04),
+            (Device.validation_status == "pending_review", -0.08),
+            (Device.status.in_(["expired", "closed"]), -0.25),
+            else_=0.0,
+        )
+
+    def _relevance_expression(self, params: DeviceSearchParams):
+        score = (
+            (func.coalesce(Device.confidence_score, 0) / 100.0) * 0.18
+            + (func.coalesce(Device.completeness_score, 0) / 100.0) * 0.14
+            + self._deadline_score_expression()
+            + self._status_score_expression(params)
+        )
+
+        if params.q:
+            tsq = func.plainto_tsquery("french", params.q)
+            like_query = f"%{params.q.strip()}%"
+            score = (
+                score
+                + func.ts_rank_cd(Device.search_vector, tsq) * 1.35
+                + case((Device.title.ilike(like_query), 0.22), else_=0.0)
+                + case((Device.organism.ilike(like_query), 0.12), else_=0.0)
+                + case((Device.short_description.ilike(like_query), 0.08), else_=0.0)
+            )
+        if params.countries:
+            score = score + case((Device.country.in_(params.countries), 0.22), else_=0.0)
+        if params.device_types:
+            score = score + case((Device.device_type.in_(params.device_types), 0.18), else_=0.0)
+        if params.sectors:
+            score = score + case((Device.sectors.overlap(params.sectors), 0.16), else_=0.0)
+        if params.beneficiaries:
+            score = score + case((Device.beneficiaries.overlap(params.beneficiaries), 0.10), else_=0.0)
+        if params.has_close_date:
+            score = score + case((Device.close_date.is_not(None), 0.08), else_=0.0)
+        if params.closing_soon_days:
+            deadline = date.today() + timedelta(days=params.closing_soon_days)
+            score = score + case(
+                (and_(Device.close_date >= date.today(), Device.close_date <= deadline), 0.20),
+                else_=0.0,
+            )
+        return score
+
+    @staticmethod
+    def build_match_reasons(device: Device, params: DeviceSearchParams) -> list[str]:
+        reasons: list[str] = []
+        if params.q:
+            reasons.append(f"contient les termes de recherche \"{params.q}\"")
+        if params.countries and device.country in params.countries:
+            reasons.append(f"pays cible: {device.country}")
+        if params.device_types and device.device_type in params.device_types:
+            reasons.append(f"type recherche: {device.device_type}")
+        if params.sectors:
+            matched = sorted(set(device.sectors or []) & set(params.sectors))
+            if matched:
+                reasons.append("secteur correspondant: " + ", ".join(matched[:2]))
+        if params.beneficiaries:
+            matched = sorted(set(device.beneficiaries or []) & set(params.beneficiaries))
+            if matched:
+                reasons.append("beneficiaire correspondant: " + ", ".join(matched[:2]))
+        if params.closing_soon_days and device.close_date:
+            days_left = (device.close_date - date.today()).days
+            if 0 <= days_left <= params.closing_soon_days:
+                reasons.append(f"echeance dans {days_left} jours")
+        elif params.has_close_date and device.close_date:
+            reasons.append("date limite renseignee")
+        if device.close_date and device.status == "open":
+            days_left = (device.close_date - date.today()).days
+            if days_left >= 0:
+                reasons.append(f"appel ouvert avec cloture le {device.close_date.strftime('%d/%m/%Y')}")
+        if device.status == "recurring":
+            reasons.append("dispositif permanent ou recurrent")
+        if device.validation_status in {"auto_published", "approved", "validated"}:
+            reasons.append("fiche publiee apres controle qualite")
+        if device.confidence_score and device.confidence_score >= 75:
+            reasons.append("fiche jugee fiable")
+        return reasons[:4]
+
+    @staticmethod
+    def runtime_relevance_score(device: Device, params: DeviceSearchParams) -> int:
+        score = 0
+        if params.q:
+            score += 25
+        if params.countries and device.country in params.countries:
+            score += 18
+        if params.device_types and device.device_type in params.device_types:
+            score += 15
+        if params.sectors and set(device.sectors or []) & set(params.sectors):
+            score += 14
+        if params.beneficiaries and set(device.beneficiaries or []) & set(params.beneficiaries):
+            score += 8
+        if device.close_date and device.close_date >= date.today():
+            days_left = (device.close_date - date.today()).days
+            if days_left <= 30:
+                score += 14
+            elif days_left <= 90:
+                score += 8
+        elif device.status == "recurring":
+            score += 6
+        if device.status == "open":
+            score += 10
+        elif device.status == "recurring":
+            score += 8
+        elif device.status in {"expired", "closed"} and not (
+            params.status and set(params.status) <= {"expired", "closed"}
+        ):
+            score -= 25
+        score += min(10, int((device.confidence_score or 0) / 10))
+        score += min(10, int((device.completeness_score or 0) / 10))
+        return max(0, min(100, score))
 
     async def search(self, params: DeviceSearchParams) -> dict:
         query = self._build_filter_query(params)
@@ -95,22 +247,39 @@ class DeviceService:
         total = (await self.db.execute(count_q)).scalar() or 0
 
         # Tri
-        if params.sort_by == "close_date":
+        relevance_expr = self._relevance_expression(params)
+
+        normalized_sort = {
+            "deadline": "close_date",
+            "newest": "updated_at",
+            "amount": "amount_max",
+            "quality": "confidence",
+            "ai_ready": "ai_readiness",
+        }.get(params.sort_by, params.sort_by)
+
+        if normalized_sort == "updated_at" and params.q:
+            normalized_sort = "relevance"
+
+        if normalized_sort == "close_date":
             order_col = Device.close_date
-        elif params.sort_by == "amount_max":
+        elif normalized_sort == "amount_max":
             order_col = Device.amount_max
-        elif params.sort_by == "confidence":
+        elif normalized_sort == "confidence":
             order_col = Device.confidence_score
-        elif params.sort_by == "relevance" and params.q:
-            tsq = func.plainto_tsquery("french", params.q)
-            order_col = func.ts_rank(Device.search_vector, tsq)
+        elif normalized_sort == "ai_readiness":
+            order_col = Device.ai_readiness_score
+        elif normalized_sort == "relevance":
+            order_col = relevance_expr
         else:
             order_col = Device.updated_at
 
-        if params.sort_desc:
-            query = query.order_by(order_col.desc().nullslast())
+        if normalized_sort == "close_date" and not params.sort_desc:
+            upcoming_first = case((Device.close_date >= date.today(), 0), else_=1)
+            query = query.order_by(upcoming_first.asc(), Device.close_date.asc().nullslast(), Device.updated_at.desc())
+        elif params.sort_desc:
+            query = query.order_by(order_col.desc().nullslast(), Device.updated_at.desc())
         else:
-            query = query.order_by(order_col.asc().nullslast())
+            query = query.order_by(order_col.asc().nullslast(), Device.updated_at.desc())
 
         # Pagination
         offset = (params.page - 1) * params.page_size
@@ -118,6 +287,10 @@ class DeviceService:
 
         result = await self.db.execute(query)
         items = result.scalars().all()
+        for item in items:
+            self.db.expunge(item)
+            item.match_reasons = self.build_match_reasons(item, params)
+            item.relevance_score = self.runtime_relevance_score(item, params)
 
         return {
             "items": items,

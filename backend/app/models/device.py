@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, String, SmallInteger, Boolean, Text, Date, DateTime,
-    Numeric, ForeignKey, Index
+    Numeric, ForeignKey, Index, JSON
 )
 from sqlalchemy.dialects.postgresql import UUID, TSVECTOR, ARRAY
 from sqlalchemy.sql import func
@@ -40,6 +40,11 @@ class Device(Base):
     # --- Descriptions ---
     short_description = Column(Text)
     full_description = Column(Text)
+    content_sections_json = Column(JSON)
+    ai_rewritten_sections_json = Column(JSON)
+    ai_rewrite_status = Column(String(50), default="pending", index=True)
+    ai_rewrite_model = Column(String(120))
+    ai_rewrite_checked_at = Column(DateTime(timezone=True))
     eligibility_criteria = Column(Text)
     eligible_expenses = Column(Text)
     specific_conditions = Column(Text)
@@ -76,12 +81,33 @@ class Device(Base):
     confidence_score = Column(SmallInteger, default=0)
     completeness_score = Column(SmallInteger, default=0)
     relevance_score = Column(SmallInteger, default=0)
+    ai_readiness_score = Column(SmallInteger, default=0)
+    ai_readiness_label = Column(String(80))
+    ai_readiness_reasons = Column(ARRAY(Text))
 
     # --- Workflow validation ---
     validation_status = Column(String(50), default="auto_published", index=True)
     # 'pending_review' | 'approved' | 'rejected' | 'auto_published'
     validated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     validated_at = Column(DateTime(timezone=True))
+
+    # --- Analyse décisionnelle IA ---
+    decision_analysis = Column(JSON, nullable=True)
+    # Structure: {
+    #   "go_no_go": "go" | "no_go" | "a_verifier",
+    #   "recommended_priority": "haute" | "moyenne" | "faible",
+    #   "why_interesting": str,
+    #   "why_cautious": str,
+    #   "points_to_confirm": str,
+    #   "recommended_action": str,
+    #   "urgency_level": "critique" | "haute" | "moyenne" | "faible",
+    #   "difficulty_level": "faible" | "moyenne" | "haute",
+    #   "effort_level": "faible" | "moyenne" | "haute",
+    #   "eligibility_score": 0-100,
+    #   "strategic_interest": 0-100,
+    #   "model": str,
+    # }
+    decision_analyzed_at = Column(DateTime(timezone=True), nullable=True)
 
     # --- Timestamps ---
     first_seen_at = Column(DateTime(timezone=True), server_default=func.now())

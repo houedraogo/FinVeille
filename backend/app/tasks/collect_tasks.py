@@ -126,10 +126,14 @@ async def _collect_source_async(source_id: str):
 
         if collection_result.success:
             pipeline = CollectionPipeline(db, source_dict)
-            await pipeline.process(collection_result)
+            stats = await pipeline.process(collection_result)
             source.consecutive_errors = 0
             source.last_success_at = func.now()
             logger.info(f"[Task] Source '{source.name}' collectee avec succes")
+            if stats.get("new", 0) > 0:
+                from app.tasks.alert_tasks import send_new_opportunity_alerts_task
+
+                send_new_opportunity_alerts_task.apply_async(args=[2], queue="alerts", countdown=60)
         else:
             source.consecutive_errors = (source.consecutive_errors or 0) + 1
             db.add(CollectionLog(

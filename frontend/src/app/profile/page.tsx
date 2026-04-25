@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -79,7 +79,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("finveille_user");
+      const raw = localStorage.getItem("kafundo_user");
       setUser(raw ? (JSON.parse(raw) as ProfileUser) : null);
     } catch {
       setUser(null);
@@ -118,7 +118,7 @@ export default function ProfilePage() {
   }, []);
 
   const displayName = useMemo(
-    () => user?.full_name || user?.name || user?.email || "Utilisateur FinVeille",
+    () => user?.full_name || user?.name || user?.email || "Utilisateur Kafundo",
     [user],
   );
 
@@ -132,7 +132,7 @@ export default function ProfilePage() {
   };
 
   const clearPersonalWorkspace = () => {
-    if (!confirm("Effacer tes favoris, recherches sauvegardées, pipeline personnel et dernier matching ?")) return;
+    if (!confirm("Effacer tes favoris, recherches sauvegardées, suivi personnel et dernière analyse ?")) return;
 
     [
       SAVED_SEARCHES_KEY,
@@ -146,12 +146,12 @@ export default function ProfilePage() {
     setFavoriteCount(0);
     setPipelineCount(0);
     setFeedback("Données personnelles locales effacées.");
-    window.dispatchEvent(new CustomEvent("finveille:workspace-update"));
+    window.dispatchEvent(new CustomEvent("kafundo:workspace-update"));
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("finveille_token");
-    localStorage.removeItem("finveille_user");
+    localStorage.removeItem("kafundo_token");
+    localStorage.removeItem("kafundo_user");
     window.location.href = "/login";
   };
 
@@ -265,7 +265,7 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <ProfileMetric label="Recherches" value={savedCount.toLocaleString("fr")} icon={BookmarkPlus} />
             <ProfileMetric label="Favoris" value={favoriteCount.toLocaleString("fr")} icon={Heart} />
-            <ProfileMetric label="Pipeline" value={pipelineCount.toLocaleString("fr")} icon={Sparkles} />
+            <ProfileMetric label="Suivi" value={pipelineCount.toLocaleString("fr")} icon={Sparkles} />
           </div>
           <div className="mt-5 rounded-2xl border border-primary-100 bg-primary-50/70 px-4 py-4 text-sm leading-6 text-primary-800">
             Ton espace personnel est synchronise avec ton compte quand tu es connecte, avec le navigateur comme cache de confort.
@@ -283,7 +283,7 @@ export default function ProfilePage() {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 p-4">
-              <p className="text-sm font-semibold text-slate-950">Vue par défaut des dispositifs</p>
+              <p className="text-sm font-semibold text-slate-950">Vue par défaut des opportunités</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -355,7 +355,7 @@ export default function ProfilePage() {
             <div>
               <h2 className="text-lg font-semibold text-red-950">Confidentialité locale</h2>
               <p className="mt-1 text-sm leading-6 text-red-700">
-                Tu peux effacer les données personnelles stockées dans ce navigateur : favoris, recherches, pipeline et dernier matching.
+                Tu peux effacer les données personnelles stockées dans ce navigateur : favoris, recherches, suivi et dernière analyse.
               </p>
             </div>
             <button type="button" onClick={clearPersonalWorkspace} className="btn-secondary shrink-0 border-red-200 text-xs text-red-700 hover:bg-red-100">

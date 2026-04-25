@@ -11,6 +11,7 @@ from app.collector.normalizer import Normalizer
 from app.config import settings
 from app.models.collection_log import CollectionLog
 from app.schemas.device import DeviceCreate
+from app.services.ai_readiness import compute_ai_readiness
 from app.services.device_quality import DeviceQualityGate
 from app.services.device_service import DeviceService
 from app.utils.hash_utils import compute_content_hash
@@ -32,6 +33,14 @@ SUPPLEMENTAL_UPDATE_FIELDS = (
     "funding_details",
     "validation_status",
     "tags",
+    "content_sections_json",
+    "ai_rewritten_sections_json",
+    "ai_rewrite_status",
+    "ai_rewrite_model",
+    "ai_rewrite_checked_at",
+    "ai_readiness_score",
+    "ai_readiness_label",
+    "ai_readiness_reasons",
 )
 
 
@@ -50,6 +59,16 @@ class CollectionPipeline:
         self.enricher = Enricher()
         self.quality_gate = DeviceQualityGate()
         self.device_service = DeviceService(db)
+
+    def _ai_readiness_fields(self, existing, updates: dict) -> dict:
+        payload = {column.name: getattr(existing, column.name) for column in existing.__table__.columns}
+        payload.update(updates)
+        readiness = compute_ai_readiness(payload, self.source)
+        return {
+            "ai_readiness_score": readiness.score,
+            "ai_readiness_label": readiness.label,
+            "ai_readiness_reasons": readiness.reasons,
+        }
 
     async def process(self, collection_result: CollectionResult) -> dict:
         stats = {"new": 0, "updated": 0, "skipped": 0, "errors": 0}
@@ -145,6 +164,7 @@ class CollectionPipeline:
                         supplemental_fields[field] = new_value
 
                 if supplemental_fields:
+                    supplemental_fields.update(self._ai_readiness_fields(existing, supplemental_fields))
                     supplemental_fields["source_hash"] = content_hash
                     await self.device_service.update_raw(existing.id, supplemental_fields)
                     return "updated"
@@ -164,6 +184,7 @@ class CollectionPipeline:
                 for key, value in normalized.items()
                 if value is not None and key not in ("created_at", "first_seen_at", "source_id")
             }
+            update_fields.update(self._ai_readiness_fields(existing, update_fields))
             await self.device_service.update_raw(existing.id, update_fields)
             return "updated"
 
@@ -173,6 +194,11 @@ class CollectionPipeline:
         enriched["quality_gate_score"] = quality_decision.score
         if quality_decision.reasons:
             enriched["tags"] = sorted(set((enriched.get("tags") or []) + [f"quality:{reason}" for reason in quality_decision.reasons]))
+
+        ai_readiness = compute_ai_readiness(enriched, self.source)
+        enriched["ai_readiness_score"] = ai_readiness.score
+        enriched["ai_readiness_label"] = ai_readiness.label
+        enriched["ai_readiness_reasons"] = ai_readiness.reasons
 
         create_data = {key: value for key, value in enriched.items() if key in DEVICE_CREATE_FIELDS}
         device_schema = DeviceCreate(**create_data)

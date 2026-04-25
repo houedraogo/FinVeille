@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 
@@ -10,7 +11,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("finveille_token");
+    const token = localStorage.getItem("kafundo_token");
     if (!token) {
       router.replace("/login");
     } else {
@@ -49,7 +50,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button onClick={() => setSidebarOpen(true)} className="p-1">
             <Menu className="w-6 h-6" />
           </button>
-          <span className="font-bold text-base">FinVeille</span>
+          <span className="inline-flex items-center gap-2 font-bold text-base">
+            <Image src="/brand/kafundo-picto.png" alt="Kafundo" width={28} height={28} className="h-7 w-7 rounded-lg object-cover" />
+            Kafundo
+          </span>
         </header>
 
         <main className="flex-1 overflow-auto bg-gray-50">

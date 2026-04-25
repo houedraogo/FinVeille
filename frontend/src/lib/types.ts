@@ -12,6 +12,23 @@ export interface Device {
   beneficiaries: string[] | null;
   short_description: string | null;
   full_description: string | null;
+  content_sections_json?: Array<{
+    key?: string;
+    title?: string;
+    content?: string;
+    confidence?: number;
+    source?: string;
+  }> | null;
+  ai_rewritten_sections_json?: Array<{
+    key?: string;
+    title?: string;
+    content?: string;
+    confidence?: number;
+    source?: string;
+  }> | null;
+  ai_rewrite_status?: "pending" | "done" | "failed" | "needs_review" | string;
+  ai_rewrite_model?: string | null;
+  ai_rewrite_checked_at?: string | null;
   eligibility_criteria: string | null;
   funding_details: string | null;
   eligible_expenses: string | null;
@@ -34,6 +51,30 @@ export interface Device {
   confidence_score: number;
   completeness_score: number;
   relevance_score: number;
+  relevance_label?: string | null;
+  relevance_reasons?: string[] | null;
+  priority_level?: string | null;
+  eligibility_confidence?: string | null;
+  decision_hint?: string | null;
+  ai_readiness_score: number;
+  ai_readiness_label: string | null;
+  ai_readiness_reasons: string[] | null;
+  match_reasons?: string[] | null;
+  decision_analysis?: {
+    go_no_go: "go" | "no_go" | "a_verifier";
+    recommended_priority: "haute" | "moyenne" | "faible";
+    why_interesting?: string;
+    why_cautious?: string;
+    points_to_confirm?: string;
+    recommended_action?: string;
+    urgency_level?: "critique" | "haute" | "moyenne" | "faible";
+    difficulty_level?: "faible" | "moyenne" | "haute";
+    effort_level?: "faible" | "moyenne" | "haute";
+    eligibility_score?: number;
+    strategic_interest?: number;
+    model?: string;
+  } | null;
+  decision_analyzed_at?: string | null;
   validation_status: string;
   first_seen_at: string;
   last_verified_at: string;
@@ -43,6 +84,74 @@ export interface Device {
 
 export interface DeviceListResponse {
   items: Device[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export interface OrganizationProfile {
+  id: string;
+  organization_id: string;
+  organization_type?: string | null;
+  legal_form?: string | null;
+  team_size?: string | null;
+  annual_budget_range?: string | null;
+  development_stage?: string | null;
+  description?: string | null;
+  website?: string | null;
+  countries?: string[] | null;
+  regions?: string[] | null;
+  sectors?: string[] | null;
+  target_funding_types?: string[] | null;
+  preferred_ticket_min?: number | null;
+  preferred_ticket_max?: number | null;
+  currency: string;
+  strategic_priorities?: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FundingProject {
+  id: string;
+  organization_id: string;
+  created_by_id?: string | null;
+  name: string;
+  summary?: string | null;
+  countries?: string[] | null;
+  sectors?: string[] | null;
+  beneficiaries?: string[] | null;
+  target_funding_types?: string[] | null;
+  budget_min?: number | null;
+  budget_max?: number | null;
+  timeline_months?: number | null;
+  status: string;
+  is_primary: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceRelevance {
+  device_id: string;
+  organization_id: string;
+  funding_project_id?: string | null;
+  relevance_score: number;
+  relevance_label: string;
+  priority_level: string;
+  eligibility_confidence: string;
+  decision_hint: string;
+  reason_codes: string[];
+  reason_texts: string[];
+  computed_at: string;
+}
+
+export interface RecommendationItem {
+  device: Device;
+  relevance: DeviceRelevance;
+}
+
+export interface RecommendationListResponse {
+  items: RecommendationItem[];
   total: number;
   page: number;
   page_size: number;

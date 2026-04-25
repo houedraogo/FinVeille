@@ -7,6 +7,7 @@ from app.models.alert import Alert
 from app.models.saved_search import SavedSearch
 from app.models.organization import Organization, OrganizationMember, Invitation
 from app.models.workspace import FavoriteDevice, DevicePipeline, UserPreferences, MatchProject
+from app.models.relevance import OrganizationProfile, FundingProject, DeviceRelevanceCache
 from app.models.billing import Plan, Subscription, UsageEvent, BillingCustomer
 from app.models.operations import AuditLog, EmailEvent, DataExport, DeletionRequest, PasswordResetToken
 
@@ -15,6 +16,7 @@ __all__ = [
     "CollectionLog", "Alert", "SavedSearch",
     "Organization", "OrganizationMember", "Invitation",
     "FavoriteDevice", "DevicePipeline", "UserPreferences", "MatchProject",
+    "OrganizationProfile", "FundingProject", "DeviceRelevanceCache",
     "Plan", "Subscription", "UsageEvent", "BillingCustomer",
     "AuditLog", "EmailEvent", "DataExport", "DeletionRequest", "PasswordResetToken",
 ]

@@ -58,6 +58,74 @@ def test_quality_gate_rejects_too_poor_device():
     assert decision.validation_status == "rejected"
 
 
+def test_quality_gate_keeps_weak_summary_pending_even_with_other_fields():
+    gate = DeviceQualityGate()
+
+    decision = gate.evaluate(
+        make_device(
+            short_description="Aide courte.",
+            full_description="Description longue avec contenu metier exploitable. " * 10,
+            eligibility_criteria="PME eligibles avec dossier complet et activite conforme aux criteres du programme.",
+            funding_details="Subvention jusqu'a 25 000 EUR selon le projet.",
+        )
+    )
+
+    assert decision.decision == "pending_review"
+    assert decision.validation_status == "pending_review"
+    assert "insufficient_summary_for_auto_publish" in decision.reasons
+
+
+def test_quality_gate_keeps_recurring_without_evidence_pending():
+    gate = DeviceQualityGate()
+
+    decision = gate.evaluate(
+        make_device(
+            status="recurring",
+            is_recurring=False,
+            close_date=None,
+            recurrence_notes=None,
+        )
+    )
+
+    assert decision.decision == "pending_review"
+    assert "recurring_without_evidence" in decision.reasons
+
+
+def test_quality_gate_rejects_unusable_source_page():
+    gate = DeviceQualityGate()
+
+    decision = gate.evaluate(
+        make_device(
+            short_description="Aucun contenu editorial exploitable trouve sur cette page.",
+            full_description="Le site peut utiliser du JavaScript dynamique ou une structure HTML trop pauvre.",
+            source_raw="Impossible d'acceder a l'URL (404).",
+        )
+    )
+
+    assert decision.decision == "reject"
+    assert decision.validation_status == "rejected"
+    assert "unusable_source_page" in decision.reasons
+
+
+def test_quality_gate_requires_business_proof_before_auto_publish():
+    gate = DeviceQualityGate()
+
+    decision = gate.evaluate(
+        make_device(
+            full_description="Description assez longue et propre sur le programme et son contexte. " * 8,
+            eligibility_criteria="",
+            funding_details="",
+            close_date=None,
+            status="standby",
+            is_recurring=False,
+        )
+    )
+
+    assert decision.decision == "pending_review"
+    assert decision.validation_status == "pending_review"
+    assert "insufficient_business_proof" in decision.reasons
+
+
 def test_quality_gate_flags_remaining_english_content():
     gate = DeviceQualityGate()
 
