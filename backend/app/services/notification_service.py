@@ -108,6 +108,27 @@ class NotificationService:
     # ─── Core sender ────────────────────────────────────────────────────────────
 
     @staticmethod
+    def _make_connection():
+        """
+        Retourne le bon contexte SMTP selon le port :
+        - Port 465 → SSL direct (SMTP_SSL)
+        - Autres   → plain + STARTTLS si dispo (port 587, 25…)
+        """
+        import ssl
+        host = settings.SMTP_HOST
+        port = settings.SMTP_PORT
+        if port == 465:
+            ctx = ssl.create_default_context()
+            return smtplib.SMTP_SSL(host, port, context=ctx)
+        else:
+            server = smtplib.SMTP(host, port)
+            server.ehlo()
+            if server.has_extn("STARTTLS"):
+                server.starttls()
+                server.ehlo()
+            return server
+
+    @staticmethod
     def send_email(to: str, subject: str, html_body: str) -> bool:
         if not settings.SMTP_HOST:
             logger.warning("[Email] SMTP_HOST non configuré — email ignoré")
@@ -119,13 +140,7 @@ class NotificationService:
             msg["To"] = to
             msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-                server.ehlo()
-                # STARTTLS seulement si le serveur le propose (pas Mailhog)
-                if server.has_extn("STARTTLS"):
-                    server.starttls()
-                    server.ehlo()
-                # Login seulement si des credentials sont fournis
+            with NotificationService._make_connection() as server:
                 if settings.SMTP_USER and settings.SMTP_PASSWORD:
                     server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(settings.EMAIL_FROM, to, msg.as_string())
@@ -142,13 +157,13 @@ class NotificationService:
         if not settings.SMTP_HOST:
             return {"configured": False, "reachable": False, "message": "SMTP_HOST non défini"}
         try:
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=5) as server:
-                server.ehlo()
+            with NotificationService._make_connection() as server:
                 return {
                     "configured": True,
                     "reachable": True,
                     "host": settings.SMTP_HOST,
                     "port": settings.SMTP_PORT,
+                    "ssl": settings.SMTP_PORT == 465,
                     "auth_required": bool(settings.SMTP_USER),
                     "message": "SMTP joignable",
                 }
