@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Check, CreditCard, ExternalLink, Loader2, Lock, Sparkles } from "lucide-react";
 import clsx from "clsx";
 
@@ -55,6 +56,10 @@ function formatLimit(value: number | undefined) {
 }
 
 export default function BillingPage() {
+  const searchParams = useSearchParams();
+  const planParam = searchParams.get("plan"); // ex: "pro" ou "team" — vient du lien WordPress
+  const autoCheckoutDone = useRef(false);
+
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,6 +77,16 @@ export default function BillingPage() {
   }, []);
 
   const currentPlanSlug = subscription?.plan?.slug || "free";
+
+  // Auto-checkout : si l'utilisateur vient de WordPress avec ?plan=pro, lancer Stripe directement
+  useEffect(() => {
+    if (loading || !planParam || autoCheckoutDone.current) return;
+    const targetPlan = plans.find((p) => p.slug === planParam);
+    if (!targetPlan || targetPlan.slug === currentPlanSlug) return;
+    autoCheckoutDone.current = true; // évite de déclencher deux fois
+    handleCheckout(planParam);
+  }, [loading, plans, planParam, currentPlanSlug]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const reachedLimits = useMemo(() => {
     if (!subscription) return [];
     return Object.entries(subscription.limits || {}).filter(([metric, limit]) => {
@@ -129,6 +144,14 @@ export default function BillingPage() {
           Gerer la facturation
         </button>
       </div>
+
+      {/* Bandeau auto-checkout depuis WordPress */}
+      {planParam && planParam !== "free" && busyPlan === planParam && (
+        <div className="mb-6 flex items-center gap-3 rounded-2xl border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-primary-800">
+          <Loader2 className="h-4 w-4 animate-spin flex-shrink-0 text-primary-600" />
+          <span>Redirection vers le paiement sécurisé pour le plan <strong className="capitalize">{planParam}</strong>…</span>
+        </div>
+      )}
 
       {feedback && (
         <div className="mb-6 rounded-2xl border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-primary-800">

@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { auth } from "@/lib/api";
 import { Chrome } from "lucide-react";
@@ -32,6 +32,8 @@ declare global {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const planParam = searchParams.get("plan"); // ex: "pro", "team"
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const manualLoginModeRef = useRef(false);
   const [email, setEmail] = useState("");
@@ -46,6 +48,11 @@ export default function LoginPage() {
     localStorage.setItem("kafundo_token", result.access_token);
     if (result.user) localStorage.setItem("kafundo_user", JSON.stringify(result.user));
     const user = (result.user || {}) as any;
+    // Si un plan est demandé depuis WordPress, rediriger vers le billing pour déclencher le checkout
+    if (planParam && planParam !== "free") {
+      router.push(`/billing?plan=${planParam}`);
+      return;
+    }
     const hasOnboarding = localStorage.getItem("kafundo_onboarding_completed") === "1";
     router.push(hasOnboarding || user.platform_role === "super_admin" ? "/" : "/onboarding");
   };
