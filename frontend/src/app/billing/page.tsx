@@ -1,8 +1,6 @@
 "use client";
-export const dynamic = "force-dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { Check, CreditCard, ExternalLink, Loader2, Lock, Sparkles } from "lucide-react";
 import clsx from "clsx";
 
@@ -56,8 +54,10 @@ function formatLimit(value: number | undefined) {
 }
 
 export default function BillingPage() {
-  const searchParams = useSearchParams();
-  const planParam = searchParams.get("plan"); // ex: "pro" ou "team" — vient du lien WordPress
+  // Lire ?plan= côté client pour éviter useSearchParams et son Suspense requis au build
+  const planParam = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("plan")
+    : null;
   const autoCheckoutDone = useRef(false);
 
   const [plans, setPlans] = useState<Plan[]>([]);

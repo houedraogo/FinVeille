@@ -1,7 +1,6 @@
 ﻿"use client";
-export const dynamic = "force-dynamic";
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { auth } from "@/lib/api";
 import { Chrome } from "lucide-react";
@@ -33,9 +32,12 @@ declare global {
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const planParam = searchParams.get("plan"); // ex: "pro", "team"
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  // Lire ?plan= depuis l'URL côté client (évite useSearchParams et son Suspense requis)
+  const getPlanParam = () => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("plan");
+  };
   const manualLoginModeRef = useRef(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -50,6 +52,7 @@ export default function LoginPage() {
     if (result.user) localStorage.setItem("kafundo_user", JSON.stringify(result.user));
     const user = (result.user || {}) as any;
     // Si un plan est demandé depuis WordPress, rediriger vers le billing pour déclencher le checkout
+    const planParam = getPlanParam();
     if (planParam && planParam !== "free") {
       router.push(`/billing?plan=${planParam}`);
       return;
