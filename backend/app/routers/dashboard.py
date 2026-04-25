@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from datetime import date, timedelta
@@ -7,22 +8,117 @@ from app.database import get_db
 from app.models.device import Device
 from app.models.source import Source
 from app.models.collection_log import CollectionLog
-from app.services.device_service import DeviceService
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
+PUBLIC_TYPES  = ["subvention", "aap", "concours", "pret", "accompagnement", "garantie"]
+PRIVATE_TYPES = ["investissement"]
+
+
+def _scope_conds(scope: Optional[str]) -> list:
+    """Retourne les conditions SQLAlchemy de filtrage par scope."""
+    if scope == "private":
+        return [Device.device_type.in_(PRIVATE_TYPES)]
+    if scope == "public":
+        return [Device.device_type.in_(PUBLIC_TYPES)]
+    return []
+
 
 @router.get("/")
-async def get_dashboard(db: AsyncSession = Depends(get_db)):
-    device_stats = await DeviceService(db).get_stats()
+async def get_dashboard(
+    scope: Optional[str] = Query(None, regex="^(public|private|both)?$"),
+    db: AsyncSession = Depends(get_db),
+):
+    today     = date.today()
+    week_ago  = today - timedelta(days=7)
+    closing_30 = today + timedelta(days=30)
+    closing_7  = today + timedelta(days=7)
 
-    # Derniers dispositifs ajoutés
+    conds = _scope_conds(scope)
+
+    # ── Compteurs principaux ─────────────────────────────────────────────────────
+
+    r = await db.execute(select(func.count()).where(Device.status == "open", *conds))
+    total_active = r.scalar() or 0
+
+    r = await db.execute(select(func.count()).where(*conds) if conds else select(func.count()))
+    total = r.scalar() or 0
+
+    r = await db.execute(select(func.count()).where(Device.first_seen_at >= week_ago, *conds))
+    new_last_7_days = r.scalar() or 0
+
+    # Deadlines (non pertinentes pour le scope privé)
+    if scope != "private":
+        r = await db.execute(
+            select(func.count()).where(
+                Device.close_date <= closing_30, Device.close_date >= today,
+                Device.status == "open", *conds,
+            )
+        )
+        closing_soon_30d = r.scalar() or 0
+
+        r = await db.execute(
+            select(func.count()).where(
+                Device.close_date <= closing_7, Device.close_date >= today,
+                Device.status == "open", *conds,
+            )
+        )
+        closing_soon_7d = r.scalar() or 0
+    else:
+        closing_soon_30d = closing_soon_7d = 0
+
+    r = await db.execute(select(func.count()).where(Device.validation_status == "pending_review", *conds))
+    pending_validation = r.scalar() or 0
+
+    # Pays distincts couverts
     r = await db.execute(
-        select(Device)
-        .where(Device.validation_status != "rejected")
-        .order_by(Device.first_seen_at.desc())
-        .limit(10)
+        select(func.count(Device.country.distinct())).where(*conds) if conds
+        else select(func.count(Device.country.distinct()))
     )
+    countries_count = r.scalar() or 0
+
+    # Confiance moyenne
+    q = select(func.avg(Device.confidence_score)).where(*conds) if conds else select(func.avg(Device.confidence_score))
+    r = await db.execute(q)
+    avg = r.scalar()
+    avg_confidence = round(float(avg), 1) if avg else 0
+
+    # ── Répartitions ────────────────────────────────────────────────────────────
+
+    q = (
+        select(Device.country, func.count().label("count"))
+        .group_by(Device.country)
+        .order_by(func.count().desc())
+        .limit(15)
+    )
+    if conds:
+        q = q.where(*conds)
+    r = await db.execute(q)
+    by_country = [{"country": row[0], "count": row[1]} for row in r]
+
+    q = (
+        select(Device.device_type, func.count().label("count"))
+        .group_by(Device.device_type)
+        .order_by(func.count().desc())
+    )
+    if conds:
+        q = q.where(*conds)
+    r = await db.execute(q)
+    by_type = [{"type": row[0], "count": row[1]} for row in r]
+
+    q = select(Device.status, func.count().label("count")).group_by(Device.status)
+    if conds:
+        q = q.where(*conds)
+    r = await db.execute(q)
+    by_status = [{"status": row[0], "count": row[1]} for row in r]
+
+    # ── Dispositifs récents ──────────────────────────────────────────────────────
+
+    q = select(Device).where(Device.validation_status != "rejected")
+    if conds:
+        q = q.where(*conds)
+    q = q.order_by(Device.first_seen_at.desc()).limit(10)
+    r = await db.execute(q)
     recent_devices = [
         {
             "id": str(d.id),
@@ -40,31 +136,32 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         for d in r.scalars().all()
     ]
 
-    # Dispositifs à clôture imminente (7 jours)
-    r = await db.execute(
-        select(Device)
-        .where(
-            and_(
-                Device.close_date <= date.today() + timedelta(days=7),
-                Device.close_date >= date.today(),
-                Device.status == "open",
-            )
-        )
-        .order_by(Device.close_date.asc())
-        .limit(5)
-    )
-    closing_soon = [
-        {
-            "id": str(d.id),
-            "title": d.title,
-            "country": d.country,
-            "close_date": d.close_date.isoformat(),
-            "days_left": (d.close_date - date.today()).days,
-        }
-        for d in r.scalars().all()
-    ]
+    # ── Clôtures imminentes (public seulement) ───────────────────────────────────
 
-    # Santé des sources
+    closing_soon = []
+    if scope != "private":
+        q = select(Device).where(
+            Device.close_date <= date.today() + timedelta(days=7),
+            Device.close_date >= date.today(),
+            Device.status == "open",
+        )
+        if conds:
+            q = q.where(*conds)
+        q = q.order_by(Device.close_date.asc()).limit(5)
+        r = await db.execute(q)
+        closing_soon = [
+            {
+                "id": str(d.id),
+                "title": d.title,
+                "country": d.country,
+                "close_date": d.close_date.isoformat(),
+                "days_left": (d.close_date - date.today()).days,
+            }
+            for d in r.scalars().all()
+        ]
+
+    # ── Santé des sources ────────────────────────────────────────────────────────
+
     r = await db.execute(select(func.count()).where(Source.is_active == True))
     active_sources = r.scalar() or 0
 
@@ -74,38 +171,33 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     r = await db.execute(
         select(Source)
         .where(Source.consecutive_errors >= 3)
-        .order_by(Source.consecutive_errors.desc(), Source.updated_at.desc())
+        .order_by(Source.consecutive_errors.desc())
         .limit(6)
     )
-    error_sources = []
-    for source in r.scalars().all():
-        log_result = await db.execute(
-            select(CollectionLog)
-            .where(CollectionLog.source_id == source.id)
-            .order_by(CollectionLog.started_at.desc())
-            .limit(1)
-        )
-        last_log_for_source = log_result.scalar_one_or_none()
-        error_sources.append({
-            "id": str(source.id),
-            "name": source.name,
-            "country": source.country,
-            "is_active": source.is_active,
-            "consecutive_errors": source.consecutive_errors,
-            "last_checked_at": source.last_checked_at.isoformat() if source.last_checked_at else None,
-            "last_error": (
-                (last_log_for_source.error_message or "").strip() if last_log_for_source else None
-            ) or source.notes,
-        })
+    error_sources = [
+        {"id": str(s.id), "name": s.name, "consecutive_errors": s.consecutive_errors}
+        for s in r.scalars().all()
+    ]
 
-    # Dernière collecte
+    # ── Dernière collecte ────────────────────────────────────────────────────────
+
     r = await db.execute(
         select(CollectionLog).order_by(CollectionLog.started_at.desc()).limit(1)
     )
     last_log = r.scalar_one_or_none()
 
     return {
-        **device_stats,
+        "total_active": total_active,
+        "total": total,
+        "new_last_7_days": new_last_7_days,
+        "closing_soon_30d": closing_soon_30d,
+        "closing_soon_7d": closing_soon_7d,
+        "pending_validation": pending_validation,
+        "countries_count": countries_count,
+        "avg_confidence": avg_confidence,
+        "by_country": by_country,
+        "by_type": by_type,
+        "by_status": by_status,
         "recent_devices": recent_devices,
         "closing_soon": closing_soon,
         "sources": {

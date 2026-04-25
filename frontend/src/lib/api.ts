@@ -203,7 +203,10 @@ export const workspace = {
 
 // Dashboard
 export const dashboard = {
-  get: () => apiFetch<any>("/api/v1/dashboard/"),
+  get: (scope?: string) => {
+    const qs = scope && scope !== "both" ? `?scope=${scope}` : "";
+    return apiFetch<any>(`/api/v1/dashboard/${qs}`);
+  },
 };
 
 // Sources
