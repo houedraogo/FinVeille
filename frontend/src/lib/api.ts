@@ -252,6 +252,8 @@ export const admin = {
   sendDigest: () => apiFetch<any>("/api/v1/admin/email/digest", { method: "POST" }),
   sendDeadlineReminders: (daysAhead = 7) =>
     apiFetch<any>(`/api/v1/admin/email/deadline-reminders?days_ahead=${daysAhead}`, { method: "POST" }),
+  sendNewOpportunityAlerts: (hoursBack = 24, dryRun = false) =>
+    apiFetch<any>(`/api/v1/admin/email/new-opportunity-alerts?hours_back=${hoursBack}&dry_run=${dryRun}`, { method: "POST" }),
   dedup: () => apiFetch<any>("/api/v1/admin/dedup"),
   dedupMergeAll: () => apiFetch<any>("/api/v1/admin/dedup/merge", { method: "POST" }),
   dedupMergeGroup: (canonicalId: string, duplicateIds: string[]) =>

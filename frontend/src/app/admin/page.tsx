@@ -211,6 +211,27 @@ export default function AdminPage() {
     }
   };
 
+  const [sendingNewOppo, setSendingNewOppo] = useState(false);
+  const handleSendNewOpportunityAlerts = async () => {
+    setSendingNewOppo(true);
+    try {
+      const result = await admin.sendNewOpportunityAlerts(24, false) as {
+        sent?: number; failed?: number; alerts_checked?: number; alerts_with_matches?: number;
+        total_matches?: number; message?: string;
+      };
+      setActionMsg(
+        result.message ||
+        `Alertes nouvelles oppos : ${result.sent ?? 0} email(s) envoyé(s) sur ${result.alerts_with_matches ?? 0} alertes avec correspondances.`
+      );
+      setActionType((result.failed ?? 0) > 0 && (result.sent ?? 0) === 0 ? "error" : "success");
+    } catch (e: any) {
+      setActionMsg(`Alertes nouvelles oppos : ${e.message}`);
+      setActionType("error");
+    } finally {
+      setSendingNewOppo(false);
+    }
+  };
+
   return (
     <RoleGate
       allow={["admin"]}
@@ -251,6 +272,10 @@ export default function AdminPage() {
           <button onClick={handleSendDeadlineReminders} disabled={sendingReminders} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
             {sendingReminders ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
             {sendingReminders ? "Envoi rappels…" : "Rappels J-7"}
+          </button>
+          <button onClick={handleSendNewOpportunityAlerts} disabled={sendingNewOppo} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
+            {sendingNewOppo ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+            {sendingNewOppo ? "Envoi alertes…" : "Alertes nouvelles oppos"}
           </button>
         </div>
       </div>
