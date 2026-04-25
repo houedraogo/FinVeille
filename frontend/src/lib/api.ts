@@ -49,6 +49,11 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  register: (email: string, password: string, fullName: string) =>
+    apiFetch<{ access_token: string; user: any }>("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, full_name: fullName }),
+    }),
   googleLogin: (credential: string) =>
     apiFetch<{ access_token: string; user: any }>("/api/v1/auth/google", {
       method: "POST",
