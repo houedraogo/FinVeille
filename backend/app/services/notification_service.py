@@ -108,7 +108,7 @@ class NotificationService:
     # ─── Core sender ────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _make_connection():
+    def _make_connection(timeout: int = 20):
         """
         Retourne le bon contexte SMTP selon le port :
         - Port 465 → SSL direct (SMTP_SSL)
@@ -119,9 +119,9 @@ class NotificationService:
         port = settings.SMTP_PORT
         if port == 465:
             ctx = ssl.create_default_context()
-            return smtplib.SMTP_SSL(host, port, context=ctx)
+            return smtplib.SMTP_SSL(host, port, context=ctx, timeout=timeout)
         else:
-            server = smtplib.SMTP(host, port)
+            server = smtplib.SMTP(host, port, timeout=timeout)
             server.ehlo()
             if server.has_extn("STARTTLS"):
                 server.starttls()
@@ -157,7 +157,7 @@ class NotificationService:
         if not settings.SMTP_HOST:
             return {"configured": False, "reachable": False, "message": "SMTP_HOST non défini"}
         try:
-            with NotificationService._make_connection() as server:
+            with NotificationService._make_connection(timeout=10) as server:
                 return {
                     "configured": True,
                     "reachable": True,
