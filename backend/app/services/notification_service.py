@@ -118,7 +118,11 @@ class NotificationService:
         host = settings.SMTP_HOST
         port = settings.SMTP_PORT
         if port == 465:
+            # cPanel partagé : le certificat est souvent émis pour le hostname du serveur
+            # (ex: whgi.net) et non pour le nom SMTP → on désactive la vérif de hostname
             ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             return smtplib.SMTP_SSL(host, port, context=ctx, timeout=timeout)
         else:
             server = smtplib.SMTP(host, port, timeout=timeout)
