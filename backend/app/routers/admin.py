@@ -217,6 +217,125 @@ async def update_user(user_id: UUID, data: UserUpdate,
     return user
 
 
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_admin=Depends(require_role(["admin"])),
+):
+    """Désactive (soft-delete) un utilisateur. Interdit de se supprimer soi-même."""
+    if str(current_admin.id) == str(user_id):
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte.")
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    user.is_active = False
+    await db.commit()
+
+
+class AssignPlanRequest(BaseModel):
+    plan_slug: str
+
+
+@router.put("/organizations/{org_id}/plan")
+async def assign_plan(
+    org_id: UUID,
+    data: AssignPlanRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin"])),
+):
+    """Attribue manuellement un plan à une organisation (sans passer par Stripe)."""
+    org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organisation introuvable")
+
+    plan = (await db.execute(select(Plan).where(Plan.slug == data.plan_slug, Plan.is_active == True))).scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Plan '{data.plan_slug}' introuvable ou inactif")
+
+    # Mettre à jour ou créer la Subscription
+    sub = (await db.execute(
+        select(Subscription).where(Subscription.organization_id == org_id)
+    )).scalar_one_or_none()
+
+    if sub:
+        sub.plan_id = plan.id
+        sub.status = "active"
+    else:
+        db.add(Subscription(organization_id=org_id, plan_id=plan.id, status="active"))
+
+    # Synchroniser le champ plan sur l'org (dénormalisation legacy)
+    org.plan = plan.slug
+    await db.commit()
+
+    return {"ok": True, "organization_id": str(org_id), "plan": plan.slug, "plan_name": plan.name}
+
+
+@router.get("/clients")
+async def list_clients(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin"])),
+):
+    """Liste complète des clients (organisations + propriétaires + plan) pour la page admin/clients."""
+    org_rows = await db.execute(
+        select(Organization, Subscription, Plan)
+        .outerjoin(Subscription, Subscription.organization_id == Organization.id)
+        .outerjoin(Plan, Plan.id == Subscription.plan_id)
+        .order_by(Organization.created_at.desc())
+    )
+
+    clients = []
+    for org, subscription, plan in org_rows.all():
+        # Propriétaire principal
+        owner_row = (await db.execute(
+            select(UserModel, OrganizationMember)
+            .join(OrganizationMember, OrganizationMember.user_id == UserModel.id)
+            .where(
+                OrganizationMember.organization_id == org.id,
+                OrganizationMember.role.in_(["org_owner", "org_admin"]),
+                OrganizationMember.is_active == True,
+            )
+            .order_by(OrganizationMember.role)
+            .limit(1)
+        )).first()
+
+        owner = None
+        if owner_row:
+            user, membership = owner_row
+            owner = {
+                "id": str(user.id),
+                "email": user.email,
+                "full_name": user.full_name,
+                "is_active": user.is_active,
+                "created_at": user.created_at,
+                "last_login_at": getattr(user, "last_login_at", None),
+            }
+
+        member_count = await _count_scalar(
+            db,
+            select(func.count(OrganizationMember.id)).where(
+                OrganizationMember.organization_id == org.id,
+                OrganizationMember.is_active == True,
+            ),
+        )
+
+        clients.append({
+            "id": str(org.id),
+            "name": org.name,
+            "slug": org.slug,
+            "status": org.status,
+            "created_at": org.created_at,
+            "plan_slug": plan.slug if plan else "free",
+            "plan_name": plan.name if plan else "Free",
+            "subscription_status": subscription.status if subscription else None,
+            "member_count": member_count,
+            "owner": owner,
+        })
+
+    return clients
+
+
 @router.get("/organizations", response_model=List[OrganizationResponse])
 async def list_organizations(
     db: AsyncSession = Depends(get_db),

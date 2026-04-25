@@ -240,7 +240,14 @@ export const admin = {
   fixExpired: () => apiFetch("/api/v1/admin/quality/fix-expired", { method: "POST" }),
   pending: (page = 1) => apiFetch<any>(`/api/v1/admin/pending?page=${page}`),
   users: () => apiFetch<any[]>("/api/v1/admin/users"),
+  deleteUser: (userId: string) => apiFetch<void>(`/api/v1/admin/users/${userId}`, { method: "DELETE" }),
   organizations: () => apiFetch<any[]>("/api/v1/admin/organizations"),
+  clients: () => apiFetch<any[]>("/api/v1/admin/clients"),
+  assignPlan: (orgId: string, planSlug: string) =>
+    apiFetch<any>(`/api/v1/admin/organizations/${orgId}/plan`, {
+      method: "PUT",
+      body: JSON.stringify({ plan_slug: planSlug }),
+    }),
   operations: () => apiFetch<any>("/api/v1/admin/operations"),
   organizationOperations: (id: string) => apiFetch<any>(`/api/v1/admin/operations/organizations/${id}`),
   qualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit"),
