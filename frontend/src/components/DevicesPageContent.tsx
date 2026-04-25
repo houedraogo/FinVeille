@@ -1,10 +1,12 @@
 ﻿"use client";
 import { useState, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import AppLayout from "@/components/AppLayout";
 import DeviceCard from "@/components/DeviceCard";
 import LimitNotice from "@/components/LimitNotice";
-import { billing, devices } from "@/lib/api";
+import { billing, devices, relevance } from "@/lib/api";
+import { canAccessAdmin, getCurrentRole } from "@/lib/auth";
 import { DeviceListResponse, DEVICE_TYPE_LABELS } from "@/lib/types";
 import { COUNTRIES, SECTORS } from "@/lib/constants";
 import { formatAmount, formatDate, getAiReadinessMeta } from "@/lib/utils";
@@ -14,6 +16,7 @@ import {
   ChevronLeft, ChevronRight, X,
   ShieldCheck, XCircle, Trash2, Tag, CheckSquare,
   FileSpreadsheet, FileText, ChevronDown, LayoutGrid, Rows3, ExternalLink, BookmarkPlus,
+  UserCircle2,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -85,6 +88,7 @@ export default function DevicesPageContent({
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [editingSavedSearchId, setEditingSavedSearchId] = useState<string | null>(null);
   const [exportsAllowed, setExportsAllowed] = useState(true);
+  const [profileActive, setProfileActive] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
@@ -104,20 +108,47 @@ export default function DevicesPageContent({
     }
 
     const pendingSearch = consumePendingSavedSearch(pathname);
-    if (!pendingSearch) return;
+    if (pendingSearch) {
+      // Restore a saved search (e.g. from onboarding "Voir tous les résultats")
+      setQ(pendingSearch.search.filters.q);
+      setDebouncedQ(pendingSearch.search.filters.q);
+      setFilterCountries(pendingSearch.search.filters.countries);
+      setFilterTypes(pendingSearch.search.filters.deviceTypes);
+      setFilterSectors(pendingSearch.search.filters.sectors);
+      setFilterStatuses(pendingSearch.search.filters.statuses);
+      setClosingSoon(pendingSearch.search.filters.closingSoon);
+      setHasCloseDate(!!pendingSearch.search.filters.hasCloseDate);
+      setSortBy(pendingSearch.search.filters.sortBy || defaultSort);
+      setPage(1);
+      setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
+      return;
+    }
 
-    setQ(pendingSearch.search.filters.q);
-    setDebouncedQ(pendingSearch.search.filters.q);
-    setFilterCountries(pendingSearch.search.filters.countries);
-    setFilterTypes(pendingSearch.search.filters.deviceTypes);
-    setFilterSectors(pendingSearch.search.filters.sectors);
-    setFilterStatuses(pendingSearch.search.filters.statuses);
-    setClosingSoon(pendingSearch.search.filters.closingSoon);
-    setHasCloseDate(!!pendingSearch.search.filters.hasCloseDate);
-    setSortBy(pendingSearch.search.filters.sortBy || defaultSort);
-    setPage(1);
-    setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
-  }, [pathname, defaultSort]);
+    // No pending search → apply the user's saved profile as default filters
+    // (skip for admins who manage the full catalog)
+    const role = getCurrentRole();
+    if (canAccessAdmin(role)) return;
+
+    relevance.getProfile().then((profile: any) => {
+      if (!profile) return;
+      let applied = false;
+      if (profile.countries?.length) {
+        setFilterCountries(profile.countries);
+        applied = true;
+      }
+      if (profile.sectors?.length) {
+        setFilterSectors(profile.sectors);
+        applied = true;
+      }
+      if (profile.target_funding_types?.length && availableDeviceTypes.length > 0) {
+        const validTypes = (profile.target_funding_types as string[]).filter(
+          (t) => availableDeviceTypes.includes(t)
+        );
+        if (validTypes.length) setFilterTypes(validTypes);
+      }
+      if (applied) setProfileActive(true);
+    }).catch(() => {});
+  }, [pathname, defaultSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSavedViewMode(pathname, viewMode);
@@ -165,6 +196,7 @@ export default function DevicesPageContent({
     setFilterCountries([]); setFilterTypes([]); setFilterSectors([]);
     setFilterStatuses([]); setFilterAiReadiness([]); setClosingSoon(""); setHasCloseDate(false); setPage(1);
     setEditingSavedSearchId(null);
+    setProfileActive(false);
   };
 
   const hasFilters = filterCountries.length || filterTypes.length || filterSectors.length ||
@@ -484,6 +516,29 @@ export default function DevicesPageContent({
           </button>
         </div>
       </div>
+
+      {/* Bannière profil actif */}
+      {profileActive && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-primary-200 bg-primary-50/80 px-4 py-2.5">
+          <div className="flex items-center gap-2 text-xs text-primary-800">
+            <UserCircle2 className="h-4 w-4 shrink-0 text-primary-600" />
+            <span>
+              <span className="font-semibold">Contenu personnalisé</span>
+              {" — "}les résultats sont filtrés selon votre profil.{" "}
+              <Link href="/onboarding" className="underline hover:text-primary-600">
+                Modifier mes préférences
+              </Link>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="shrink-0 text-xs text-primary-500 hover:text-primary-800 underline"
+          >
+            Voir tout
+          </button>
+        </div>
+      )}
 
       {/* Bannière tri intelligent */}
       {sortBy !== "relevance" && (
