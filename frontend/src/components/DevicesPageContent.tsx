@@ -90,6 +90,8 @@ export default function DevicesPageContent({
   const [exportsAllowed, setExportsAllowed] = useState(true);
   const [profileActive, setProfileActive] = useState(false);
   const [userIsStaff, setUserIsStaff] = useState(false);
+  // Bloque fetchDevices jusqu'à ce que le profil soit appliqué (évite l'affichage non-filtré au premier rendu)
+  const [profileReady, setProfileReady] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
@@ -122,6 +124,7 @@ export default function DevicesPageContent({
       setSortBy(pendingSearch.search.filters.sortBy || defaultSort);
       setPage(1);
       setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
+      setProfileReady(true);
       return;
     }
 
@@ -130,27 +133,37 @@ export default function DevicesPageContent({
     const role = getCurrentRole();
     const isStaff = canAccessAdmin(role);
     setUserIsStaff(isStaff);
-    if (isStaff) return;
+    if (isStaff) {
+      // Admins voient tout sans filtre profil
+      setProfileReady(true);
+      return;
+    }
 
     relevance.getProfile().then((profile: any) => {
-      if (!profile) return;
-      let applied = false;
-      if (profile.countries?.length) {
-        setFilterCountries(profile.countries);
-        applied = true;
+      if (profile) {
+        let applied = false;
+        if (profile.countries?.length) {
+          setFilterCountries(profile.countries);
+          applied = true;
+        }
+        if (profile.sectors?.length) {
+          setFilterSectors(profile.sectors);
+          applied = true;
+        }
+        if (profile.target_funding_types?.length && availableDeviceTypes.length > 0) {
+          const validTypes = (profile.target_funding_types as string[]).filter(
+            (t) => availableDeviceTypes.includes(t)
+          );
+          if (validTypes.length) setFilterTypes(validTypes);
+        }
+        if (applied) setProfileActive(true);
       }
-      if (profile.sectors?.length) {
-        setFilterSectors(profile.sectors);
-        applied = true;
-      }
-      if (profile.target_funding_types?.length && availableDeviceTypes.length > 0) {
-        const validTypes = (profile.target_funding_types as string[]).filter(
-          (t) => availableDeviceTypes.includes(t)
-        );
-        if (validTypes.length) setFilterTypes(validTypes);
-      }
-      if (applied) setProfileActive(true);
-    }).catch(() => {});
+      // Profil chargé (avec ou sans données) → autoriser le premier fetch
+      setProfileReady(true);
+    }).catch(() => {
+      // En cas d'erreur, on laisse passer quand même
+      setProfileReady(true);
+    });
   }, [pathname, defaultSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -188,7 +201,7 @@ export default function DevicesPageContent({
     }
   }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, sortBy, page, viewMode, lockedDeviceTypes]);
 
-  useEffect(() => { fetchDevices(); }, [fetchDevices]);
+  useEffect(() => { if (profileReady) fetchDevices(); }, [fetchDevices, profileReady]);
 
   const toggleFilter = (arr: string[], setArr: (v: string[]) => void, val: string) => {
     setArr(arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val]);
