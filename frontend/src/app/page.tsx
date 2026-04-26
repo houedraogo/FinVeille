@@ -55,6 +55,19 @@ const PIPELINE_STATUS_COLORS: Record<DevicePipelineStatus, string> = {
 };
 const PRIORITY_ORDER: Record<string, number> = { haute: 0, moyenne: 1, faible: 2 };
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface ActionItem {
+  id: string;
+  icon: React.ElementType;
+  iconBg: string;
+  label: string;
+  detail: string;
+  href: string;
+  badge: string;
+  badgeColor: string;
+}
+
 // ── Scope config ──────────────────────────────────────────────────────────────
 
 type FinancingScope = "public" | "private" | "both" | null;
@@ -140,6 +153,8 @@ export default function DashboardPage() {
       .finally(() => setPipelineDevices(listPipelineDevices()));
   }, []);
 
+  // ── Tous les useMemo AVANT les early returns (règle des hooks React) ─────────
+
   // Top priorités pipeline
   const topPriorities = useMemo(() => {
     return [...pipelineDevices]
@@ -156,62 +171,25 @@ export default function DashboardPage() {
       .slice(0, 3);
   }, [pipelineDevices]);
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  // Devices avec deadline urgente (stats peut être null → optional chaining)
+  const urgentDevices = useMemo(() => {
+    return (stats?.recent_devices ?? []).filter((d: any) => {
+      if (!d.close_date || d.status !== "open") return false;
+      const days = Math.ceil((new Date(d.close_date).getTime() - Date.now()) / 86_400_000);
+      return days >= 0 && days <= 14;
+    });
+  }, [stats]);
 
-  if (loading) {
-    return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
-        </div>
-      </AppLayout>
+  // Recommandations à fort potentiel
+  const highPotentialRecs = useMemo(() => {
+    return recommendations.filter(
+      (r) => r.relevance.priority_level === "haute" || r.relevance.priority_level === "élevée",
     );
-  }
+  }, [recommendations]);
 
-  if (!stats) {
-    return (
-      <AppLayout>
-        <div className="text-center py-20 text-gray-400">Impossible de charger le dashboard</div>
-      </AppLayout>
-    );
-  }
-
-  const cfg        = getScopeConfig(scope);
-  const kpis       = cfg.kpis(stats, pipelineDevices);
-  const marketSignals = cfg.marketSignals(stats);
-  const isPrivate  = scope === "private";
-
-  // ── Calcul du potentiel financier (depuis les données réelles) ─────────────
-
-  const devicesWithAmount = stats.recent_devices.filter((d: any) => d.amount_max && d.amount_max > 0);
-  const totalPotentialMax = devicesWithAmount.reduce((sum: number, d: any) => sum + d.amount_max, 0);
-  const totalPotentialMin = devicesWithAmount.reduce((sum: number, d: any) => sum + (d.amount_max * 0.2), 0);
-  const hasPotential = totalPotentialMax > 0;
-
-  // ── Actions recommandées ("À faire maintenant") ────────────────────────────
-
-  const urgentDevices = stats.recent_devices.filter((d: any) => {
-    if (!d.close_date || d.status !== "open") return false;
-    const days = Math.ceil((new Date(d.close_date).getTime() - Date.now()) / 86_400_000);
-    return days >= 0 && days <= 14;
-  });
-
-  const highPotentialRecs = recommendations.filter(
-    (r) => r.relevance.priority_level === "haute" || r.relevance.priority_level === "élevée",
-  );
-
-  interface ActionItem {
-    id: string;
-    icon: React.ElementType;
-    iconBg: string;
-    label: string;
-    detail: string;
-    href: string;
-    badge: string;
-    badgeColor: string;
-  }
-
-  const actionItems: ActionItem[] = useMemo(() => {
+  // Actions recommandées
+  const actionItems = useMemo((): ActionItem[] => {
+    if (!stats) return [];
     const actions: ActionItem[] = [];
 
     // 1. Deadline urgente
@@ -277,6 +255,38 @@ export default function DashboardPage() {
 
     return actions.slice(0, 4);
   }, [stats, recommendations, urgentDevices, highPotentialRecs]); // eslint-disable-line
+
+  // ── Early returns (APRÈS tous les hooks) ──────────────────────────────────
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <AppLayout>
+        <div className="text-center py-20 text-gray-400">Impossible de charger le dashboard</div>
+      </AppLayout>
+    );
+  }
+
+  // ── Calculs non-hook (stats garanti non-null ici) ─────────────────────────
+
+  const cfg           = getScopeConfig(scope);
+  const kpis          = cfg.kpis(stats, pipelineDevices);
+  const marketSignals = cfg.marketSignals(stats);
+  const isPrivate     = scope === "private";
+
+  const devicesWithAmount = stats.recent_devices.filter((d: any) => d.amount_max && d.amount_max > 0);
+  const totalPotentialMax = devicesWithAmount.reduce((sum: number, d: any) => sum + d.amount_max, 0);
+  const totalPotentialMin = devicesWithAmount.reduce((sum: number, d: any) => sum + (d.amount_max * 0.2), 0);
+  const hasPotential = totalPotentialMax > 0;
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
 
