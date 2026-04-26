@@ -1,13 +1,15 @@
-﻿"use client";
+"use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
+import { auth, relevance } from "@/lib/api";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -16,13 +18,66 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.replace("/login");
       return;
     }
-    // Onboarding obligatoire : si pas encore complété, forcer la page dédiée
+
+    // ── Chemin rapide : onboarding déjà validé dans ce navigateur ─────────
     const onboardingDone = localStorage.getItem("kafundo_onboarding_completed");
-    if (!onboardingDone) {
-      router.replace("/onboarding");
+    if (onboardingDone) {
+      setReady(true);
       return;
     }
-    setReady(true);
+
+    // ── Chemin API : premier chargement ou nouvel appareil ─────────────────
+    // On vérifie via l'API si l'onboarding peut être sauté.
+    auth.me()
+      .then(async (user: any) => {
+        // 1. L'admin (et super_admin) n'a jamais besoin de faire l'onboarding
+        if (user.role === "admin" || user.platform_role === "super_admin") {
+          localStorage.setItem("kafundo_onboarding_completed", "1");
+          setReady(true);
+          return;
+        }
+
+        // 2. Utilisateur ayant déjà complété l'onboarding sur un autre appareil
+        //    → son profil existe en base de données
+        try {
+          const profile = await relevance.getProfile();
+          const hasProfile =
+            profile &&
+            (
+              profile.organization_type ||
+              profile.countries?.length > 0 ||
+              profile.sectors?.length > 0
+            );
+
+          if (hasProfile) {
+            localStorage.setItem("kafundo_onboarding_completed", "1");
+
+            // Restaurer le scope de financement s'il n'est pas en localStorage
+            if (!localStorage.getItem("kafundo_financing_scope") && profile.target_funding_types?.length > 0) {
+              const hasPrivate = profile.target_funding_types.includes("investissement");
+              const hasPublic  = profile.target_funding_types.some((t: string) => t !== "investissement");
+              if (hasPrivate && !hasPublic) {
+                localStorage.setItem("kafundo_financing_scope", "private");
+              } else {
+                localStorage.setItem("kafundo_financing_scope", "public");
+              }
+            }
+
+            setReady(true);
+          } else {
+            // 3. Nouvel utilisateur sans profil → onboarding obligatoire
+            router.replace("/onboarding");
+          }
+        } catch {
+          // Impossible de charger le profil → onboarding par sécurité
+          router.replace("/onboarding");
+        }
+      })
+      .catch(() => {
+        // Token invalide ou expiré → retour au login
+        localStorage.removeItem("kafundo_token");
+        router.replace("/login");
+      });
   }, [router]);
 
   if (!ready) {
