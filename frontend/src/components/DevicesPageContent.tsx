@@ -384,21 +384,19 @@ export default function DevicesPageContent({
     const role = getCurrentRole();
     const isStaff = canAccessAdmin(role);
     setUserIsStaff(isStaff);
-    if (isStaff) { setProfileReady(true); return; }
 
-    relevance.getProfile().then((profile: any) => {
-      if (profile) {
-        let applied = false;
-        if (profile.countries?.length) { setFilterCountries(profile.countries); applied = true; }
-        if (profile.sectors?.length)   { setFilterSectors(profile.sectors);    applied = true; }
-        if (profile.target_funding_types?.length && availableDeviceTypes.length > 0) {
-          const valid = (profile.target_funding_types as string[]).filter((t) => availableDeviceTypes.includes(t));
-          if (valid.length) setFilterTypes(valid);
-        }
-        if (applied) setProfileActive(true);
-      }
-      setProfileReady(true);
-    }).catch(() => setProfileReady(true));
+    // Pour les utilisateurs normaux, le filtre pays est appliqué silencieusement
+    // côté backend. On affiche juste la bannière "Contenu personnalisé" pour informer.
+    if (!isStaff) {
+      relevance.getProfile().then((profile: any) => {
+        const hasProfile = profile && (profile.countries?.length || profile.sectors?.length);
+        if (hasProfile) setProfileActive(true);
+        setProfileReady(true);
+      }).catch(() => setProfileReady(true));
+      return;
+    }
+
+    setProfileReady(true);
   }, [pathname, defaultSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -433,9 +431,11 @@ export default function DevicesPageContent({
         page_size: viewMode === "table" ? 50 : 30,
       });
       setResult(data);
-      // Sélectionner automatiquement le premier élément en vue split (desktop)
-      if (viewMode === "split" && data.items.length > 0 && !selectedDevice) {
-        setSelectedDevice(data.items[0] as Device);
+      // Sélectionner automatiquement le premier élément en vue split
+      if (viewMode === "split" && data.items.length > 0) {
+        setSelectedDevice((prev) => prev ?? (data.items[0] as Device));
+      } else if (data.items.length === 0) {
+        setSelectedDevice(null);
       }
     } catch {
       setError("Impossible de charger les opportunités. Vérifiez votre connexion.");

@@ -14,8 +14,11 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from sqlalchemy import select
+
 from app.database import get_db
 from app.models.user import User
+from app.models.relevance import OrganizationProfile
 from app.schemas.device import (
     DeviceCreate, DeviceUpdate, DeviceResponse,
     DeviceListResponse, DeviceSearchParams,
@@ -297,8 +300,28 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_current_user),
 ):
+    # ── Filtre profil silencieux pour les utilisateurs normaux ──────────────
+    # Les pays du profil sont appliqués côté backend si l'utilisateur n'a pas
+    # spécifié de filtre pays manuellement.  Les admins voient tout.
+    effective_countries = countries
+    if (
+        current_user
+        and current_user.role != "admin"
+        and getattr(current_user, "platform_role", "member") != "super_admin"
+        and not countries  # pas de filtre pays manuel → appliquer le profil
+    ):
+        relevance_svc = OpportunityRelevanceService(db)
+        org_id = await relevance_svc.get_current_organization_id(current_user)
+        if org_id:
+            prof_row = await db.execute(
+                select(OrganizationProfile).where(OrganizationProfile.organization_id == org_id)
+            )
+            profile = prof_row.scalar_one_or_none()
+            if profile and profile.countries:
+                effective_countries = profile.countries
+
     params = DeviceSearchParams(
-        q=q, countries=countries, device_types=device_types,
+        q=q, countries=effective_countries, device_types=device_types,
         sectors=sectors, beneficiaries=beneficiaries, status=status,
         validation_status=validation_status,
         closing_soon_days=closing_soon_days,
