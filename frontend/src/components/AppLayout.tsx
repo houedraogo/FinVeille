@@ -1,15 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import { auth, relevance } from "@/lib/api";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const [ready, setReady] = useState(false);
-
+  const router   = useRouter();
+  const pathname = usePathname();
+  const [ready,       setReady]       = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -22,20 +22,33 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // ── Chemin rapide : onboarding déjà validé dans ce navigateur ─────────
     const onboardingDone = localStorage.getItem("kafundo_onboarding_completed");
     if (onboardingDone) {
+      // L'admin ne doit pas atterrir sur le dashboard utilisateur (/)
+      const userRole = localStorage.getItem("kafundo_user_role");
+      if (userRole === "admin" && pathname === "/") {
+        router.replace("/admin");
+        return;
+      }
       setReady(true);
       return;
     }
 
     // ── Chemin API : premier chargement ou nouvel appareil ─────────────────
-    // On vérifie via l'API si l'onboarding peut être sauté.
     auth.me()
       .then(async (user: any) => {
         // 1. L'admin (et super_admin) n'a jamais besoin de faire l'onboarding
         if (user.role === "admin" || user.platform_role === "super_admin") {
           localStorage.setItem("kafundo_onboarding_completed", "1");
-          setReady(true);
+          localStorage.setItem("kafundo_user_role", "admin");
+          // Rediriger l'admin vers son cockpit s'il arrive sur /
+          if (pathname === "/") {
+            router.replace("/admin");
+          } else {
+            setReady(true);
+          }
           return;
         }
+        // Utilisateur normal
+        localStorage.setItem("kafundo_user_role", "user");
 
         // 2. Utilisateur ayant déjà complété l'onboarding sur un autre appareil
         //    → son profil existe en base de données
