@@ -140,7 +140,7 @@ export default function OnboardingPage() {
   // Dérive les pays réels depuis les zones sélectionnées
   const selectedCountries = useMemo(() => {
     const list = selectedZones.flatMap((zk) => ZONES.find((z) => z.key === zk)?.countries ?? []);
-    return [...new Set(list)] as string[];
+    return Array.from(new Set(list)) as string[];
   }, [selectedZones]);
 
   const deviceTypes = useMemo(() => {
