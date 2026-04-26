@@ -14,9 +14,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const token = localStorage.getItem("kafundo_token");
     if (!token) {
       router.replace("/login");
-    } else {
-      setReady(true);
+      return;
     }
+    // Onboarding obligatoire : si pas encore complété, forcer la page dédiée
+    const onboardingDone = localStorage.getItem("kafundo_onboarding_completed");
+    if (!onboardingDone) {
+      router.replace("/onboarding");
+      return;
+    }
+    setReady(true);
   }, [router]);
 
   if (!ready) {
