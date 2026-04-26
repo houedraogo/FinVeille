@@ -19,7 +19,18 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     const error = await response.json().catch(() => ({ detail: "Erreur réseau" }));
     if (response.status === 401) {
       if (typeof window !== "undefined") {
-        localStorage.removeItem("kafundo_token");
+        // Vider toute la session (token + onboarding + rôle + scope)
+        // pour qu'un utilisateur supprimé ou dont le token est expiré
+        // soit traité comme un nouvel utilisateur à la reconnexion.
+        const keysToRemove = [
+          "kafundo_token",
+          "kafundo_onboarding_completed",
+          "kafundo_user_role",
+          "kafundo_financing_scope",
+        ];
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+        // Rediriger vers le login sans laisser de reliquat
+        window.location.replace("/login");
       }
       throw new Error("Session expirée. Veuillez vous reconnecter.");
     }

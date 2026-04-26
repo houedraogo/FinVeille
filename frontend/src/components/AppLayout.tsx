@@ -20,15 +20,30 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
 
     // ── Chemin rapide : onboarding déjà validé dans ce navigateur ─────────
+    // On vérifie quand même que le token est encore accepté par l'API
+    // pour détecter les comptes supprimés par un admin.
     const onboardingDone = localStorage.getItem("kafundo_onboarding_completed");
     if (onboardingDone) {
-      // L'admin ne doit pas atterrir sur le dashboard utilisateur (/)
-      const userRole = localStorage.getItem("kafundo_user_role");
-      if (userRole === "admin" && pathname === "/") {
-        router.replace("/admin");
-        return;
-      }
-      setReady(true);
+      auth.me()
+        .then((user: any) => {
+          const userRole = user.role === "admin" || user.platform_role === "super_admin"
+            ? "admin"
+            : "user";
+          localStorage.setItem("kafundo_user_role", userRole);
+          if (userRole === "admin" && pathname === "/") {
+            router.replace("/admin");
+          } else {
+            setReady(true);
+          }
+        })
+        .catch(() => {
+          // Token invalide ou compte supprimé → tout vider et retour login
+          ["kafundo_token", "kafundo_onboarding_completed",
+           "kafundo_user_role", "kafundo_financing_scope"].forEach(
+            (k) => localStorage.removeItem(k)
+          );
+          router.replace("/login");
+        });
       return;
     }
 
