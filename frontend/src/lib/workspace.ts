@@ -45,7 +45,7 @@ export interface FavoriteDevice {
   savedAt: string;
 }
 
-export type DevicesViewMode = "cards" | "table";
+export type DevicesViewMode = "split" | "cards" | "table";
 
 export type DevicePipelineStatus =
   | "a_etudier"
