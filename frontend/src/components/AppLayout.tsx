@@ -20,21 +20,49 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
 
     // ── Chemin rapide : onboarding déjà validé dans ce navigateur ─────────
-    // On vérifie quand même que le token est encore accepté par l'API
-    // pour détecter les comptes supprimés par un admin.
+    // On vérifie que le token est encore accepté ET que le profil existe.
     const onboardingDone = localStorage.getItem("kafundo_onboarding_completed");
     if (onboardingDone) {
       auth.me()
-        .then((user: any) => {
+        .then(async (user: any) => {
           const userRole = user.role === "admin" || user.platform_role === "super_admin"
             ? "admin"
             : "user";
           localStorage.setItem("kafundo_user_role", userRole);
-          if (userRole === "admin" && pathname === "/") {
-            router.replace("/admin");
-          } else {
-            setReady(true);
+
+          // Les admins n'ont pas besoin de profil
+          if (userRole === "admin") {
+            if (pathname === "/") {
+              router.replace("/admin");
+            } else {
+              setReady(true);
+            }
+            return;
           }
+
+          // Pour les utilisateurs normaux : vérifier que le profil existe en base
+          // (le flag localStorage peut être présent sans profil réel si l'onboarding a échoué)
+          try {
+            const profile = await relevance.getProfile();
+            const hasProfile =
+              profile &&
+              (
+                profile.organization_type ||
+                profile.countries?.length > 0 ||
+                profile.sectors?.length > 0
+              );
+
+            if (!hasProfile) {
+              // Profil absent → forcer l'onboarding
+              localStorage.removeItem("kafundo_onboarding_completed");
+              router.replace("/onboarding");
+              return;
+            }
+          } catch {
+            // Erreur réseau → laisser passer (ne pas bloquer l'utilisateur)
+          }
+
+          setReady(true);
         })
         .catch(() => {
           // Token invalide ou compte supprimé → tout vider et retour login
