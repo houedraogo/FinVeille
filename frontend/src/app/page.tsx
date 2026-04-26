@@ -283,9 +283,10 @@ export default function DashboardPage() {
   const marketSignals = cfg.marketSignals(stats);
   const isPrivate     = scope === "private";
 
-  const devicesWithAmount = stats.recent_devices.filter((d: any) => d.amount_max && d.amount_max > 0);
-  const totalPotentialMax = devicesWithAmount.reduce((sum: number, d: any) => sum + d.amount_max, 0);
-  const totalPotentialMin = devicesWithAmount.reduce((sum: number, d: any) => sum + (d.amount_max * 0.2), 0);
+  // Potentiel financier — valeurs calculées côté backend sur TOUTES les opportunités actives
+  const totalPotentialMax = stats.financial_potential_max ?? 0;
+  const totalPotentialMin = stats.financial_potential_min ?? 0;
+  const potentialCount    = stats.financial_potential_count ?? 0;
   const hasPotential = totalPotentialMax > 0;
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
@@ -370,7 +371,9 @@ export default function DashboardPage() {
                   : `${stats.total_active} dispositif${stats.total_active > 1 ? "s" : ""} disponible${stats.total_active > 1 ? "s" : ""}`}
               </p>
               {hasPotential && (
-                <p className="text-xs text-slate-500">Potentiel estimé</p>
+                <p className="text-xs text-slate-500">
+                  Potentiel mobilisable · {potentialCount} opportunité{potentialCount > 1 ? "s" : ""} avec montant connu
+                </p>
               )}
             </div>
           </div>

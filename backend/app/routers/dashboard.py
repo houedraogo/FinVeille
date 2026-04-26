@@ -116,6 +116,18 @@ async def get_dashboard(
     avg = r.scalar()
     avg_confidence = round(float(avg), 1) if avg else 0
 
+    # Potentiel financier — somme de tous les amount_max/min des actifs avec montant connu
+    q = select(
+        func.coalesce(func.sum(Device.amount_max), 0),
+        func.coalesce(func.sum(Device.amount_min), 0),
+        func.count(Device.id),
+    ).where(Device.status == "open", Device.amount_max.isnot(None), Device.amount_max > 0, *conds)
+    r = await db.execute(q)
+    row = r.one()
+    financial_potential_max   = float(row[0]) if row[0] else 0
+    financial_potential_min   = float(row[1]) if row[1] else financial_potential_max * 0.25
+    financial_potential_count = int(row[2]) if row[2] else 0
+
     # ── Répartitions (filtrées selon le profil) ──────────────────────────────────
 
     q = (
@@ -223,6 +235,9 @@ async def get_dashboard(
         "total_active": total_active,
         "total": total,
         "new_last_7_days": new_last_7_days,
+        "financial_potential_max": financial_potential_max,
+        "financial_potential_min": financial_potential_min,
+        "financial_potential_count": financial_potential_count,
         "closing_soon_30d": closing_soon_30d,
         "closing_soon_7d": closing_soon_7d,
         "pending_validation": pending_validation,
