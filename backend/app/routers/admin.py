@@ -223,14 +223,14 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
     current_admin=Depends(require_role(["admin"])),
 ):
-    """Désactive (soft-delete) un utilisateur. Interdit de se supprimer soi-même."""
+    """Supprime définitivement un utilisateur. Interdit de se supprimer soi-même."""
     if str(current_admin.id) == str(user_id):
         raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte.")
     result = await db.execute(select(UserModel).where(UserModel.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    user.is_active = False
+    await db.delete(user)
     await db.commit()
 
 
