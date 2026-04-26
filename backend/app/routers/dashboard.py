@@ -1,13 +1,17 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, or_
 from datetime import date, timedelta
 
 from app.database import get_db
+from app.dependencies import get_current_user
 from app.models.device import Device
+from app.models.relevance import OrganizationProfile
 from app.models.source import Source
 from app.models.collection_log import CollectionLog
+from app.models.user import User
+from app.services.opportunity_relevance_service import OpportunityRelevanceService
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -16,7 +20,7 @@ PRIVATE_TYPES = ["investissement"]
 
 
 def _scope_conds(scope: Optional[str]) -> list:
-    """Retourne les conditions SQLAlchemy de filtrage par scope."""
+    """Retourne les conditions SQLAlchemy de filtrage par scope (type de dispositif)."""
     if scope == "private":
         return [Device.device_type.in_(PRIVATE_TYPES)]
     if scope == "public":
@@ -24,17 +28,46 @@ def _scope_conds(scope: Optional[str]) -> list:
     return []
 
 
+async def _profile_conds(db: AsyncSession, user: User) -> list:
+    """Retourne les conditions de filtrage basées sur le profil de l'organisation de l'utilisateur."""
+    # Les admins voient tout sans filtre de profil
+    if user.role == "admin" or getattr(user, "platform_role", "member") == "super_admin":
+        return []
+
+    service = OpportunityRelevanceService(db)
+    org_id = await service.get_current_organization_id(user)
+    if not org_id:
+        return []
+
+    result = await db.execute(
+        select(OrganizationProfile).where(OrganizationProfile.organization_id == org_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        return []
+
+    conds = []
+    # Filtre par pays du profil
+    if profile.countries:
+        conds.append(Device.country.in_(profile.countries))
+
+    return conds
+
+
 @router.get("/")
 async def get_dashboard(
     scope: Optional[str] = Query(None, regex="^(public|private|both)?$"),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    today     = date.today()
-    week_ago  = today - timedelta(days=7)
+    today      = date.today()
+    week_ago   = today - timedelta(days=7)
     closing_30 = today + timedelta(days=30)
     closing_7  = today + timedelta(days=7)
 
+    # Conditions combinées : scope (type) + profil (pays)
     conds = _scope_conds(scope)
+    conds += await _profile_conds(db, current_user)
 
     # ── Compteurs principaux ─────────────────────────────────────────────────────
 
@@ -83,7 +116,7 @@ async def get_dashboard(
     avg = r.scalar()
     avg_confidence = round(float(avg), 1) if avg else 0
 
-    # ── Répartitions ────────────────────────────────────────────────────────────
+    # ── Répartitions (filtrées selon le profil) ──────────────────────────────────
 
     q = (
         select(Device.country, func.count().label("count"))
@@ -112,7 +145,7 @@ async def get_dashboard(
     r = await db.execute(q)
     by_status = [{"status": row[0], "count": row[1]} for row in r]
 
-    # ── Dispositifs récents ──────────────────────────────────────────────────────
+    # ── Dispositifs récents (filtrés selon le profil) ────────────────────────────
 
     q = select(Device).where(Device.validation_status != "rejected")
     if conds:
@@ -136,7 +169,7 @@ async def get_dashboard(
         for d in r.scalars().all()
     ]
 
-    # ── Clôtures imminentes (public seulement) ───────────────────────────────────
+    # ── Clôtures imminentes (public seulement, filtrées) ─────────────────────────
 
     closing_soon = []
     if scope != "private":

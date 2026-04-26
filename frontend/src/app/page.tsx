@@ -3,13 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  PieChart, Pie,
-} from "recharts";
-import {
   TrendingUp, Clock, AlertTriangle, CheckCircle, Database,
   RefreshCw, Flame, ArrowRight, Globe, Sparkles, Building2,
-  Users, LayoutGrid,
+  Users, LayoutGrid, ExternalLink,
 } from "lucide-react";
 
 import AppLayout from "@/components/AppLayout";
@@ -21,12 +17,7 @@ import {
   type DevicePipelineEntry, type DevicePipelineStatus,
 } from "@/lib/workspace";
 
-// ── Palettes ─────────────────────────────────────────────────────────────────
-
-const CHART_COLORS = [
-  "#2563eb", "#10b981", "#f59e0b", "#ef4444",
-  "#8b5cf6", "#06b6d4", "#84cc16", "#f97316",
-];
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const PIPELINE_STATUS_ORDER: Record<DevicePipelineStatus, number> = {
   candidature_en_cours: 0, interessant: 1, a_etudier: 2,
@@ -517,7 +508,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Recommandations + Graphique pays ─────────────────────────────────── */}
+      {/* ── Recommandations + Dernières opportunités ──────────────────────────── */}
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
 
         {/* Recommandées */}
@@ -583,62 +574,73 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Graphique pays */}
+        {/* Dernières opportunités dans vos pays */}
         <div className="card p-4">
-          <h2 className="mb-3 text-sm font-semibold text-gray-700">
-            {isPrivate ? "Géographie des fonds" : "Répartition par pays"}
-          </h2>
-          {stats.by_country.length === 0 ? (
-            <div className="flex h-48 items-center justify-center text-xs text-slate-400">
-              Aucune donnée disponible
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700">
+                {isPrivate ? "Derniers fonds détectés" : "Dernières opportunités"}
+              </h2>
+              <p className="mt-0.5 text-xs text-gray-400">
+                {isPrivate
+                  ? "Les fonds les plus récemment ajoutés dans vos zones cibles."
+                  : "Les dispositifs les plus récemment détectés dans vos pays."}
+              </p>
+            </div>
+            <Link href={cfg.catalogHref} className="text-xs text-primary-600 hover:underline">
+              Tout voir
+            </Link>
+          </div>
+          {stats.recent_devices.length === 0 ? (
+            <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/70">
+              <Globe className="h-6 w-6 text-slate-300" />
+              <p className="text-sm text-slate-500">Aucune opportunité trouvée</p>
+              <p className="text-xs text-slate-400">Essayez d'élargir vos pays dans votre profil.</p>
+              <Link href="/profile" className="mt-1 text-xs font-semibold text-primary-600 hover:underline">
+                Modifier mon profil →
+              </Link>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={stats.by_country.slice(0, 8)} layout="vertical" margin={{ left: 60 }}>
-                <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="country" tick={{ fontSize: 11 }} width={60} />
-                <Tooltip formatter={(v) => [v, isPrivate ? "Fonds" : "Opportunités"]} />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                  {stats.by_country.slice(0, 8).map((_: any, i: number) => (
-                    <Cell key={i} fill={isPrivate
-                      ? ["#7c3aed","#6d28d9","#5b21b6","#4c1d95","#8b5cf6","#a78bfa","#c4b5fd","#ddd6fe"][i % 8]
-                      : CHART_COLORS[i % CHART_COLORS.length]
-                    } />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="space-y-2">
+              {stats.recent_devices.slice(0, 5).map((device: any) => (
+                <Link
+                  key={device.id}
+                  href={`/devices/${device.id}`}
+                  className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5 transition-colors hover:border-primary-200 hover:bg-primary-50/40"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-1 text-sm font-medium text-slate-900">{device.title}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {device.organism} · {device.country}
+                      {device.close_date && (
+                        <span className={clsx(
+                          "ml-2 font-medium",
+                          new Date(device.close_date) <= new Date(Date.now() + 7 * 86400000)
+                            ? "text-orange-600"
+                            : "text-slate-400",
+                        )}>
+                          · Clôture {new Date(device.close_date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className={clsx(
+                      "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                      device.status === "open"
+                        ? isPrivate ? "bg-violet-100 text-violet-700" : "bg-emerald-100 text-emerald-700"
+                        : "bg-slate-100 text-slate-500",
+                    )}>
+                      {device.status === "open" ? "Ouvert" : device.status}
+                    </span>
+                    <ExternalLink className="h-3 w-3 text-slate-300" />
+                  </div>
+                </Link>
+              ))}
+            </div>
           )}
         </div>
       </div>
-
-      {/* ── Type chart (public only) ──────────────────────────────────────────── */}
-      {!isPrivate && stats.by_type.length > 0 && (
-        <div className="mb-6 card p-4">
-          <h2 className="mb-3 text-sm font-semibold text-gray-700">Répartition par type d'aide</h2>
-          <div className="flex items-center gap-4">
-            <ResponsiveContainer width="40%" height={180}>
-              <PieChart>
-                <Pie data={stats.by_type} dataKey="count" nameKey="type" cx="50%" cy="50%" outerRadius={80} innerRadius={40}>
-                  {stats.by_type.map((_: any, i: number) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v, _, p) => [v, DEVICE_TYPE_LABELS[p.payload.type] || p.payload.type]} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex-1 space-y-2">
-              {stats.by_type.slice(0, 7).map((item: any, i: number) => (
-                <div key={item.type} className="flex items-center gap-2 text-xs">
-                  <div className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                  <span className="flex-1 truncate text-gray-600">{DEVICE_TYPE_LABELS[item.type] || item.type}</span>
-                  <span className="font-semibold text-gray-900">{item.count}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── À lancer cette semaine + Signaux marché ──────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
