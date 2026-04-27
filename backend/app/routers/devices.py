@@ -301,21 +301,19 @@ async def list_devices(
     current_user: User | None = Depends(get_optional_current_user),
 ):
     # ── Filtre profil strict pour les utilisateurs normaux ─────────────────
-    # Les admins voient tout.
-    # Les utilisateurs normaux ne voient QUE les dispositifs de leurs pays de
-    # profil, sauf s'ils appliquent manuellement un filtre pays différent.
-    # Si le profil n'existe pas ou a des pays vides → on retourne 0 résultats
-    # (l'utilisateur doit compléter son onboarding via l'AppLayout).
-    effective_countries = countries
-    profile_loaded = False  # True si un profil utilisateur a été chargé
+    # Les admins voient tout (filtre pays manuel respecté).
+    # Les utilisateurs normaux voient UNIQUEMENT les dispositifs de leurs pays
+    # de profil — le filtre pays manuel est ignoré pour eux.
+    # Si le profil n'existe pas ou n'a pas de pays → 0 résultats.
+    effective_countries = countries  # utilisé tel quel pour les admins
 
     if (
         current_user
         and current_user.role != "admin"
         and getattr(current_user, "platform_role", "member") != "super_admin"
-        and not countries  # pas de filtre pays manuel → appliquer le profil
     ):
-        profile_loaded = True
+        # Pour les utilisateurs normaux : toujours appliquer le profil,
+        # ignorer tout filtre pays manuel envoyé par le client.
         try:
             relevance_svc = OpportunityRelevanceService(db)
             org_id = await relevance_svc.get_current_organization_id(current_user)
@@ -327,11 +325,10 @@ async def list_devices(
                 if profile and profile.countries:
                     effective_countries = profile.countries
                 else:
-                    # Profil sans pays = filtre impossible → retourne 0 résultats
-                    # (l'utilisateur doit compléter son onboarding)
+                    # Profil sans pays → 0 résultats (onboarding incomplet)
                     effective_countries = ["__no_country_match__"]
             else:
-                # Pas d'organisation → retourne 0 résultats
+                # Pas d'organisation → 0 résultats
                 effective_countries = ["__no_country_match__"]
         except Exception:
             # Erreur inattendue → ne pas exposer tous les dispositifs
