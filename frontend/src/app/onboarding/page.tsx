@@ -6,8 +6,8 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight, Bell, BriefcaseBusiness, Building2, CheckCircle2,
-  Globe2, Landmark, Loader2, Rocket, Sparkles, Users, ChevronRight,
-  Target, TrendingUp, Zap, Clock, DollarSign,
+  Globe2, Landmark, Loader2, Rocket, Search, Sparkles, Users, ChevronRight,
+  Target, TrendingUp, Zap, Clock, DollarSign, X,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -19,18 +19,62 @@ import {
   getUserPreferences, type SavedSearch,
 } from "@/lib/workspace";
 
-// ── Zones géographiques ───────────────────────────────────────────────────────
+// ── Liste de pays ─────────────────────────────────────────────────────────────
 
-const ZONES = [
-  { key: "france",         label: "France",              emoji: "🇫🇷", countries: ["France"] },
-  { key: "afrique-ouest",  label: "Afrique de l'Ouest",  emoji: "🌍", countries: ["Sénégal", "Côte d'Ivoire", "Mali", "Burkina Faso", "Niger", "Togo", "Bénin", "Guinée", "Ghana", "Nigeria", "Afrique de l'Ouest"] },
-  { key: "maghreb",        label: "Maghreb",              emoji: "🌐", countries: ["Maroc", "Tunisie"] },
-  { key: "afrique-centrale", label: "Afrique centrale",  emoji: "🌍", countries: ["RD Congo", "Cameroun"] },
-  { key: "afrique-est",    label: "Afrique de l'Est",    emoji: "🌍", countries: ["Kenya", "Éthiopie", "Madagascar"] },
-  { key: "international",  label: "International",        emoji: "🌐", countries: [] },
-] as const;
-
-type ZoneKey = (typeof ZONES)[number]["key"];
+const ALL_COUNTRIES = [
+  // Europe francophone
+  { label: "France",             emoji: "🇫🇷", region: "Europe" },
+  { label: "Belgique",           emoji: "🇧🇪", region: "Europe" },
+  { label: "Luxembourg",         emoji: "🇱🇺", region: "Europe" },
+  { label: "Suisse",             emoji: "🇨🇭", region: "Europe" },
+  // Afrique de l'Ouest
+  { label: "Sénégal",            emoji: "🇸🇳", region: "Afrique de l'Ouest" },
+  { label: "Côte d'Ivoire",      emoji: "🇨🇮", region: "Afrique de l'Ouest" },
+  { label: "Mali",               emoji: "🇲🇱", region: "Afrique de l'Ouest" },
+  { label: "Burkina Faso",       emoji: "🇧🇫", region: "Afrique de l'Ouest" },
+  { label: "Niger",              emoji: "🇳🇪", region: "Afrique de l'Ouest" },
+  { label: "Togo",               emoji: "🇹🇬", region: "Afrique de l'Ouest" },
+  { label: "Bénin",              emoji: "🇧🇯", region: "Afrique de l'Ouest" },
+  { label: "Guinée",             emoji: "🇬🇳", region: "Afrique de l'Ouest" },
+  { label: "Ghana",              emoji: "🇬🇭", region: "Afrique de l'Ouest" },
+  { label: "Nigeria",            emoji: "🇳🇬", region: "Afrique de l'Ouest" },
+  { label: "Mauritanie",         emoji: "🇲🇷", region: "Afrique de l'Ouest" },
+  { label: "Guinée-Bissau",      emoji: "🇬🇼", region: "Afrique de l'Ouest" },
+  { label: "Cap-Vert",           emoji: "🇨🇻", region: "Afrique de l'Ouest" },
+  { label: "Sierra Leone",       emoji: "🇸🇱", region: "Afrique de l'Ouest" },
+  { label: "Libéria",            emoji: "🇱🇷", region: "Afrique de l'Ouest" },
+  { label: "Gambie",             emoji: "🇬🇲", region: "Afrique de l'Ouest" },
+  // Afrique centrale
+  { label: "Cameroun",           emoji: "🇨🇲", region: "Afrique centrale" },
+  { label: "RD Congo",           emoji: "🇨🇩", region: "Afrique centrale" },
+  { label: "Congo",              emoji: "🇨🇬", region: "Afrique centrale" },
+  { label: "Gabon",              emoji: "🇬🇦", region: "Afrique centrale" },
+  { label: "Tchad",              emoji: "🇹🇩", region: "Afrique centrale" },
+  { label: "RCA",                emoji: "🇨🇫", region: "Afrique centrale" },
+  { label: "Guinée équatoriale", emoji: "🇬🇶", region: "Afrique centrale" },
+  // Afrique du Nord
+  { label: "Maroc",              emoji: "🇲🇦", region: "Afrique du Nord" },
+  { label: "Tunisie",            emoji: "🇹🇳", region: "Afrique du Nord" },
+  { label: "Algérie",            emoji: "🇩🇿", region: "Afrique du Nord" },
+  { label: "Libye",              emoji: "🇱🇾", region: "Afrique du Nord" },
+  { label: "Égypte",             emoji: "🇪🇬", region: "Afrique du Nord" },
+  // Afrique de l'Est
+  { label: "Kenya",              emoji: "🇰🇪", region: "Afrique de l'Est" },
+  { label: "Éthiopie",           emoji: "🇪🇹", region: "Afrique de l'Est" },
+  { label: "Madagascar",         emoji: "🇲🇬", region: "Afrique de l'Est" },
+  { label: "Rwanda",             emoji: "🇷🇼", region: "Afrique de l'Est" },
+  { label: "Tanzanie",           emoji: "🇹🇿", region: "Afrique de l'Est" },
+  { label: "Ouganda",            emoji: "🇺🇬", region: "Afrique de l'Est" },
+  { label: "Burundi",            emoji: "🇧🇮", region: "Afrique de l'Est" },
+  { label: "Djibouti",           emoji: "🇩🇯", region: "Afrique de l'Est" },
+  // Afrique australe
+  { label: "Afrique du Sud",     emoji: "🇿🇦", region: "Afrique australe" },
+  { label: "Zimbabwe",           emoji: "🇿🇼", region: "Afrique australe" },
+  { label: "Zambie",             emoji: "🇿🇲", region: "Afrique australe" },
+  { label: "Mozambique",         emoji: "🇲🇿", region: "Afrique australe" },
+  { label: "Angola",             emoji: "🇦🇴", region: "Afrique australe" },
+  { label: "Namibie",            emoji: "🇳🇦", region: "Afrique australe" },
+];
 
 // ── Labels secteurs ───────────────────────────────────────────────────────────
 
@@ -77,12 +121,12 @@ const FINANCING_SCOPES: { key: FinancingScope; label: string; sub: string; icon:
 
 // ── Simulation de résultats ───────────────────────────────────────────────────
 
-function simulateOpportunityCount(zones: ZoneKey[], sectors: string[]): number {
+function simulateOpportunityCount(countryCount: number, sectors: string[]): number {
   const base = 48;
-  const zoneBonus = zones.length * 16;
+  const countryBonus = countryCount * 16;
   const sectorBonus = sectors.length * 6;
-  const variation = ((zones.length * 7 + sectors.length * 11) % 19) - 9;
-  return Math.max(12, base + zoneBonus + sectorBonus + variation);
+  const variation = ((countryCount * 7 + sectors.length * 11) % 19) - 9;
+  return Math.max(12, base + countryBonus + sectorBonus + variation);
 }
 
 function simulateBreakdown(total: number, scope: FinancingScope | "") {
@@ -120,28 +164,43 @@ export default function OnboardingPage() {
   const router = useRouter();
 
   // step: 0=profil 1=ciblage 2=loading 3=financement+résultat 4=terminé
-  const [step,            setStep]            = useState(0);
-  const [profile,         setProfile]         = useState<string>("");
-  const [selectedZones,   setSelectedZones]   = useState<ZoneKey[]>([]);
-  const [sectors,         setSectors]         = useState<string[]>([]);
-  const [financingScope,  setFinancingScope]  = useState<FinancingScope | "">("");
-  const [saving,          setSaving]          = useState(false);
-  const [error,           setError]           = useState<string | null>(null);
+  const [step,              setStep]              = useState(0);
+  const [profile,           setProfile]           = useState<string>("");
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [countrySearch,     setCountrySearch]     = useState("");
+  const [sectors,           setSectors]           = useState<string[]>([]);
+  const [financingScope,    setFinancingScope]     = useState<FinancingScope | "">("");
+  const [saving,            setSaving]            = useState(false);
+  const [error,             setError]             = useState<string | null>(null);
 
   // Simulation
-  const [analysisPhase,   setAnalysisPhase]   = useState<0 | 1 | 2>(0); // 0=idle 1=computing 2=done
+  const [analysisPhase,   setAnalysisPhase]   = useState<0 | 1 | 2>(0);
   const [simCount,        setSimCount]        = useState(0);
   const [resultVisible,   setResultVisible]   = useState(false);
-  const [loadingChecks,   setLoadingChecks]   = useState(0); // nombre de ✔ affichés
+  const [loadingChecks,   setLoadingChecks]   = useState(0);
 
   // Alert créée
   const [createdAlertName, setCreatedAlertName] = useState<string | null>(null);
 
-  // Dérive les pays réels depuis les zones sélectionnées
-  const selectedCountries = useMemo(() => {
-    const list = selectedZones.flatMap((zk) => ZONES.find((z) => z.key === zk)?.countries ?? []);
-    return Array.from(new Set(list)) as string[];
-  }, [selectedZones]);
+  // Pays filtrés par la recherche
+  const filteredCountries = useMemo(() => {
+    if (!countrySearch.trim()) return ALL_COUNTRIES;
+    const q = countrySearch.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    return ALL_COUNTRIES.filter((c) => {
+      const label = c.label.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      return label.includes(q);
+    });
+  }, [countrySearch]);
+
+  // Pays groupés par région (pour l'affichage)
+  const countriesByRegion = useMemo(() => {
+    const map = new Map<string, typeof ALL_COUNTRIES>();
+    for (const c of filteredCountries) {
+      if (!map.has(c.region)) map.set(c.region, []);
+      map.get(c.region)!.push(c);
+    }
+    return map;
+  }, [filteredCountries]);
 
   const deviceTypes = useMemo(() => {
     const scope = FINANCING_SCOPES.find((s) => s.key === financingScope);
@@ -150,32 +209,29 @@ export default function OnboardingPage() {
 
   const selectedProfile = useMemo(() => PROFILES.find((p) => p.key === profile), [profile]);
 
-  // Affichage du displayStep dans le header (0,1,2 → ignorer step=2 loading)
   const displayStep = step === 0 ? 0 : step === 1 ? 1 : step >= 3 ? 2 : 1;
 
   // ── Simulation analyse (step 1) ─────────────────────────────────────────────
 
   useEffect(() => {
     if (step !== 1) return;
-    if (selectedZones.length === 0 && sectors.length === 0) return;
+    if (selectedCountries.length === 0 && sectors.length === 0) return;
 
     setAnalysisPhase(1);
     const t = setTimeout(() => {
-      setSimCount(simulateOpportunityCount(selectedZones, sectors));
+      setSimCount(simulateOpportunityCount(selectedCountries.length, sectors));
       setAnalysisPhase(2);
     }, 900);
     return () => clearTimeout(t);
-  }, [selectedZones.join(","), sectors.join(","), step]); // eslint-disable-line
+  }, [selectedCountries.length, sectors.join(","), step]); // eslint-disable-line
 
   // ── Écran de chargement (step 2) ────────────────────────────────────────────
 
   useEffect(() => {
     if (step !== 2) { setLoadingChecks(0); return; }
-    // Apparition progressive des checks
     const timers = LOADING_CHECKS.map((_, i) =>
       setTimeout(() => setLoadingChecks(i + 1), 500 + i * 600),
     );
-    // Avancer à step 3 après 2s
     const advance = setTimeout(() => setStep(3), 2100);
     return () => { timers.forEach(clearTimeout); clearTimeout(advance); };
   }, [step]);
@@ -206,14 +262,18 @@ export default function OnboardingPage() {
     localStorage.setItem("kafundo_financing_scope", scope);
   };
 
+  const toggleCountry = (label: string) => {
+    setSelectedCountries((cur) => toggleValue(cur, label));
+  };
+
   // ── Can continue ────────────────────────────────────────────────────────────
 
   const canContinue = useMemo(() => {
     if (step === 0) return !!profile;
-    if (step === 1) return selectedZones.length > 0;
+    if (step === 1) return selectedCountries.length > 0;
     if (step === 3) return !!financingScope;
     return true;
-  }, [profile, selectedZones.length, financingScope, step]);
+  }, [profile, selectedCountries.length, financingScope, step]);
 
   // ── Sauvegardes & données ────────────────────────────────────────────────────
 
@@ -240,7 +300,7 @@ export default function OnboardingPage() {
     setSaving(true);
     setError(null);
 
-    const alertName = `Veille ${selectedProfile?.label || "Kafundo"} — ${selectedZones.slice(0, 2).join(", ")}`;
+    const alertName = `Veille ${selectedProfile?.label || "Kafundo"} — ${selectedCountries.slice(0, 2).join(", ")}`;
     const savedSearch = buildSavedSearch();
 
     try {
@@ -331,7 +391,6 @@ export default function OnboardingPage() {
           </div>
         </div>
 
-        {/* Progress steps (desktop) */}
         {step < 4 && (
           <div className="hidden items-center gap-1.5 sm:flex">
             {STEP_LABELS.map((label, i) => (
@@ -402,10 +461,10 @@ export default function OnboardingPage() {
                   🎯 Ciblage
                 </span>
                 <h2 className="mt-4 text-xl font-bold text-slate-950">Plus vous êtes précis,<br />meilleurs les résultats.</h2>
-                <p className="mt-3 text-sm leading-6 text-slate-500">La combinaison zone + secteur permet d'identifier exactement les financements disponibles pour votre situation.</p>
+                <p className="mt-3 text-sm leading-6 text-slate-500">Choisissez vos pays d'intervention et vos secteurs d'activité pour un ciblage optimal.</p>
                 <div className="mt-8 space-y-3">
                   {[
-                    { icon: "🌍", text: "Les zones définissent la couverture géographique de votre veille" },
+                    { icon: "🌍", text: "Les pays définissent la couverture géographique de votre veille" },
                     { icon: "🏷️", text: "Les secteurs filtrent par domaine d'activité" },
                     { icon: "🔄", text: "Combinables à volonté — modifiables à tout moment" },
                   ].map(({ icon, text }) => (
@@ -440,8 +499,8 @@ export default function OnboardingPage() {
                         <span className="font-semibold capitalize">{selectedProfile?.label}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Zones</span>
-                        <span className="font-semibold">{selectedZones.length} sélectionnée{selectedZones.length > 1 ? "s" : ""}</span>
+                        <span className="text-slate-500">Pays</span>
+                        <span className="font-semibold">{selectedCountries.length} sélectionné{selectedCountries.length > 1 ? "s" : ""}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-500">Secteurs</span>
@@ -476,11 +535,10 @@ export default function OnboardingPage() {
             )}
 
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ÉTAPE 0 — Hook + Profil                                         */}
+            {/* ÉTAPE 0 — Profil                                                */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             {step === 0 && (
               <div>
-                {/* Hero copy */}
                 <div className="mb-8 text-center lg:text-left">
                   <span className="inline-block rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700">
                     ⚡ Analyse personnalisée
@@ -497,7 +555,6 @@ export default function OnboardingPage() {
                   </p>
                 </div>
 
-                {/* Profil cards */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
                   {PROFILES.map((item) => {
                     const Icon = item.icon;
@@ -528,7 +585,6 @@ export default function OnboardingPage() {
                   })}
                 </div>
 
-                {/* Message après sélection */}
                 <div className={clsx(
                   "mt-5 rounded-2xl border px-4 py-3.5 transition-all duration-300",
                   profile
@@ -546,45 +602,97 @@ export default function OnboardingPage() {
             )}
 
             {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ÉTAPE 1 — Ciblage (Zones + Secteurs)                            */}
+            {/* ÉTAPE 1 — Pays + Secteurs                                       */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             {step === 1 && (
               <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.15)] sm:p-8">
                 <h1 className="text-xl font-bold text-slate-950 sm:text-2xl">
-                  Où et dans quels domaines souhaitez-vous<br className="hidden md:block" /> trouver des financements ?
+                  Dans quels pays souhaitez-vous<br className="hidden md:block" /> trouver des financements ?
                 </h1>
                 <p className="mt-1.5 text-sm text-slate-500">
-                  Sélectionnez au moins une zone géographique.
+                  Sélectionnez un ou plusieurs pays. Vous pourrez modifier ce choix à tout moment.
                 </p>
 
-                {/* Zones */}
-                <div className="mt-6">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
-                    🌍 Zones géographiques
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {ZONES.map((zone) => (
-                      <button
-                        key={zone.key}
-                        type="button"
-                        onClick={() => setSelectedZones((cur) => toggleValue(cur, zone.key))}
-                        className={clsx(
-                          "rounded-full border px-4 py-2 text-sm font-medium transition-all",
-                          selectedZones.includes(zone.key)
-                            ? "border-primary-600 bg-primary-600 text-white shadow-sm"
-                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-primary-200 hover:bg-primary-50",
-                        )}
-                      >
-                        {zone.emoji} {zone.label}
-                      </button>
-                    ))}
+                {/* Pays sélectionnés (chips) */}
+                {selectedCountries.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selectedCountries.map((c) => {
+                      const country = ALL_COUNTRIES.find((x) => x.label === c);
+                      return (
+                        <span
+                          key={c}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-primary-300 bg-primary-100 px-3 py-1 text-sm font-medium text-primary-800"
+                        >
+                          {country?.emoji} {c}
+                          <button
+                            type="button"
+                            onClick={() => toggleCountry(c)}
+                            className="ml-0.5 rounded-full hover:text-primary-600"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCountries([])}
+                      className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2"
+                    >
+                      Tout effacer
+                    </button>
                   </div>
+                )}
+
+                {/* Barre de recherche */}
+                <div className="relative mt-4">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={countrySearch}
+                    onChange={(e) => setCountrySearch(e.target.value)}
+                    placeholder="Rechercher un pays…"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-200"
+                  />
+                </div>
+
+                {/* Liste des pays par région */}
+                <div className="mt-5 max-h-64 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
+                  {countriesByRegion.size === 0 ? (
+                    <p className="py-6 text-center text-sm text-slate-400">Aucun pays trouvé pour "{countrySearch}"</p>
+                  ) : (
+                    Array.from(countriesByRegion.entries()).map(([region, countries]) => (
+                      <div key={region}>
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">{region}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {countries.map((c) => {
+                            const selected = selectedCountries.includes(c.label);
+                            return (
+                              <button
+                                key={c.label}
+                                type="button"
+                                onClick={() => toggleCountry(c.label)}
+                                className={clsx(
+                                  "rounded-full border px-3 py-1.5 text-sm font-medium transition-all",
+                                  selected
+                                    ? "border-primary-600 bg-primary-600 text-white shadow-sm"
+                                    : "border-slate-200 bg-slate-50 text-slate-700 hover:border-primary-200 hover:bg-primary-50",
+                                )}
+                              >
+                                {c.emoji} {c.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
 
                 {/* Secteurs */}
                 <div className="mt-7">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
-                    🏷️ Secteurs d'activité
+                    🏷️ Secteurs d'activité <span className="normal-case font-normal text-slate-400">(optionnel)</span>
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {SECTORS.map((sector) => (
@@ -616,7 +724,7 @@ export default function OnboardingPage() {
                 )}>
                   {analysisPhase === 0 && (
                     <p className="text-sm text-slate-400 text-center py-1">
-                      Sélectionnez une zone pour lancer l'analyse…
+                      Sélectionnez un pays pour lancer l'analyse…
                     </p>
                   )}
                   {analysisPhase === 1 && (
@@ -633,9 +741,9 @@ export default function OnboardingPage() {
                           <span className="text-2xl font-bold text-emerald-700">{simCount}</span>{" "}
                           financements potentiels correspondant à votre profil
                         </p>
-                        {sectors.length > 0 && selectedZones.length > 0 && (
+                        {sectors.length > 0 && selectedCountries.length > 0 && (
                           <p className="mt-1 text-xs text-emerald-600">
-                            {selectedZones.length} zone{selectedZones.length > 1 ? "s" : ""} · {sectors.length} secteur{sectors.length > 1 ? "s" : ""}
+                            {selectedCountries.length} pays · {sectors.length} secteur{sectors.length > 1 ? "s" : ""}
                           </p>
                         )}
                       </div>
@@ -651,7 +759,6 @@ export default function OnboardingPage() {
             {/* ═══════════════════════════════════════════════════════════════ */}
             {step === 2 && (
               <div className="w-full max-w-md mx-auto rounded-3xl border border-slate-200/80 bg-white p-8 shadow-[0_30px_80px_-30px_rgba(37,99,235,0.2)] text-center">
-                {/* Spinner */}
                 <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-primary-100 to-blue-200 shadow-inner">
                   <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
                 </div>
@@ -661,7 +768,6 @@ export default function OnboardingPage() {
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">Identification des financements les plus pertinents pour vous.</p>
 
-                {/* Checks progressifs */}
                 <div className="mt-8 space-y-3 text-left">
                   {LOADING_CHECKS.map((check, i) => (
                     <div
@@ -695,7 +801,6 @@ export default function OnboardingPage() {
             {/* ═══════════════════════════════════════════════════════════════ */}
             {step === 3 && (
               <div className="space-y-6">
-                {/* Titre */}
                 <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.15)] sm:p-8">
                   <h1 className="text-xl font-bold text-slate-950 sm:text-2xl">
                     Quel type de financement vous intéresse ?
@@ -704,7 +809,6 @@ export default function OnboardingPage() {
                     Sélectionnez un type pour révéler votre analyse complète.
                   </p>
 
-                  {/* Cards scope */}
                   <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
                     {FINANCING_SCOPES.map(({ key, label, sub, icon: Icon }) => (
                       <button
@@ -731,13 +835,11 @@ export default function OnboardingPage() {
                   </div>
                 </div>
 
-                {/* Bloc résultat — apparaît après sélection */}
                 <div className={clsx(
                   "transition-all duration-500",
                   resultVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none",
                 )}>
                   <div className="rounded-3xl border-2 border-primary-200 bg-gradient-to-br from-primary-50 via-white to-blue-50/40 p-6 shadow-[0_20px_60px_-30px_rgba(37,99,235,0.25)] sm:p-8">
-                    {/* Header résultat */}
                     <div className="flex items-center gap-3 mb-6">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-sm">
                         <Target className="h-6 w-6" />
@@ -748,7 +850,6 @@ export default function OnboardingPage() {
                       </div>
                     </div>
 
-                    {/* KPIs */}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 mb-6">
                       {financingScope !== "private" && breakdown.subventions > 0 && (
                         <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
@@ -777,7 +878,6 @@ export default function OnboardingPage() {
                       </div>
                     </div>
 
-                    {/* Projection financière */}
                     <div className="rounded-2xl border border-primary-200 bg-white/80 px-5 py-4 mb-6">
                       <div className="flex items-center gap-3">
                         <DollarSign className="h-5 w-5 text-primary-600 shrink-0" />
@@ -786,19 +886,17 @@ export default function OnboardingPage() {
                           <p className="text-xl font-bold text-slate-950">
                             {formatAmount(breakdown.projMin)} à {formatAmount(breakdown.projMax)}
                           </p>
-                          <p className="text-xs text-slate-400 mt-0.5">Estimation basée sur votre profil et vos zones</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Estimation basée sur votre profil et vos pays</p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Erreur */}
                     {error && (
                       <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                         {error}
                       </div>
                     )}
 
-                    {/* CTA principal */}
                     <button
                       type="button"
                       onClick={finishOnboarding}
@@ -846,19 +944,11 @@ export default function OnboardingPage() {
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={openOpportunities}
-                    className="btn-primary"
-                  >
+                  <button type="button" onClick={openOpportunities} className="btn-primary">
                     <Zap className="h-4 w-4" />
                     Voir mes opportunités maintenant
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => router.push("/")}
-                    className="btn-secondary"
-                  >
+                  <button type="button" onClick={() => router.push("/")} className="btn-secondary">
                     Accéder au dashboard
                     <ArrowRight className="h-4 w-4" />
                   </button>
@@ -870,7 +960,7 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {/* ── Navigation (steps 0, 1, 3 seulement) ───────────────────── */}
+            {/* ── Navigation ───────────────────────────────────────────────── */}
             {(step === 0 || step === 1 || step === 3) && (
               <div className="mt-6 flex items-center justify-between">
                 <button
@@ -896,7 +986,6 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {/* Indication bas de page */}
             {step < 4 && step !== 2 && (
               <p className="mt-4 text-center text-xs text-slate-400">
                 Toutes ces informations peuvent être modifiées à tout moment dans vos préférences.

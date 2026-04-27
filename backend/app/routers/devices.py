@@ -300,25 +300,42 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_current_user),
 ):
-    # ── Filtre profil silencieux pour les utilisateurs normaux ──────────────
-    # Les pays du profil sont appliqués côté backend si l'utilisateur n'a pas
-    # spécifié de filtre pays manuellement.  Les admins voient tout.
+    # ── Filtre profil strict pour les utilisateurs normaux ─────────────────
+    # Les admins voient tout.
+    # Les utilisateurs normaux ne voient QUE les dispositifs de leurs pays de
+    # profil, sauf s'ils appliquent manuellement un filtre pays différent.
+    # Si le profil n'existe pas ou a des pays vides → on retourne 0 résultats
+    # (l'utilisateur doit compléter son onboarding via l'AppLayout).
     effective_countries = countries
+    profile_loaded = False  # True si un profil utilisateur a été chargé
+
     if (
         current_user
         and current_user.role != "admin"
         and getattr(current_user, "platform_role", "member") != "super_admin"
         and not countries  # pas de filtre pays manuel → appliquer le profil
     ):
-        relevance_svc = OpportunityRelevanceService(db)
-        org_id = await relevance_svc.get_current_organization_id(current_user)
-        if org_id:
-            prof_row = await db.execute(
-                select(OrganizationProfile).where(OrganizationProfile.organization_id == org_id)
-            )
-            profile = prof_row.scalar_one_or_none()
-            if profile and profile.countries:
-                effective_countries = profile.countries
+        profile_loaded = True
+        try:
+            relevance_svc = OpportunityRelevanceService(db)
+            org_id = await relevance_svc.get_current_organization_id(current_user)
+            if org_id:
+                prof_row = await db.execute(
+                    select(OrganizationProfile).where(OrganizationProfile.organization_id == org_id)
+                )
+                profile = prof_row.scalar_one_or_none()
+                if profile and profile.countries:
+                    effective_countries = profile.countries
+                else:
+                    # Profil sans pays = filtre impossible → retourne 0 résultats
+                    # (l'utilisateur doit compléter son onboarding)
+                    effective_countries = ["__no_country_match__"]
+            else:
+                # Pas d'organisation → retourne 0 résultats
+                effective_countries = ["__no_country_match__"]
+        except Exception:
+            # Erreur inattendue → ne pas exposer tous les dispositifs
+            effective_countries = ["__no_country_match__"]
 
     params = DeviceSearchParams(
         q=q, countries=effective_countries, device_types=device_types,
