@@ -289,6 +289,7 @@ async def list_devices(
     validation_status: Optional[str] = Query(None),
     closing_soon_days: Optional[int] = Query(None),
     has_close_date: Optional[bool] = Query(None),
+    actionable_now: Optional[bool] = Query(None),
     close_date_before: Optional[date] = Query(None),
     close_date_after: Optional[date] = Query(None),
     min_ai_readiness: Optional[int] = Query(None, ge=0, le=100),
@@ -340,6 +341,7 @@ async def list_devices(
         validation_status=validation_status,
         closing_soon_days=closing_soon_days,
         has_close_date=has_close_date,
+        actionable_now=actionable_now,
         close_date_before=close_date_before,
         close_date_after=close_date_after,
         min_ai_readiness=min_ai_readiness,
@@ -357,6 +359,82 @@ async def list_devices(
 @router.get("/stats")
 async def device_stats(db: AsyncSession = Depends(get_db)):
     return await DeviceService(db).get_stats()
+
+
+@router.get("/onboarding-preview")
+async def onboarding_preview(
+    countries: Optional[List[str]] = Query(None),
+    device_types: Optional[List[str]] = Query(None),
+    sectors: Optional[List[str]] = Query(None),
+    status: Optional[List[str]] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """
+    Calcule un aperçu réel pendant l'onboarding.
+
+    Contrairement à /devices, cet endpoint n'applique pas le profil utilisateur
+    déjà enregistré, car celui-ci n'existe pas encore forcément au moment de
+    l'inscription. Il utilise uniquement les critères que l'utilisateur vient
+    de sélectionner dans l'écran d'onboarding.
+    """
+    if not countries:
+        return {
+            "total": 0,
+            "subventions": 0,
+            "investisseurs": 0,
+            "urgentes": 0,
+            "has_real_count": True,
+        }
+
+    service = DeviceService(db)
+
+    base_params = {
+        "countries": countries,
+        "device_types": device_types,
+        "sectors": sectors,
+        "status": status,
+        "sort_by": "relevance",
+        "page": 1,
+        "page_size": 1,
+    }
+
+    total_result = await service.search(DeviceSearchParams(**base_params))
+    subvention_types = ["subvention", "aap", "concours", "pret", "accompagnement", "garantie"]
+    investor_types = ["investissement"]
+
+    requested_types = set(device_types or [])
+    count_public = not requested_types or bool(requested_types & set(subvention_types))
+    count_private = not requested_types or bool(requested_types & set(investor_types))
+
+    subventions = 0
+    investisseurs = 0
+    if count_public:
+        public_types = sorted((requested_types & set(subvention_types)) or set(subvention_types))
+        public_result = await service.search(DeviceSearchParams(**{**base_params, "device_types": public_types}))
+        subventions = public_result["total"]
+    if count_private:
+        private_types = sorted((requested_types & set(investor_types)) or set(investor_types))
+        private_result = await service.search(DeviceSearchParams(**{**base_params, "device_types": private_types}))
+        investisseurs = private_result["total"]
+
+    urgent_result = await service.search(
+        DeviceSearchParams(
+            **{
+                **base_params,
+                "status": ["open"],
+                "closing_soon_days": 30,
+            }
+        )
+    )
+
+    return {
+        "total": total_result["total"],
+        "subventions": subventions,
+        "investisseurs": investisseurs,
+        "urgentes": urgent_result["total"],
+        "has_real_count": True,
+    }
 
 
 EXPORT_FIELDS = [
@@ -421,6 +499,7 @@ async def export_csv(
     min_ai_readiness: Optional[int] = Query(None, ge=0, le=100),
     closing_soon_days: Optional[int] = Query(None),
     has_close_date: Optional[bool] = Query(None),
+    actionable_now: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Export CSV streamé — BOM UTF-8 pour compatibilité Excel, max 5 000 lignes."""
@@ -428,6 +507,7 @@ async def export_csv(
         q=q, countries=countries, device_types=device_types,
         sectors=sectors, status=status, closing_soon_days=closing_soon_days,
         has_close_date=has_close_date,
+        actionable_now=actionable_now,
         ai_readiness_labels=ai_readiness_labels,
         min_ai_readiness=min_ai_readiness,
     )
@@ -472,6 +552,7 @@ async def export_excel(
     min_ai_readiness: Optional[int] = Query(None, ge=0, le=100),
     closing_soon_days: Optional[int] = Query(None),
     has_close_date: Optional[bool] = Query(None),
+    actionable_now: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Export Excel (.xlsx) avec formatage — max 5 000 lignes."""
@@ -486,6 +567,7 @@ async def export_excel(
         q=q, countries=countries, device_types=device_types,
         sectors=sectors, status=status, closing_soon_days=closing_soon_days,
         has_close_date=has_close_date,
+        actionable_now=actionable_now,
         ai_readiness_labels=ai_readiness_labels,
         min_ai_readiness=min_ai_readiness,
     )

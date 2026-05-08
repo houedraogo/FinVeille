@@ -1,11 +1,21 @@
 import logging
 import os
+import re
 from html import unescape
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from app.collector.base_connector import BaseConnector, CollectionResult, RawItem
 
 logger = logging.getLogger(__name__)
+
+PUBLIC_URL_RE = re.compile(r"https?://[^\s<>'\")]+", re.IGNORECASE)
+BLOCKED_PUBLIC_URL_HOSTS = {
+    "api.aides-entreprises.fr",
+    "aides-entreprises.fr",
+    "www.aides-entreprises.fr",
+    "data.aides-entreprises.fr",
+    "entreprise.api.gouv.fr",
+}
 
 
 class APIConnector(BaseConnector):
@@ -147,6 +157,53 @@ class APIConnector(BaseConnector):
             return " ".join(part for part in parts if part).strip()
         return unescape(str(value)).strip()
 
+    def _extract_public_url(self, value) -> str:
+        text = self._stringify_value(value)
+        if not text:
+            return ""
+
+        match = PUBLIC_URL_RE.search(text)
+        if not match:
+            return ""
+
+        candidate = match.group(0).strip().rstrip(").,;")
+        if candidate.startswith("http://") or candidate.startswith("https://"):
+            return candidate
+        return ""
+
+    def _extract_external_public_url(self, value) -> str:
+        candidate = self._extract_public_url(value)
+        if not candidate:
+            return ""
+        parsed = urlparse(candidate)
+        host = (parsed.netloc or "").lower().strip()
+        if host.startswith("www."):
+            stripped = host[4:]
+        else:
+            stripped = host
+        if host in BLOCKED_PUBLIC_URL_HOSTS or stripped in BLOCKED_PUBLIC_URL_HOSTS:
+            return ""
+        return candidate
+
+    def _walk_values(self, value):
+        if isinstance(value, dict):
+            for nested in value.values():
+                yield nested
+                yield from self._walk_values(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield nested
+                yield from self._walk_values(nested)
+
+    def _find_fallback_public_url(self, item: dict) -> str:
+        if not self.config.get("scan_all_public_urls"):
+            return ""
+        for nested in self._walk_values(item):
+            candidate = self._extract_external_public_url(nested)
+            if candidate:
+                return candidate
+        return ""
+
     def _compose_raw_content(self, item: dict, field_paths: list[str]) -> str:
         parts: list[str] = []
         seen: set[str] = set()
@@ -212,10 +269,12 @@ class APIConnector(BaseConnector):
 
             preferred_url = ""
             for field_path in preferred_url_fields:
-                candidate = self._stringify_value(self._get_nested_value(item, field_path))
+                candidate = self._extract_public_url(self._get_nested_value(item, field_path))
                 if candidate:
                     preferred_url = candidate
                     break
+            if not preferred_url:
+                preferred_url = self._find_fallback_public_url(item)
 
             raw_content = self._compose_raw_content(item, raw_content_fields)
             if not raw_content:
@@ -261,10 +320,12 @@ class APIConnector(BaseConnector):
 
                     preferred_url = ""
                     for field_path in preferred_url_fields:
-                        candidate = self._stringify_value(self._get_nested_value(detail_item, field_path))
+                        candidate = self._extract_public_url(self._get_nested_value(detail_item, field_path))
                         if candidate:
                             preferred_url = candidate
                             break
+                    if not preferred_url:
+                        preferred_url = self._find_fallback_public_url(detail_item)
 
                     enriched_items.append(
                         RawItem(
@@ -291,6 +352,11 @@ class APIConnector(BaseConnector):
                     raw = raw.get(key)
                 else:
                     return None
+        if isinstance(raw, list):
+            if not raw:
+                return None
+            first = raw[0]
+            return first if isinstance(first, dict) else None
         return raw
 
     def _format_template(self, template: str, item: dict) -> str:

@@ -73,7 +73,19 @@ class DeviceService:
             query = query.where(Device.sectors.overlap(params.sectors))
         if params.beneficiaries:
             query = query.where(Device.beneficiaries.overlap(params.beneficiaries))
-        if params.status:
+        if params.actionable_now:
+            today = date.today()
+            query = query.where(
+                or_(
+                    Device.status.in_(["open", "recurring"]),
+                    and_(
+                        Device.close_date.is_not(None),
+                        Device.close_date >= today,
+                        Device.status.in_(["open", "recurring", "standby"]),
+                    ),
+                )
+            )
+        elif params.status:
             query = query.where(Device.status.in_(params.status))
         elif not params.validation_status:
             query = query.where(Device.status.in_(["open", "recurring", "standby"]))

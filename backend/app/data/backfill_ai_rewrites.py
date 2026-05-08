@@ -33,6 +33,7 @@ async def run(
     source_name: str | None = None,
     statuses: list[str] | None = None,
     include_done: bool = False,
+    commit_every: int = 10,
 ) -> dict[str, Any]:
     await ensure_ai_rewrite_columns()
     rewriter = AIRewriter()
@@ -105,6 +106,9 @@ async def run(
                 device.ai_rewrite_status = result.status
                 device.ai_rewrite_model = result.model
                 device.ai_rewrite_checked_at = result.checked_at
+                processed = stats["rewritten"] + stats["needs_review"] + stats["failed"]
+                if commit_every > 0 and processed % commit_every == 0:
+                    await db.commit()
 
         if apply:
             await db.commit()
@@ -121,6 +125,7 @@ def main() -> None:
     parser.add_argument("--source-name", default=None)
     parser.add_argument("--status", action="append", dest="statuses", default=None)
     parser.add_argument("--include-done", action="store_true")
+    parser.add_argument("--commit-every", type=int, default=10)
     args = parser.parse_args()
     result = asyncio.run(
         run(
@@ -129,6 +134,7 @@ def main() -> None:
             source_name=args.source_name,
             statuses=args.statuses,
             include_done=args.include_done,
+            commit_every=args.commit_every,
         )
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

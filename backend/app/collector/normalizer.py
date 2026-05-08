@@ -3,6 +3,7 @@ import logging
 import re
 from datetime import date
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import dateparser
 from bs4 import BeautifulSoup
@@ -98,6 +99,41 @@ DEVICE_TYPE_RULES = {
     ],
 }
 
+DATA_AIDES_RECURRING_HOSTS = {
+    "www.bpifrance.fr",
+    "diag.bpifrance.fr",
+    "diagecoconception.bpifrance.fr",
+    "bpifrance-creation.fr",
+    "www.inpi.fr",
+    "www.siagi.com",
+    "www.bretagneactive.org",
+    "www.urssaf.fr",
+    "scientipolecapital.fr",
+    "www.bje-capital-risque.com",
+    "www.bretagne-capital-solidaire.fr",
+    "www.bretagne.bzh",
+    "www.normandie.fr",
+    "www.auvergnerhonealpes.fr",
+    "www.paysdelaloire.fr",
+    "www.vte-france.fr",
+    "www.ademe.fr",
+    "anct.gouv.fr",
+    "bofip.impots.gouv.fr",
+}
+
+DATA_AIDES_RECURRING_BLOCKERS = (
+    "appel a projets",
+    "appel à projets",
+    "appel a candidature",
+    "appel à candidature",
+    "concours",
+    "phase b",
+    "jusqu'au ",
+    "jusqu au ",
+    "avant le ",
+    "au plus tard le ",
+)
+
 SECTOR_RULES = {
     "agriculture": ["agricult", "agro", "alimentaire", "rural", "élevage", "pêche", "agroalimentaire"],
     "energie": ["énergie", "energy", "solaire", "renouvelable", "électricité", "photovoltaïque", "biogaz"],
@@ -187,11 +223,65 @@ class Normalizer:
                 if value and not self.config.get(key):
                     self.config[key] = value
 
+    def _looks_like_data_aides_recurring_offer(
+        self,
+        *,
+        item: RawItem,
+        normalized_title: str,
+        raw_body: str,
+        metadata: dict,
+        close_date: Optional[date],
+    ) -> bool:
+        if not self.profile or self.profile.key != "data_aides_entreprises" or close_date is not None:
+            return False
+
+        host = (urlparse(item.url or "").netloc or "").lower()
+        if host not in DATA_AIDES_RECURRING_HOSTS:
+            return False
+
+        text = sanitize_text(
+            " ".join(
+                part
+                for part in (
+                    normalized_title,
+                    raw_body,
+                    self._metadata_value_to_text(metadata),
+                )
+                if part
+            )
+        ).lower()
+        if any(marker in text for marker in DATA_AIDES_RECURRING_BLOCKERS):
+            return False
+
+        recurring_types = {"pret", "garantie", "accompagnement", "investissement", "autre", "exoneration"}
+        if (self._detect_device_type(text) or "") in recurring_types:
+            return True
+
+        recurring_markers = (
+            "catalogue-offres",
+            "diagnostic",
+            "diag ",
+            "diag-",
+            "garantie",
+            "pret",
+            "prêt",
+            "credit-bail",
+            "crédit-bail",
+            "fonds direct",
+            "pass pi",
+            "redevances brevets",
+            "volontariat territorial en entreprise",
+        )
+        return any(marker in text for marker in recurring_markers)
+
     def normalize(self, item: RawItem) -> Optional[Dict[str, Any]]:
         raw_body = clean_editorial_text(item.raw_content or "")
         metadata = item.metadata if isinstance(item.metadata, dict) else {}
         if self._is_unusable_content(raw_body, metadata):
             logger.info("[Normalizer] Item ignore car contenu source inexploitable: %s", item.title[:120])
+            return None
+        if self._should_skip_source_item(item, raw_body):
+            logger.info("[Normalizer] Item ignore car hors perimetre source: %s", item.title[:120])
             return None
         if looks_english_text(raw_body) and not self.config.get("allow_english_text"):
             logger.info(f"[Normalizer] Item ignoré car description anglaise: {item.title[:120]}")
@@ -255,6 +345,22 @@ class Normalizer:
             and initial_status == "open"
         ):
             initial_status = "standby"
+        if (
+            initial_status in {"open", "standby"}
+            and self._looks_like_data_aides_recurring_offer(
+                item=item,
+                normalized_title=normalized_title,
+                raw_body=raw_body,
+                metadata=metadata,
+                close_date=close_date,
+            )
+        ):
+            initial_status = "recurring"
+            is_recurring = True
+            recurrence_notes = (
+                "Classe automatiquement comme dispositif permanent : "
+                "la page source presente une offre continue sans date limite exploitable."
+            )
         short_description = self._build_short_description(item, raw_body, metadata, close_date)
         full_description = self._build_full_description(item, raw_body, metadata, close_date, open_date)
         extra_fields = self._extract_source_specific_fields(normalized_title, raw_body, metadata, close_date, open_date)
@@ -274,6 +380,12 @@ class Normalizer:
             "private_investor",
             "africa_business_heroes",
             "global_south_opportunities",
+            "orange_corners_ocif",
+            "baobab_network",
+            "awdf_grants",
+            "janngo_capital",
+            "tlcom_capital",
+            "villgro_africa",
         }:
             eligibility_criteria = extra_fields.get("eligibility_criteria") or eligibility_criteria
             funding_details = extra_fields.get("funding_details") or funding_details
@@ -350,6 +462,19 @@ class Normalizer:
         payload["full_description"] = render_sections_markdown(sections) or payload["full_description"]
         return payload
 
+    def _should_skip_source_item(self, item: RawItem, raw_body: str) -> bool:
+        if not self.profile:
+            return False
+
+        if self.profile.key == "aecf":
+            text = unidecode(f"{item.title or ''} {raw_body or ''}".lower())
+            if "open competition" not in text and "difec" not in text and "digital innovation fund for energy" not in text:
+                return True
+            if any(marker in text for marker in ("annual report", "regional workshop", "read our", "who regional workshop")):
+                return True
+
+        return False
+
     def _normalize_title_for_source(self, title: str, raw_body: str, metadata: dict) -> str:
         cleaned = sanitize_text(title or "")
         source_url = (self.source.get("url") or "").lower()
@@ -360,6 +485,16 @@ class Normalizer:
 
         if "africabusinessheroes.org" in source_url:
             return "Africa's Business Heroes (ABH) 2026" if "2026" in body else "Africa's Business Heroes (ABH)"
+        if "thebaobabnetwork.com/apply-now" in source_url:
+            return "Baobab Network - accelerateur pour startups africaines"
+        if "awdf.org/what-we-do/resourcing" in source_url or "awdf.org/grants" in source_url:
+            return "AWDF - grantmaking for African women's organisations"
+        if "janngo.com/investments" in source_url:
+            return "Janngo Capital - investissement dans les startups africaines"
+        if "tlcomcapital.com/contact-us" in source_url or "tlcomcapital.com/about-old" in source_url:
+            return "TLcom Capital - investissement dans les startups africaines"
+        if "villgroafrica.org/innovators/apply-now" in source_url:
+            return "Villgro Africa - incubation et financement sante en Afrique"
 
         return cleaned
 
@@ -382,8 +517,22 @@ class Normalizer:
             )
             if investor_fields:
                 return investor_fields
+        if self.profile and self.profile.key == "aecf":
+            return self._build_aecf_fields(normalized_title, raw_body, close_date, open_date)
         if "globalsouthopportunities.com" in source_url or (self.profile and self.profile.key == "global_south_opportunities"):
             return self._build_global_south_opportunities_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "orange_corners_ocif":
+            return self._build_orange_corners_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "baobab_network":
+            return self._build_baobab_network_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "awdf_grants":
+            return self._build_awdf_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "janngo_capital":
+            return self._build_janngo_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "tlcom_capital":
+            return self._build_tlcom_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "villgro_africa":
+            return self._build_villgro_fields(normalized_title, raw_body, close_date, open_date)
 
         is_abh = "africabusinessheroes.org" in source_url or (
             self.profile and self.profile.key == "africa_business_heroes"
@@ -455,6 +604,571 @@ class Normalizer:
             "sectors": ["transversal", "entrepreneuriat", "innovation"],
             "keywords": extract_keywords(normalized_title + " entrepreneurs africains concours"),
         }
+
+    def _build_orange_corners_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        presentation = (
+            "Orange Corners Innovation Fund (OCIF) soutient les jeunes entrepreneurs issus des programmes "
+            "d'incubation et d'acceleration Orange Corners. Le fonds repond aux besoins de financement "
+            "des startups a impact en Afrique, au Moyen-Orient et en Asie du Sud-Est en combinant capital, "
+            "assistance technique et accompagnement a l'investissement."
+        )
+        if "2019" in body or "2030" in body:
+            presentation += (
+                " Lance en 2019, le dispositif poursuit son extension internationale et doit se prolonger "
+                "au moins jusqu'en 2030."
+            )
+
+        eligibility = (
+            "Le fonds s'adresse prioritairement aux entrepreneurs participant aux programmes Orange Corners "
+            "dans les pays couverts par OCIF, avec une ouverture explicite a la Tunisie pour le premier track. "
+            "La selection du second track se fait en fin de cohorte via une competition de pitch devant un jury expert."
+        )
+
+        funding = (
+            "Le dispositif comporte deux volets. Track 1 : bon de prototypage et allocation mensuelle, "
+            "jusqu'a 5 000 EUR par entrepreneur. Track 2 : financement seed jusqu'a 50 000 EUR par entrepreneur, "
+            "sous forme mixte subvention + pret, avec 12 a 18 mois d'accompagnement complementaire."
+        )
+
+        procedure = (
+            "L'entree dans OCIF se fait via les programmes Orange Corners locaux. Les entrepreneurs concernes "
+            "sont ensuite orientes vers le track adapte a leur stade puis, pour le second track, selectionnes "
+            "par competition de pitch selon les modalites locales."
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            procedure=procedure,
+            close_date=close_date,
+            open_date=open_date,
+            recurrence_notes=(
+                "Le fonds fonctionne par cohortes et mecanismes recurrents sans date limite unique publique "
+                "au niveau global."
+            ),
+        )
+
+        return {
+            "short_description": (
+                "Fonds Orange Corners pour startups a impact, avec tickets jusqu'a 50 000 EUR "
+                "et accompagnement renforce via des cohortes recurrentes."
+            ),
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": "investissement",
+            "aid_nature": "capital",
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "multi_pays",
+            "beneficiaries": ["startups", "entrepreneurs"],
+            "sectors": ["numerique", "innovation", "entrepreneuriat"],
+            "specific_conditions": (
+                "Les modalites de financement et la structure exacte subvention/pret peuvent varier selon le contexte local."
+            ),
+            "required_documents": (
+                "Les documents de candidature et les conditions precises doivent etre verifies aupres du programme Orange Corners local."
+            ),
+            "keywords": extract_keywords(normalized_title + " orange corners entrepreneurs startup impact"),
+        }
+
+    def _build_baobab_network_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        presentation = (
+            "Baobab Network accompagne et finance des startups africaines a fort potentiel via un accelerator "
+            "tres operationnel. Le programme combine premier cheque, appui venture, reseau international "
+            "et soutien a la croissance pour des entreprises technologiques en phase early-stage."
+        )
+
+        eligibility = (
+            "Le programme cible des startups tech orientees business, a but lucratif, qui disposent idealement "
+            "d'un MVP et de premiers signes de traction. Les candidatures a l'etape idee pure sont moins prioritaires "
+            "et doivent au minimum demontrer une demande de marche deja validee."
+        )
+
+        funding = (
+            "Baobab met en avant un ticket initial d'environ 100 000 USD pour accelerer la croissance de la startup, "
+            "avec des options complementaires de co-investissement, venture debt et follow-on fund selon l'evolution de l'entreprise."
+        )
+
+        procedure = (
+            "Les candidatures sont acceptees en continu. La page officielle indique une logique rolling basis, "
+            "avec un prochain cohort kick-off mentionne en Q4 2025. Les fondateurs doivent postuler via la plateforme Baobab."
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            procedure=procedure,
+            close_date=close_date,
+            open_date=open_date,
+            recurrence_notes=(
+                "Le programme fonctionne sur un rythme recurrent avec candidatures en continu plutot qu'une date limite publique unique."
+            ),
+        )
+
+        return {
+            "title": "Baobab Network - accelerator for African startups",
+            "short_description": (
+                "Accelerateur pan-africain pour startups tech, avec candidature en continu et ticket initial autour de 100 000 USD."
+            ),
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": "investissement",
+            "aid_nature": "capital",
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "continental",
+            "beneficiaries": ["startups", "entrepreneurs"],
+            "sectors": ["numerique", "innovation", "finance"],
+            "specific_conditions": (
+                "Le programme privilegie les structures for-profit et une preuve de traction ou de validation de marche."
+            ),
+            "required_documents": (
+                "Le detail du dossier et des informations demandees doit etre confirme sur la plateforme de candidature Baobab."
+            ),
+            "keywords": extract_keywords(normalized_title + " baobab accelerator africa startups venture"),
+        }
+
+    def _build_awdf_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        presentation = (
+            "L'African Women's Development Fund (AWDF) finance et accompagne des organisations africaines "
+            "qui renforcent durablement les droits, le pouvoir d'action et la reconnaissance des femmes. "
+            "Le grantmaking soutient des structures etabliies comme de petites organisations locales."
+        )
+
+        eligibility = (
+            "Pour etre eligibles, les organisations doivent etre dirigees et gerees par des femmes, ou porter "
+            "un projet centre sur les femmes avec une gouvernance feminine claire. Elles doivent s'inscrire dans "
+            "une strategie locale, nationale ou regionale d'autonomisation des femmes, disposer de systemes "
+            "organisationnels de base et justifier d'au moins trois ans d'existence."
+        )
+
+        funding = (
+            "AWDF propose des subventions flexibles et specialisees pour soutenir les organisations de femmes, "
+            "leurs projets structurants, ainsi que des opportunites d'apprentissage, de reseautage et de "
+            "valorisation des contributions des femmes africaines."
+        )
+
+        procedure = (
+            "La page officielle renvoie vers la demande de grant AWDF. Les porteuses doivent verifier la fenetre "
+            "d'ouverture active, les formulaires en cours et les modalites de depot directement sur le site AWDF."
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            procedure=procedure,
+            close_date=close_date,
+            open_date=open_date,
+            recurrence_notes=(
+                "Le grantmaking AWDF fonctionne selon des ouvertures recurrentes ou variables, sans date limite "
+                "publique unique visible sur cette page de reference."
+            ),
+        )
+
+        return {
+            "title": "AWDF - subventions pour organisations de femmes en Afrique",
+            "short_description": (
+                "Programme de subventions AWDF pour organisations africaines dirigees par des femmes, "
+                "avec grantmaking recurrent et criteres d'eligibilite explicites."
+            ),
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": "subvention",
+            "aid_nature": "subvention",
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "continental",
+            "beneficiaries": ["associations", "ong", "organisations de femmes"],
+            "sectors": ["social", "egalite", "impact"],
+            "specific_conditions": (
+                "AWDF ne finance pas les partis politiques, les financements individuels, les administrations "
+                "publiques, les bourses d'etudes et les organisations de femmes qui ne sont pas effectivement dirigees par des femmes."
+            ),
+            "required_documents": (
+                "Le detail du dossier, des formulaires et des pieces demandees doit etre confirme sur la page AWDF "
+                "de demande de grant au moment de la candidature."
+            ),
+            "keywords": extract_keywords(normalized_title + " awdf women africa grants feminist organisations"),
+        }
+
+    def _build_janngo_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        presentation = (
+            "Janngo Capital investit dans des startups africaines early stage, technologiques ou tech-enabled, "
+            "avec une these panafricaine orientee croissance, impact et inclusion. Le fonds met en avant une "
+            "forte exposition aux startups fondees, cofondees ou beneficiant aux femmes."
+        )
+
+        eligibility = (
+            "Le dispositif cible des startups africaines en phase early stage actives sur des marches de croissance. "
+            "Les entreprises recherchees doivent contribuer a l'acces a des biens et services essentiels, a "
+            "l'acces au marche ou au capital pour les PME africaines, ou a la creation d'emplois durables a grande echelle."
+        )
+
+        funding = (
+            "Janngo Capital investit entre 50 000 euros et 5 millions d'euros dans des startups tech ou "
+            "tech-enabled. Le fonds combine capital financier et accompagnement operationnel via une equipe "
+            "interne d'operating partners et d'experts."
+        )
+
+        procedure = (
+            "La page officielle invite les fondateurs a prendre contact avec Janngo Capital. L'instruction se fait "
+            "ensuite via echanges, evaluation du profil startup, pitch avec l'equipe puis comite d'investissement "
+            "et discussion de term sheet si le dossier avance."
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            procedure=procedure,
+            close_date=close_date,
+            open_date=open_date,
+            recurrence_notes=(
+                "Janngo Capital fonctionne comme un investisseur recurrent sans fenetre publique unique de cloture."
+            ),
+        )
+
+        return {
+            "title": "Janngo Capital - investissement dans les startups africaines",
+            "short_description": (
+                "Fonds panafricain early stage pour startups tech, avec tickets de 50 000 EUR a 5 M EUR "
+                "et these forte sur l'impact et l'inclusion."
+            ),
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": "investissement",
+            "aid_nature": "capital",
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "continental",
+            "beneficiaries": ["startups", "entrepreneurs", "pme"],
+            "sectors": ["numerique", "sante", "finance", "agriculture", "mobilite"],
+            "specific_conditions": (
+                "Le fonds privilegie les startups technologiques ou tech-enabled en croissance, avec une attention "
+                "forte a l'impact et a l'entrepreneuriat feminin."
+            ),
+            "required_documents": (
+                "Le detail des informations demandees doit etre confirme directement avec Janngo Capital au moment "
+                "de la prise de contact."
+            ),
+            "keywords": extract_keywords(normalized_title + " janngo capital africa venture women startups"),
+        }
+
+    def _build_tlcom_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        presentation = (
+            "TLcom Capital investit dans des startups technologiques africaines a fort potentiel, avec une "
+            "approche venture capital orientee croissance, execution et passage a l'echelle. Le fonds accompagne "
+            "des fondateurs capables de construire des entreprises scalables sur des marches africains."
+        )
+
+        eligibility = (
+            "Le dispositif cible des startups africaines technologiques ou tech-enabled, ambitieuses, scalables "
+            "et en capacite de demonstrer un potentiel de croissance solide. La page officielle s'adresse "
+            "principalement aux fondateurs qui souhaitent pitcher une entreprise a TLcom Capital."
+        )
+
+        funding = (
+            "TLcom Capital intervient comme investisseur venture sur des startups africaines en croissance. "
+            "La page publique ne communique pas ici de ticket standard unique, mais met en avant un partenariat "
+            "capitalistique avec accompagnement strategique, expertise venture et soutien a l'execution."
+        )
+
+        procedure = (
+            "Les fondateurs peuvent soumettre leur dossier via le point d'entree 'Pitch Us' de TLcom Capital. "
+            "L'instruction se poursuit ensuite via revue du pitch, echanges avec l'equipe d'investissement et "
+            "evaluation du fit avant poursuite eventuelle du processus."
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            procedure=procedure,
+            close_date=close_date,
+            open_date=open_date,
+            recurrence_notes=(
+                "TLcom Capital fonctionne comme un investisseur recurrent sans fenetre publique unique de cloture."
+            ),
+        )
+
+        return {
+            "title": "TLcom Capital - investissement dans les startups africaines",
+            "short_description": (
+                "Fonds venture capital actif en Afrique pour startups technologiques a fort potentiel, avec "
+                "soumission continue des dossiers via le point d'entree founders."
+            ),
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": "investissement",
+            "aid_nature": "capital",
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "continental",
+            "beneficiaries": ["startups", "entrepreneurs", "pme"],
+            "sectors": ["numerique", "finance", "logistique", "commerce", "sante"],
+            "specific_conditions": (
+                "Le fonds privilegie des startups africaines technologiques et scalables, capables de soutenir "
+                "une trajectoire de croissance venture."
+            ),
+            "required_documents": (
+                "Le detail du dossier, du pitch et des informations demandees doit etre confirme directement via "
+                "le formulaire de prise de contact TLcom Capital."
+            ),
+            "keywords": extract_keywords(normalized_title + " tlcom capital africa venture startups pitch"),
+        }
+
+    def _build_villgro_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        presentation = (
+            "Villgro Africa accompagne des innovations sante et life sciences en Afrique via un dispositif "
+            "d'incubation, d'appui a l'investissement et de structuration business. Le programme vise des "
+            "startups capables d'ameliorer durablement l'acces a des solutions de sante sur le continent."
+        )
+
+        eligibility = (
+            "Les innovateurs candidats doivent disposer d'une equipe pluridisciplinaire, d'un problem-solution fit, "
+            "d'un product-market fit, d'un produit minimum viable deja construit, d'une demande de marche validee, "
+            "d'un modele de revenus clair, d'un fondateur a temps plein engage dans le programme et d'au moins "
+            "un cofondateur technique."
+        )
+
+        funding = (
+            "Villgro Africa combine incubation, accompagnement a l'investissement et acces a des financeurs a impact "
+            "dans la sante. La page publique met en avant un appui en seed funding, en structuration d'entreprise "
+            "et en preparation a l'investissement plutot qu'un montant unique garanti a chaque candidat."
+        )
+
+        procedure = (
+            "Les candidatures sont acceptees sur une base continue. Chaque soumission est revue par un portfolio "
+            "manager, puis peut faire l'objet de demandes d'informations complementaires dans le cadre de la due "
+            "diligence. Si le dossier entre dans le mandat de Villgro Africa, l'equipe recontacte le porteur "
+            "dans un delai pouvant aller jusqu'a un mois."
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            procedure=procedure,
+            close_date=close_date,
+            open_date=open_date,
+            recurrence_notes=(
+                "Villgro Africa accepte les candidatures sur une base continue, sans date limite publique unique."
+            ),
+        )
+
+        return {
+            "title": "Villgro Africa - incubation et financement sante en Afrique",
+            "short_description": (
+                "Programme recurrent pour startups sante et life sciences en Afrique, avec incubation, "
+                "preparation a l'investissement et revue des candidatures en continu."
+            ),
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": "accompagnement",
+            "aid_nature": "incubation",
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "continental",
+            "beneficiaries": ["startups", "entrepreneurs", "chercheurs", "pme"],
+            "sectors": ["sante", "biotechnologies", "medtech", "numerique"],
+            "specific_conditions": (
+                "Le programme cible des innovations sante avec traction produit et marche minimale, ainsi qu'une "
+                "equipe fondatrice suffisamment structuree pour entrer en incubation active."
+            ),
+            "required_documents": (
+                "Le detail des informations et pieces demandees doit etre confirme au moment de la candidature "
+                "sur la page officielle Villgro Africa."
+            ),
+            "keywords": extract_keywords(normalized_title + " villgro africa healthcare medtech biotech incubation"),
+        }
+
+    def _build_aecf_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        text = unidecode(f"{normalized_title} {raw_body}".lower())
+
+        if "difec" in text or "digital innovation fund for energy" in text:
+            presentation = (
+                "Le programme DIFEC de l'AECF soutient des entreprises africaines developpant des solutions "
+                "numeriques pour l'energie propre, la resilience climatique, l'agriculture digitale et des "
+                "modeles circulaires. Il combine financement catalytique et appui technique pour accelerer "
+                "des innovations a fort potentiel sur plusieurs marches africains."
+            )
+            eligibility = (
+                "Le programme cible des entreprises early stage ou growth stage developpant des solutions "
+                "digitales liees a l'acces a l'energie, au clean cooking, a la productive use of energy, "
+                "a l'e-mobility, a l'agriculture numerique ou a la resilience climatique. Les candidats "
+                "doivent demontrer un produit ou une traction coherente avec leur fenetre de financement."
+            )
+            funding = (
+                "AECF ouvre deux fenetres de financement dans DIFEC. La fenetre Growing vise des entreprises "
+                "plus amont avec des grants de 150 000 a 300 000 USD. La fenetre Scaling vise des entreprises "
+                "avec traction commerciale et peut aller de 250 000 a 400 000 USD, avec logique de matching."
+            )
+            procedure = (
+                "Les candidatures se font en reponse a l'appel officiel AECF. La selection comprend une revue "
+                "du dossier, l'analyse du fit programme, puis une instruction plus poussee pour les dossiers "
+                "retenus, avec verification des capacites de cofinancement et du potentiel de passage a l'echelle."
+            )
+            full_description = build_structured_sections(
+                presentation=presentation,
+                eligibility=eligibility,
+                funding=funding,
+                procedure=procedure,
+                close_date=close_date,
+                open_date=open_date,
+            )
+            return {
+                "title": "AECF - Digital Innovation Fund for Energy & Climate (DIFEC)",
+                "short_description": (
+                    "Appel regional AECF pour entreprises africaines developpant des solutions digitales "
+                    "energie-climat, avec deux fenetres de financement de 150 000 a 400 000 USD."
+                ),
+                "full_description": full_description,
+                "eligibility_criteria": eligibility,
+                "funding_details": funding,
+                "device_type": "subvention",
+                "aid_nature": "grant",
+                "country": "Afrique",
+                "region": "Afrique",
+                "zone": "Afrique",
+                "geographic_scope": "continental",
+                "beneficiaries": ["startups", "entreprises", "pme"],
+                "sectors": ["energie", "climat", "numerique", "agriculture"],
+                "source_url": "https://www.aecfafrica.org/approach/our-programmes/renewable-energy/react-2-0-regional-digital-innovation-fund-for-energy-climate-programme-difec/",
+                "keywords": extract_keywords(normalized_title + " aecf difec energy climate africa grants"),
+            }
+
+        if "women entrepreneurship" in text or "benin and burkina faso" in text:
+            presentation = (
+                "L'AECF soutient l'entrepreneuriat feminin dans une economie plus verte au Benin et au Burkina Faso "
+                "via un programme de plusieurs annees qui combine grants, appui a l'acces au financement et "
+                "renforcement des entreprises ou organisations ciblees."
+            )
+            eligibility = (
+                "Le programme cible notamment des PME dirigees par des femmes, des cooperatives, des associations "
+                "et des intermediaires financiers capables de renforcer l'activite economique des femmes dans des "
+                "secteurs a impact climat et inclusion."
+            )
+            funding = (
+                "Le programme comporte plusieurs fenetres. Des financements remboursables ou non remboursables "
+                "peuvent etre mobilises pour les PME et intermediaires financiers, ainsi que des grants dedies "
+                "aux cooperatives et associations de femmes selon les volets ouverts."
+            )
+            procedure = (
+                "Les candidatures se font via les appels AECF associes au programme. L'instruction comprend une "
+                "reponse au call, la revue des criteres d'eligibilite, puis une evaluation plus detaillee pour "
+                "les candidatures preselectionnees."
+            )
+            full_description = build_structured_sections(
+                presentation=presentation,
+                eligibility=eligibility,
+                funding=funding,
+                procedure=procedure,
+                close_date=close_date,
+                open_date=open_date,
+            )
+            return {
+                "title": "AECF - entrepreneuriat feminin pour une economie plus verte au Benin et au Burkina Faso",
+                "short_description": (
+                    "Programme AECF de financement et d'appui a l'entrepreneuriat feminin au Benin et au "
+                    "Burkina Faso, avec plusieurs fenetres de soutien selon le profil du porteur."
+                ),
+                "full_description": full_description,
+                "eligibility_criteria": eligibility,
+                "funding_details": funding,
+                "device_type": "subvention",
+                "aid_nature": "grant",
+                "country": "Afrique",
+                "region": "Afrique",
+                "zone": "Afrique",
+                "geographic_scope": "regional",
+                "beneficiaries": ["femmes", "pme", "cooperatives", "associations"],
+                "sectors": ["agriculture", "climat", "numerique", "artisanat"],
+                "source_url": "https://www.aecfafrica.org/approach/our-programmes/crosscutting-themes/investing-in-women-in-benin-and-burkina-faso/",
+                "keywords": extract_keywords(normalized_title + " aecf women benin burkina faso grant"),
+            }
+
+        return {}
 
     def _build_private_investor_fields(
         self,

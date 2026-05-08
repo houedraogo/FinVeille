@@ -50,14 +50,14 @@ class SourceService:
         merged = dict(config or {})
         merged["source_kind"] = source_kind
 
-        if collection_mode == "manual" and source_kind == "pdf_manual":
+        if collection_mode == "manual" and source_kind in {"pdf_manual", "manual_import"}:
             merged.setdefault("document_type", "pdf")
             return merged
 
         if collection_mode != "html":
             return merged
 
-        if source_kind in {"single_program_page", "institutional_project"}:
+        if source_kind in {"single_program_page", "institutional_project", "editorial_funding"}:
             merged.setdefault("list_selector", "body")
             merged.setdefault("item_title_selector", "h1")
             merged.setdefault("item_description_selector", "main, article, .content, .entry-content, .post-content, body")
@@ -90,15 +90,19 @@ class SourceService:
     ) -> dict[str, Any]:
         mode_label = {
             "manual": "Source manuelle",
-            "html": "Page editoriale" if source_kind in {"single_program_page", "institutional_project"} else "Collecte automatique",
+            "html": "Page editoriale" if source_kind in {"single_program_page", "institutional_project", "editorial_funding"} else "Collecte automatique",
         }.get(collection_mode, "Collecte automatique")
 
         if source_kind == "pdf_manual":
             summary = "La source servira surtout de reference documentaire ou de creation manuelle de fiche."
+        elif source_kind == "manual_import":
+            summary = "La source sert a rattacher des fiches importees ou gerees manuellement dans la plateforme."
         elif source_kind == "single_program_page":
             summary = "La collecte creera ou mettra a jour une fiche principale a partir d'une page unique."
         elif source_kind == "institutional_project":
             summary = "La collecte interpretera la page comme un projet institutionnel plutot qu'une liste d'appels."
+        elif source_kind == "editorial_funding":
+            summary = "La collecte interpretera la page comme une source editoriale et tentera d'en extraire des opportunites exploitables."
         else:
             summary = "La collecte cherchera une liste de dispositifs et generera une fiche par item detecte."
 
@@ -341,6 +345,7 @@ class SourceService:
 
         from app.collector.api_connector import APIConnector
         from app.collector.html_connector import HTMLConnector
+        from app.collector.les_aides_connector import LesAidesConnector
         from app.collector.rss_connector import RSSConnector
 
         connectors = {
@@ -348,6 +353,7 @@ class SourceService:
             "html": HTMLConnector,
             "rss": RSSConnector,
             "atom": RSSConnector,
+            "les_aides": LesAidesConnector,
         }
 
         connector_class = connectors.get(data.collection_mode)

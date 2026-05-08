@@ -174,6 +174,7 @@ class DeviceSearchParams(BaseModel):
     close_date_after: Optional[date] = None
     closing_soon_days: Optional[int] = None
     has_close_date: Optional[bool] = None
+    actionable_now: Optional[bool] = None
     source_id: Optional[UUID] = None
     min_confidence: Optional[int] = None
     min_ai_readiness: Optional[int] = None

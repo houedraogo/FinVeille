@@ -50,7 +50,13 @@ async def ensure_column() -> None:
         await db.commit()
 
 
-async def run(*, apply: bool = False, limit: int | None = None, force: bool = False) -> dict[str, Any]:
+async def run(
+    *,
+    apply: bool = False,
+    limit: int | None = None,
+    force: bool = False,
+    source_name: str | None = None,
+) -> dict[str, Any]:
     await ensure_column()
 
     async with AsyncSessionLocal() as db:
@@ -60,6 +66,8 @@ async def run(*, apply: bool = False, limit: int | None = None, force: bool = Fa
             .where(Device.validation_status != "rejected")
             .order_by(Device.updated_at.desc().nullslast())
         )
+        if source_name:
+            query = query.where(Source.name == source_name)
         if limit:
             query = query.limit(limit)
         rows = (await db.execute(query)).all()
@@ -129,8 +137,23 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--source-name", type=str, default=None)
     args = parser.parse_args()
-    print(json.dumps(asyncio.run(run(apply=args.apply, limit=args.limit, force=args.force)), ensure_ascii=False, indent=2, default=str))
+    print(
+        json.dumps(
+            asyncio.run(
+                run(
+                    apply=args.apply,
+                    limit=args.limit,
+                    force=args.force,
+                    source_name=args.source_name,
+                )
+            ),
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+    )
 
 
 if __name__ == "__main__":
