@@ -101,6 +101,28 @@ export default function AdminPage() {
     }
   };
 
+  const [rewritingVisible, setRewritingVisible] = useState(false);
+  const handleRewriteVisible = async () => {
+    setRewritingVisible(true);
+    try {
+      const result = await admin.rewrite(50, "pending", true) as {
+        processed?: number; succeeded?: number; failed?: number; skipped?: number;
+        visible_countries?: string[]; message?: string;
+      };
+      const countries = result.visible_countries?.length
+        ? ` (${result.visible_countries.length} pays visibles)`
+        : "";
+      setActionMsg(result.message || `${result.succeeded}/${result.processed} fiches visibles reformulées${countries}.`);
+      setActionType((result.failed ?? 0) > 0 && (result.succeeded ?? 0) === 0 ? "error" : "success");
+      fetchData();
+    } catch (e: any) {
+      setActionMsg(`Erreur reformulation : ${e.message}`);
+      setActionType("error");
+    } finally {
+      setRewritingVisible(false);
+    }
+  };
+
   const handleDetectDuplicates = async () => {
     setDedupLoading(true);
     try {
@@ -264,6 +286,10 @@ export default function AdminPage() {
           <button onClick={handleBulkRewrite} disabled={rewriting} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
             {rewriting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
             {rewriting ? "Reformulation…" : "Reformuler IA (20)"}
+          </button>
+          <button onClick={handleRewriteVisible} disabled={rewritingVisible} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
+            {rewritingVisible ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {rewritingVisible ? "Reformulation…" : "Reformuler fiches visibles"}
           </button>
           <button onClick={handleSendDigest} disabled={sendingDigest} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
             {sendingDigest ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}

@@ -167,6 +167,10 @@ export const security = {
 
 // Devices
 export const devices = {
+  onboardingPreview: (params: Record<string, string | string[] | number | boolean | undefined> = {}) => {
+    const qs = buildQueryString(params);
+    return apiFetch<any>(`/api/v1/devices/onboarding-preview${qs ? `?${qs}` : ""}`);
+  },
   list: (params: Record<string, string | string[] | number | boolean | undefined> = {}) => {
     const qs = buildQueryString(params);
     return apiFetch<any>(`/api/v1/devices/?${qs}`);
@@ -273,8 +277,8 @@ export const admin = {
   emailStatus: () => apiFetch<any>("/api/v1/admin/email/status"),
   testEmail: () => apiFetch<any>("/api/v1/admin/email/test", { method: "POST" }),
   enrich: (batchSize = 50) => apiFetch<any>(`/api/v1/admin/enrich?batch_size=${batchSize}`, { method: "POST" }),
-  rewrite: (batchSize = 20, statusFilter = "pending") =>
-    apiFetch<any>(`/api/v1/admin/rewrite?batch_size=${batchSize}&status_filter=${statusFilter}`, { method: "POST" }),
+  rewrite: (batchSize = 20, statusFilter = "pending", visibleOnly = false) =>
+    apiFetch<any>(`/api/v1/admin/rewrite?batch_size=${batchSize}&status_filter=${statusFilter}&visible_only=${visibleOnly}`, { method: "POST" }),
   sendDigest: () => apiFetch<any>("/api/v1/admin/email/digest", { method: "POST" }),
   sendDeadlineReminders: (daysAhead = 7) =>
     apiFetch<any>(`/api/v1/admin/email/deadline-reminders?days_ahead=${daysAhead}`, { method: "POST" }),

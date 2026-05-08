@@ -18,6 +18,7 @@ from app.models.billing import BillingCustomer, Plan, Subscription, UsageEvent
 from app.models.collection_log import CollectionLog
 from app.models.user import User as UserModel
 from app.models.organization import Organization, OrganizationMember
+from app.models.relevance import OrganizationProfile
 from app.models.operations import AuditLog, DataExport, DeletionRequest, EmailEvent
 from app.models.saved_search import SavedSearch
 from app.models.workspace import DevicePipeline
@@ -724,12 +725,14 @@ async def enrich_devices(
 async def bulk_rewrite_devices(
     batch_size: int = Query(20, ge=1, le=100),
     status_filter: str = Query("pending", description="Reformuler les fiches avec ce statut : pending | failed | needs_review | all"),
+    visible_only: bool = Query(False, description="Si True, reformule uniquement les fiches dans les pays des profils utilisateurs"),
     db: AsyncSession = Depends(get_db),
     _=Depends(require_role(["admin"])),
 ):
     """
     Reformule en masse les fiches IA (ai_rewritten_sections_json).
     Ne traite que les fiches qui ont des sections source (content_sections_json non vide).
+    Si visible_only=True, limite aux pays couverts par les profils utilisateurs.
     """
     from app.services.ai_rewriter import AIRewriter, REWRITE_DONE, REWRITE_NEEDS_REVIEW
 
@@ -745,6 +748,31 @@ async def bulk_rewrite_devices(
     if status_filter != "all":
         allowed = [s.strip() for s in status_filter.split(",") if s.strip()]
         query = query.where(Device.ai_rewrite_status.in_(allowed))
+
+    # Filtre sur les pays visibles par les utilisateurs
+    if visible_only:
+        profiles_result = await db.execute(
+            select(OrganizationProfile.countries).where(
+                OrganizationProfile.countries.is_not(None)
+            )
+        )
+        all_country_lists = profiles_result.scalars().all()
+        # Agréger tous les pays uniques de tous les profils
+        visible_countries: list[str] = list({
+            country
+            for country_list in all_country_lists
+            if country_list
+            for country in country_list
+        })
+        if visible_countries:
+            query = query.where(Device.country.in_(visible_countries))
+        else:
+            # Aucun profil configuré → rien à reformuler
+            return {
+                "processed": 0, "succeeded": 0, "failed": 0, "skipped": 0,
+                "errors": [], "visible_countries": [],
+                "message": "Aucun profil utilisateur configuré — aucune fiche visible à reformuler.",
+            }
 
     query = query.order_by(Device.updated_at.asc()).limit(batch_size)
     result = await db.execute(query)
@@ -801,6 +829,7 @@ async def bulk_rewrite_devices(
         "skipped": skipped,
         "errors": errors[:10],
         "message": f"{succeeded}/{processed} fiches reformulées avec succès ({skipped} ignorées faute de sections source)",
+        "visible_only": visible_only,
     }
 
 
