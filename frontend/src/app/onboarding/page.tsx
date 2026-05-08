@@ -7,11 +7,12 @@ import { useRouter } from "next/navigation";
 import {
   ArrowRight, Bell, BriefcaseBusiness, Building2, CheckCircle2,
   Globe2, Landmark, Loader2, Rocket, Search, Sparkles, Users, ChevronRight,
-  Target, TrendingUp, Zap, Clock, DollarSign, X,
+  Target, TrendingUp, Zap, Clock, X,
 } from "lucide-react";
 import clsx from "clsx";
 
 import { alerts, devices, relevance } from "@/lib/api";
+import { isStoredAdmin, type StoredUser } from "@/lib/auth";
 import { SECTORS } from "@/lib/constants";
 import { DEVICE_TYPE_LABELS } from "@/lib/types";
 import {
@@ -109,6 +110,14 @@ const PROFILES = [
 
 type FinancingScope = "public" | "private" | "both";
 
+type OnboardingPreview = {
+  total: number;
+  subventions: number;
+  investisseurs: number;
+  urgentes: number;
+  has_real_count?: boolean;
+};
+
 const PUBLIC_TYPES  = ["subvention", "aap", "concours", "pret", "accompagnement", "garantie"];
 const PRIVATE_TYPES = ["investissement"];
 const ALL_TYPES     = [...PUBLIC_TYPES, ...PRIVATE_TYPES];
@@ -121,33 +130,10 @@ const FINANCING_SCOPES: { key: FinancingScope; label: string; sub: string; icon:
 
 // ── Simulation de résultats ───────────────────────────────────────────────────
 
-function simulateOpportunityCount(countryCount: number, sectors: string[]): number {
-  const base = 48;
-  const countryBonus = countryCount * 16;
-  const sectorBonus = sectors.length * 6;
-  const variation = ((countryCount * 7 + sectors.length * 11) % 19) - 9;
-  return Math.max(12, base + countryBonus + sectorBonus + variation);
-}
-
-function simulateBreakdown(total: number, scope: FinancingScope | "") {
-  const isPrivate = scope === "private";
-  const isBoth    = scope === "both";
-  const subventions  = isPrivate ? 0  : Math.round(total * 0.14);
-  const investisseurs = !isPrivate || isBoth ? Math.round(total * 0.06) : Math.round(total * 0.35);
-  const urgentes    = Math.round(total * 0.04);
-  const projMin     = Math.round(total * 900  / 10000) * 10;
-  const projMax     = Math.round(total * 4500 / 10000) * 10;
-  return { subventions, investisseurs, urgentes, projMin, projMax };
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toggleValue<T>(arr: T[], value: T): T[] {
   return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
-}
-
-function formatAmount(k: number): string {
-  return k >= 1000 ? `${(k / 1000).toFixed(0)} M€` : `${k} 000€`;
 }
 
 const STEP_LABELS = ["Profil", "Ciblage", "Financement"] as const;
@@ -173,14 +159,30 @@ export default function OnboardingPage() {
   const [saving,            setSaving]            = useState(false);
   const [error,             setError]             = useState<string | null>(null);
 
-  // Simulation
+  // Apercu reel du catalogue avec les criteres choisis.
   const [analysisPhase,   setAnalysisPhase]   = useState<0 | 1 | 2>(0);
   const [simCount,        setSimCount]        = useState(0);
+  const [preview,         setPreview]         = useState<OnboardingPreview | null>(null);
+  const [previewError,    setPreviewError]    = useState<string | null>(null);
   const [resultVisible,   setResultVisible]   = useState(false);
   const [loadingChecks,   setLoadingChecks]   = useState(0);
 
   // Alert créée
   const [createdAlertName, setCreatedAlertName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const rawUser = localStorage.getItem("kafundo_user");
+      const user = rawUser ? (JSON.parse(rawUser) as StoredUser) : null;
+      if (!isStoredAdmin(user)) return;
+      localStorage.setItem("kafundo_onboarding_completed", "1");
+      localStorage.setItem("kafundo_user_role", "admin");
+      router.replace("/admin");
+    } catch {
+      // Ne bloque pas l'onboarding si le cache local est corrompu.
+    }
+  }, [router]);
 
   // Pays filtrés par la recherche
   const filteredCountries = useMemo(() => {
@@ -215,15 +217,51 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (step !== 1) return;
-    if (selectedCountries.length === 0 && sectors.length === 0) return;
+    if (selectedCountries.length === 0) {
+      setAnalysisPhase(0);
+      setSimCount(0);
+      setPreview(null);
+      setPreviewError(null);
+      return;
+    }
 
+    let active = true;
     setAnalysisPhase(1);
-    const t = setTimeout(() => {
-      setSimCount(simulateOpportunityCount(selectedCountries.length, sectors));
-      setAnalysisPhase(2);
+    setPreviewError(null);
+
+    const t = setTimeout(async () => {
+      try {
+        const data = await devices.onboardingPreview({
+          countries: selectedCountries,
+          sectors,
+          device_types: deviceTypes,
+          status: financingScope === "private" ? undefined : ["open", "recurring"],
+        });
+        if (!active) return;
+        const safeTotal = Number(data?.total ?? 0);
+        setPreview({
+          total: safeTotal,
+          subventions: Number(data?.subventions ?? 0),
+          investisseurs: Number(data?.investisseurs ?? 0),
+          urgentes: Number(data?.urgentes ?? 0),
+          has_real_count: Boolean(data?.has_real_count),
+        });
+        setSimCount(safeTotal);
+      } catch {
+        if (!active) return;
+        setPreview(null);
+        setSimCount(0);
+        setPreviewError("Impossible de calculer le nombre exact pour le moment.");
+      } finally {
+        if (active) setAnalysisPhase(2);
+      }
     }, 900);
-    return () => clearTimeout(t);
-  }, [selectedCountries.length, sectors.join(","), step]); // eslint-disable-line
+
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [selectedCountries.join("|"), sectors.join("|"), deviceTypes.join("|"), financingScope, step]); // eslint-disable-line
 
   // ── Écran de chargement (step 2) ────────────────────────────────────────────
 
@@ -376,7 +414,7 @@ export default function OnboardingPage() {
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
 
-  const breakdown = simulateBreakdown(simCount, financingScope);
+  const breakdown = preview ?? { total: simCount, subventions: 0, investisseurs: 0, urgentes: 0 };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/40">
@@ -478,7 +516,7 @@ export default function OnboardingPage() {
                   <div className="mt-8 rounded-2xl bg-gradient-to-br from-emerald-50 to-green-50/60 border border-emerald-200 px-4 py-4">
                     <p className="text-xs font-semibold text-emerald-700">🎯 Analyse en temps réel</p>
                     <p className="mt-2 text-2xl font-bold text-emerald-900">{simCount}</p>
-                    <p className="text-xs text-emerald-700">financements potentiels identifiés</p>
+                    <p className="text-xs text-emerald-700">opportunités réellement trouvées</p>
                   </div>
                 )}
               </>
@@ -739,8 +777,11 @@ export default function OnboardingPage() {
                         <p className="text-sm font-semibold text-emerald-800">
                           🎯 Nous avons identifié{" "}
                           <span className="text-2xl font-bold text-emerald-700">{simCount}</span>{" "}
-                          financements potentiels correspondant à votre profil
+                          opportunité{simCount > 1 ? "s" : ""} réellement disponible{simCount > 1 ? "s" : ""} pour ce ciblage
                         </p>
+                        {previewError && (
+                          <p className="mt-1 text-xs text-orange-600">{previewError}</p>
+                        )}
                         {sectors.length > 0 && selectedCountries.length > 0 && (
                           <p className="mt-1 text-xs text-emerald-600">
                             {selectedCountries.length} pays · {sectors.length} secteur{sectors.length > 1 ? "s" : ""}
@@ -880,13 +921,13 @@ export default function OnboardingPage() {
 
                     <div className="rounded-2xl border border-primary-200 bg-white/80 px-5 py-4 mb-6">
                       <div className="flex items-center gap-3">
-                        <DollarSign className="h-5 w-5 text-primary-600 shrink-0" />
+                        <Search className="h-5 w-5 text-primary-600 shrink-0" />
                         <div>
-                          <p className="text-xs text-primary-600 font-semibold uppercase tracking-wider">💰 Potentiel estimé</p>
+                          <p className="text-xs text-primary-600 font-semibold uppercase tracking-wider">Aperçu réel du catalogue</p>
                           <p className="text-xl font-bold text-slate-950">
-                            {formatAmount(breakdown.projMin)} à {formatAmount(breakdown.projMax)}
+                            {preview?.has_real_count ? "Calculé depuis les fiches publiées" : "À recalculer"}
                           </p>
-                          <p className="text-xs text-slate-400 mt-0.5">Estimation basée sur votre profil et vos pays</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Le nombre affiché correspond aux critères sélectionnés, pas à une simulation.</p>
                         </div>
                       </div>
                     </div>

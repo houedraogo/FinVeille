@@ -79,6 +79,12 @@ const NAV_GROUPS = [
         activeFn: (pathname: string) => pathname === "/workspace",
       },
       {
+        href: "/opportunities/now",
+        label: "A saisir maintenant",
+        icon: LineChart,
+        activeFn: (pathname: string) => pathname === "/opportunities/now",
+      },
+      {
         href: "/onboarding",
         label: "Configurer ma veille",
         icon: Wand2,

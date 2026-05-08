@@ -126,7 +126,7 @@ export function sanitizeDisplayText(text: string | null | undefined): string {
 }
 
 export interface DeviceNatureBanner {
-  kind: "open_call" | "recurring" | "institutional_project" | "missing_close_date";
+  kind: "open_call" | "recurring" | "institutional_project" | "missing_close_date" | "investor";
   label: string;
   detail: string;
 }
@@ -169,14 +169,25 @@ export function getAiReadinessMeta(device: Pick<Device, "ai_readiness_label" | "
   };
 }
 
-export function getDeviceNatureBanner(device: Pick<Device, "title" | "organism" | "source_url" | "status" | "is_recurring" | "close_date">): DeviceNatureBanner | null {
+export function getDeviceNatureBanner(
+  device: Pick<Device, "title" | "organism" | "source_url" | "status" | "is_recurring" | "close_date" | "device_type" | "tags">,
+): DeviceNatureBanner | null {
   const sourceContext = `${device.organism} ${device.title} ${device.source_url}`.toLowerCase();
+  const tags = new Set((device.tags || []).map((tag) => String(tag).toLowerCase()));
   const looksInstitutionalProject =
     /(world bank|banque mondiale|ifc|african development bank|banque africaine|european investment bank|commission européenne|commission europeenne|cordis)/i.test(
       sourceContext,
     ) && /\b(project|projet|programme|program|operation|facility|initiative)\b/i.test(sourceContext);
 
-  if (device.is_recurring || device.status === "recurring") {
+  if (device.device_type === "investissement") {
+    return {
+      kind: "investor",
+      label: "Investisseur / fonds",
+      detail: "Il s'agit d'un financeur à contacter ou à qualifier, pas d'un appel avec date limite unique.",
+    };
+  }
+
+  if (device.is_recurring || device.status === "recurring" || tags.has("deadline:permanent")) {
     return {
       kind: "recurring",
       label: "Financement permanent",
@@ -184,7 +195,7 @@ export function getDeviceNatureBanner(device: Pick<Device, "title" | "organism" 
     };
   }
 
-  if (looksInstitutionalProject) {
+  if (looksInstitutionalProject || tags.has("deadline:institutional_project")) {
     return {
       kind: "institutional_project",
       label: "Projet institutionnel",
@@ -200,11 +211,11 @@ export function getDeviceNatureBanner(device: Pick<Device, "title" | "organism" 
     };
   }
 
-  if (device.status === "open" && !device.close_date) {
+  if (!device.close_date && (device.status === "open" || device.status === "standby" || tags.has("deadline:not_communicated"))) {
     return {
       kind: "missing_close_date",
       label: "Date limite non communiquée",
-      detail: "La source officielle ne précise pas de date limite exploitable à ce stade.",
+      detail: "La source officielle ne publie pas de date limite exploitable. À confirmer avant de prioriser cette opportunité.",
     };
   }
 

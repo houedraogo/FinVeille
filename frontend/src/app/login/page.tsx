@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { auth } from "@/lib/api";
+import { isStoredAdmin } from "@/lib/auth";
 import { Chrome, Eye, EyeOff } from "lucide-react";
 
 declare global {
@@ -58,13 +59,18 @@ export default function LoginPage() {
     localStorage.setItem("kafundo_token", result.access_token);
     if (result.user) localStorage.setItem("kafundo_user", JSON.stringify(result.user));
     const user = (result.user || {}) as any;
+    const isAdmin = isStoredAdmin(user);
+    if (isAdmin) {
+      localStorage.setItem("kafundo_onboarding_completed", "1");
+      localStorage.setItem("kafundo_user_role", "admin");
+    }
     const planParam = getPlanParam();
     if (planParam && planParam !== "free") {
       router.push(`/billing?plan=${planParam}`);
       return;
     }
     const hasOnboarding = localStorage.getItem("kafundo_onboarding_completed") === "1";
-    router.push(hasOnboarding || user.platform_role === "super_admin" ? "/" : "/onboarding");
+    router.push(isAdmin ? "/admin" : hasOnboarding ? "/" : "/onboarding");
   };
 
   const handleLogin = async (e: React.FormEvent) => {

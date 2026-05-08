@@ -347,6 +347,41 @@ function SectionCard({
   );
 }
 
+function CollapsibleSection({
+  title,
+  icon: Icon,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  icon: ElementType;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className="group rounded-2xl border border-slate-200 bg-white shadow-sm transition-colors open:border-primary-100"
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 group-open:bg-primary-100 group-open:text-primary-700">
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 group-open:text-primary-500">
+              Details
+            </span>
+            <span className="block truncate text-base font-semibold text-slate-900">{title}</span>
+          </span>
+        </span>
+        <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-90" />
+      </summary>
+      <div className="space-y-5 border-t border-slate-100 px-5 py-5">{children}</div>
+    </details>
+  );
+}
+
 function SectionField({
   eyebrow,
   title,
@@ -450,11 +485,6 @@ function FundingCard({ device }: { device: Device }) {
           </div>
         )}
       </div>
-      {(device as any).funding_details && (
-        <div className="mt-4 border-t border-primary-100 pt-4">
-          <RichTextSection text={sanitizeDisplayText((device as any).funding_details)} tone="primary" />
-        </div>
-      )}
     </div>
   );
 }
@@ -482,11 +512,33 @@ function InsightCard({
 }
 
 function getDecisionBanner(device: Device, daysLeft: number | null) {
+  const nature = getDeviceNatureBanner(device);
   if (device.validation_status === "pending_review") {
     return {
       label: "A verifier",
       detail: "Cette fiche contient des informations utiles, mais certaines donnees doivent encore etre confirmees.",
       className: "border-amber-200 bg-amber-50 text-amber-800",
+    };
+  }
+  if (nature?.kind === "investor") {
+    return {
+      label: nature.label,
+      detail: nature.detail,
+      className: "border-sky-200 bg-sky-50 text-sky-800",
+    };
+  }
+  if (nature?.kind === "institutional_project") {
+    return {
+      label: nature.label,
+      detail: nature.detail,
+      className: "border-violet-200 bg-violet-50 text-violet-800",
+    };
+  }
+  if (nature?.kind === "recurring") {
+    return {
+      label: nature.label,
+      detail: nature.detail,
+      className: "border-blue-200 bg-blue-50 text-blue-800",
     };
   }
   if (device.is_recurring || device.status === "recurring") {
@@ -505,8 +557,8 @@ function getDecisionBanner(device: Device, daysLeft: number | null) {
   }
   if (!device.close_date) {
     return {
-      label: "Cloture non communiquee",
-      detail: "La source ne fournit pas encore de date limite exploitable. Verifie la page officielle avant de candidater.",
+      label: nature?.label || "Date limite non communiquee",
+      detail: nature?.detail || "La source ne fournit pas encore de date limite exploitable. Verifie la page officielle avant de candidater.",
       className: "border-orange-200 bg-orange-50 text-orange-800",
     };
   }
@@ -548,6 +600,50 @@ function buildDecisionSummary(device: Device, presentationContent: string, fundi
     parts.push(presentation.slice(0, 180).replace(/\s+\S*$/, "") + ".");
   }
   return parts.join(" ");
+}
+
+function getDecisionPriority(device: Device, daysLeft: number | null): { label: string; className: string } {
+  if (device.status === "expired" || device.status === "closed") {
+    return { label: "Non prioritaire", className: "border-slate-200 bg-slate-100 text-slate-700" };
+  }
+  if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 7) {
+    return { label: "Priorite haute", className: "border-red-200 bg-red-50 text-red-700" };
+  }
+  if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 30) {
+    return { label: "A traiter bientot", className: "border-orange-200 bg-orange-50 text-orange-800" };
+  }
+  if (device.relevance_label || device.amount_max || device.is_recurring) {
+    return { label: "A etudier", className: "border-emerald-200 bg-emerald-50 text-emerald-800" };
+  }
+  return { label: "A confirmer", className: "border-amber-200 bg-amber-50 text-amber-800" };
+}
+
+function getEffortLabel(device: Device): string {
+  const text = normalizeForComparison(
+    [
+      device.required_documents,
+      device.eligibility_criteria,
+      device.specific_conditions,
+      device.full_description,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  if (/business plan|plan d affaires|pitch|dossier|cofinancement|partenaire|incubateur|documents?/.test(text)) {
+    return "Effort moyen";
+  }
+  if (device.status === "recurring" || device.is_recurring) {
+    return "Effort a confirmer";
+  }
+  return "Effort leger";
+}
+
+function getShortPreview(text: string, fallback: string): string {
+  const cleaned = sanitizeDisplayText(text).replace(/^##\s*[^\n]+\n?/i, "").trim();
+  if (!cleaned) return fallback;
+  const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] || cleaned;
+  return firstSentence.length > 180 ? `${firstSentence.slice(0, 176).replace(/\s+\S*$/, "")}...` : firstSentence;
 }
 
 // ─── Score helpers ────────────────────────────────────────────────────────────
@@ -1225,6 +1321,18 @@ export default function DeviceDetailPage() {
     displayFundingContent && normalizeForComparison(displayFundingContent) !== normalizeForComparison(displayPresentationContent);
   const decisionBanner = getDecisionBanner(device, daysLeft);
   const decisionSummary = buildDecisionSummary(device, displayPresentationContent, displayFundingContent, daysLeft);
+  const decisionPriority = getDecisionPriority(device, daysLeft);
+  const effortLabel = getEffortLabel(device);
+  const quickEligibility = beneficiarySummary || getShortPreview(displayEligibilityContent, "Profil a confirmer sur la source officielle");
+  const quickFunding = device.amount_max
+    ? formatAmount(device.amount_max, device.currency)
+    : getShortPreview(displayFundingContent, "Montant a confirmer");
+  const quickDeadline = device.close_date
+    ? `${formatDate(device.close_date)}${daysLeft !== null && daysLeft >= 0 ? `, J-${daysLeft}` : ""}`
+    : natureBanner?.label || (device.is_recurring || device.status === "recurring" ? "Permanent" : "Date non communiquee");
+  const quickReason =
+    device.relevance_label ||
+    getShortPreview(displayPresentationContent || device.short_description || "", "Opportunite a examiner selon votre profil et votre calendrier.");
   const aiReadiness = getAiReadinessMeta(device);
   const smartActionHint =
     daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
@@ -1240,6 +1348,7 @@ export default function DeviceDetailPage() {
       ? "Mettre a jour mon suivi"
       : "Ajouter à mon suivi";
   const recommendationNarrative = device.relevance_label || aiReadiness.detail;
+  const showOperationalSidebar = canModerate || Boolean(pipelineStatus);
   const addToStudyPipeline = () => {
     setPipelineStatus("a_etudier");
     setPipelinePriority(pipelinePriority || "moyenne");
@@ -1389,7 +1498,7 @@ export default function DeviceDetailPage() {
           </div>
         )}
 
-        <div className={clsx("mb-4 rounded-[28px] bg-gradient-to-br p-6 text-white shadow-md", hero.from, hero.to)}>
+        <div className={clsx("mb-4 rounded-2xl bg-gradient-to-br p-5 text-white shadow-md", hero.from, hero.to)}>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
               {DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
@@ -1397,7 +1506,7 @@ export default function DeviceDetailPage() {
             <span className="rounded-full bg-white/25 px-2.5 py-1 text-xs font-medium text-white">
               {STATUS_LABELS[device.status]}
             </span>
-            <span className="rounded-full bg-white/25 px-2.5 py-1 text-xs font-medium text-white" title={aiReadiness.detail}>
+            <span className="hidden rounded-full bg-white/25 px-2.5 py-1 text-xs font-medium text-white" title={aiReadiness.detail}>
               {aiReadiness.label}
             </span>
             {device.is_recurring && (
@@ -1471,7 +1580,91 @@ export default function DeviceDetailPage() {
           </div>
         )}
 
-        <section className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.25)]">
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.25)]">
+          <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className={clsx("rounded-full border px-3 py-1 text-xs font-semibold", decisionPriority.className)}>
+                  {decisionPriority.label}
+                </span>
+                <span className={clsx("rounded-full border px-3 py-1 text-xs font-semibold", decisionBanner.className)}>
+                  {decisionBanner.label}
+                </span>
+              </div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-500">Decision rapide</p>
+              <p className="mt-2 max-w-3xl text-base font-semibold leading-7 text-slate-900">{quickReason}</p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{decisionBanner.detail}</p>
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:w-64 lg:flex-col">
+              {device.source_url ? (
+                <a
+                  href={device.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Verifier la source
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={addToStudyPipeline}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+                >
+                  <Flag className="h-4 w-4" />
+                  Ajouter au suivi
+                </button>
+              )}
+              <button type="button" onClick={addToStudyPipeline} className="btn-secondary justify-center text-xs">
+                <Flag className="h-3.5 w-3.5" />
+                Ajouter au suivi
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Eligibilite</p>
+              <p className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{quickEligibility}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Montant</p>
+              <p className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{quickFunding}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Echeance</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{quickDeadline}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Effort</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{effortLabel}</p>
+            </div>
+          </div>
+
+          {(device.relevance_reasons?.length || device.decision_analysis?.points_to_confirm || hasDistinctFundingText) && (
+            <div className="mt-5 grid gap-3 lg:grid-cols-3">
+              {device.relevance_reasons?.slice(0, 2).map((reason) => (
+                <div key={reason} className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
+                  {reason}
+                </div>
+              ))}
+              {device.decision_analysis?.points_to_confirm && (
+                <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+                  {device.decision_analysis.points_to_confirm}
+                </div>
+              )}
+              {hasDistinctFundingText && (
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-600">
+                  {getShortPreview(displayFundingContent, "Les avantages doivent etre confirmes sur la source officielle.")}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="hidden">
           <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr] lg:items-start">
             <div className="space-y-4">
               <div className={clsx("inline-flex items-start gap-2 rounded-2xl border px-4 py-3", decisionBanner.className)}>
@@ -1479,19 +1672,6 @@ export default function DeviceDetailPage() {
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{decisionBanner.label}</p>
                   <p className="mt-1 text-sm leading-6">{decisionBanner.detail}</p>
-                </div>
-              </div>
-
-              <div className={clsx("inline-flex items-start gap-2 rounded-2xl border px-4 py-3", aiReadiness.className)}>
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Pertinence</p>
-                  <p className="mt-1 text-sm leading-6">{recommendationNarrative}</p>
-                  {device.ai_readiness_reasons?.length ? (
-                    <p className="mt-2 text-xs leading-5 opacity-80">
-                      Signaux : {device.ai_readiness_reasons.slice(0, 4).map((reason) => reason.replace(/_/g, " ")).join(", ")}.
-                    </p>
-                  ) : null}
                 </div>
               </div>
 
@@ -1525,7 +1705,7 @@ export default function DeviceDetailPage() {
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Date limite</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {device.close_date ? formatDate(device.close_date) : device.is_recurring ? "Permanent" : "A confirmer"}
+                    {device.close_date ? formatDate(device.close_date) : natureBanner?.label || (device.is_recurring ? "Permanent" : "Date non communiquee")}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
@@ -1545,12 +1725,14 @@ export default function DeviceDetailPage() {
 
             <div className="space-y-4">
               {/* ── Panneau décisionnel IA ── */}
-              <DecisionPanel
-                device={device}
-                onAnalyze={handleAnalyze}
-                analyzing={analyzing}
-                analysisError={analysisError}
-              />
+              {(canModerate || device.decision_analysis) && (
+                <DecisionPanel
+                  device={device}
+                  onAnalyze={handleAnalyze}
+                  analyzing={analyzing}
+                  analysisError={analysisError}
+                />
+              )}
 
               {/* ── Actions rapides ── */}
               <div className="rounded-[24px] border border-primary-100 bg-primary-50/60 p-4">
@@ -1612,7 +1794,7 @@ export default function DeviceDetailPage() {
         <div className="hidden">
           <InsightCard
             label="Date limite"
-            value={device.close_date ? formatDate(device.close_date) : device.status === "recurring" ? "Financement récurrent" : "Non communiquée"}
+            value={device.close_date ? formatDate(device.close_date) : natureBanner?.label || (device.status === "recurring" ? "Financement recurrent" : "Date non communiquee")}
             icon={Calendar}
             accent={!!device.close_date}
           />
@@ -1634,8 +1816,8 @@ export default function DeviceDetailPage() {
           />
         </div>
 
-        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="space-y-4 md:col-span-2">
+        <div className={clsx("mb-6 grid grid-cols-1 gap-4", showOperationalSidebar && "md:grid-cols-3")}>
+          <div className={clsx("space-y-4", showOperationalSidebar && "md:col-span-2")}>
             {canModerate && !hasRichContent && (
               <div className="card border-2 border-dashed border-violet-200 bg-violet-50/30 p-6 text-center">
                 <Sparkles className="mx-auto mb-2 h-8 w-8 text-violet-400" />
@@ -1652,14 +1834,14 @@ export default function DeviceDetailPage() {
             <FundingCard device={device} />
 
             {(device.short_description || displayPresentationContent) && (
-              <SectionCard title="Présentation de l'opportunité" icon={FileText}>
+              <CollapsibleSection title="Presentation" icon={FileText} defaultOpen>
                 {showShortDescription && device.short_description && <SectionField content={device.short_description} />}
                 {displayPresentationContent && <SectionField content={displayPresentationContent} />}
-              </SectionCard>
+              </CollapsibleSection>
             )}
 
             {(beneficiarySummary || displayEligibilityContent) && (
-              <SectionCard title="Conditions d'attribution" icon={CheckCircle}>
+              <CollapsibleSection title="Conditions" icon={CheckCircle} defaultOpen>
                 {beneficiarySummary && (
                   <SectionField
                     eyebrow="À qui s'adresse cette opportunité ?"
@@ -1673,11 +1855,11 @@ export default function DeviceDetailPage() {
                     content={displayEligibilityContent}
                   />
                 )}
-              </SectionCard>
+              </CollapsibleSection>
             )}
 
             {(projectContent || device.specific_conditions || hasDistinctFundingText) && (
-              <SectionCard title="Pour quel projet ?" icon={Tag}>
+              <CollapsibleSection title="Projet, montant et avantages" icon={Tag}>
                 {showEligibleExpenses && projectContent && (
                   <SectionField
                     title="Dépenses concernées"
@@ -1686,11 +1868,11 @@ export default function DeviceDetailPage() {
                 )}
                 {hasDistinctFundingText && <SectionField title="Montant / avantages" content={displayFundingContent} />}
                 {device.specific_conditions && <SectionField title="Quelles sont les particularités ?" content={device.specific_conditions} />}
-              </SectionCard>
+              </CollapsibleSection>
             )}
 
             {(device.required_documents || device.source_url || (device as any).recurrence_notes) && (
-              <SectionCard title="Informations pratiques" icon={Info}>
+              <CollapsibleSection title="Demarche et source officielle" icon={Info}>
                 {device.required_documents && (
                   <SectionField
                     title="Pièces et documents utiles"
@@ -1726,10 +1908,11 @@ export default function DeviceDetailPage() {
                     </a>
                   </div>
                 )}
-              </SectionCard>
+              </CollapsibleSection>
             )}
           </div>
 
+          {showOperationalSidebar && (
           <div className="space-y-4">
             {device.source_url && (
               <a
@@ -1780,6 +1963,7 @@ export default function DeviceDetailPage() {
               </div>
             )}
 
+            {canModerate && (
             <div className="card p-4">
               <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-gray-700">
                 <Info className="h-3.5 w-3.5 text-gray-400" />
@@ -1810,8 +1994,9 @@ export default function DeviceDetailPage() {
                 ))}
               </div>
             </div>
+            )}
 
-            {device.keywords?.length ? (
+            {canModerate && device.keywords?.length ? (
               <div className="card p-4">
                 <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Mots clés</h2>
                 <div className="flex flex-wrap gap-1">
@@ -1825,6 +2010,7 @@ export default function DeviceDetailPage() {
             ) : null}
 
             <div className="card p-4">
+              {(pipelineStatus || canModerate) && (
               <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <Flag className="h-4 w-4 text-primary-600" />
@@ -1946,6 +2132,7 @@ export default function DeviceDetailPage() {
                   </div>
                 </div>
               </div>
+              )}
 
               {/* ── Documents attachés (visible si le device est dans le pipeline) ── */}
               {pipelineStatus && (
@@ -1956,7 +2143,7 @@ export default function DeviceDetailPage() {
                 />
               )}
 
-              {hasEnrichedContent && (
+              {canModerate && hasEnrichedContent && (
                 <div className="mb-4 rounded-2xl border border-primary-100 bg-primary-50/60 p-4">
                   <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary-800">
                     <CheckCircle className="h-4 w-4" />
@@ -2025,6 +2212,7 @@ export default function DeviceDetailPage() {
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {similar.length > 0 && (

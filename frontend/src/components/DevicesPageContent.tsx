@@ -8,7 +8,7 @@ import { billing, devices, relevance } from "@/lib/api";
 import { canAccessAdmin, getCurrentRole } from "@/lib/auth";
 import { Device, DeviceListResponse, DEVICE_TYPE_LABELS, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
 import { COUNTRIES, SECTORS } from "@/lib/constants";
-import { formatAmount, formatDate, daysUntil, getAiReadinessMeta, sanitizeDisplayText } from "@/lib/utils";
+import { formatAmount, formatDate, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import { consumePendingSavedSearch, getSavedViewMode, getUserPreferences, saveSearch, saveUserPreferences, setSavedViewMode, isFavoriteDevice, toggleFavoriteDevice, getPipelineDevice, type DevicePipelineStatus } from "@/lib/workspace";
 import {
   Search, SlidersHorizontal, Download, Plus,
@@ -52,6 +52,9 @@ interface Props {
   defaultSort?: string;
   showClosingFilter?: boolean;
   newDeviceHref?: string;
+  actionableNow?: boolean;
+  introTitle?: string;
+  introText?: string;
 }
 
 type ViewMode = "split" | "table";
@@ -92,6 +95,7 @@ function DevicePanel({
   const description = sanitizeDisplayText(device.short_description || device.auto_summary);
   const eligibility  = sanitizeDisplayText(device.eligibility_criteria);
   const fundingInfo  = sanitizeDisplayText(device.funding_details);
+  const natureBanner = getDeviceNatureBanner(device);
 
   const goNoGo = device.decision_analysis?.go_no_go;
   const goNoGoCfg = goNoGo === "go"
@@ -212,7 +216,7 @@ function DevicePanel({
             )}>
               {device.close_date
                 ? formatDate(device.close_date)
-                : device.status === "recurring" ? "Récurrent" : "Non communiquée"}
+                : natureBanner?.label || (device.status === "recurring" ? "Récurrent" : "Non communiquée")}
             </p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
@@ -232,6 +236,13 @@ function DevicePanel({
           <span className="text-[10px] font-semibold uppercase tracking-widest">{aiReadiness.label}</span>
           {aiReadiness.detail && <p className="mt-0.5 text-xs leading-5 opacity-80">{aiReadiness.detail}</p>}
         </div>
+
+        {natureBanner && !device.close_date && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+            <p className="text-[10px] font-semibold uppercase tracking-widest">{natureBanner.label}</p>
+            <p className="mt-1 text-sm leading-6">{natureBanner.detail}</p>
+          </div>
+        )}
 
         {/* Présentation */}
         {description && (
@@ -310,6 +321,9 @@ export default function DevicesPageContent({
   defaultSort = "updated_at",
   showClosingFilter = true,
   newDeviceHref = "/devices/new",
+  actionableNow = false,
+  introTitle,
+  introText,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -425,6 +439,7 @@ export default function DevicesPageContent({
         ai_readiness_labels:filterAiReadiness.length ? filterAiReadiness : undefined,
         closing_soon_days:  closingSoon ? parseInt(closingSoon) : undefined,
         has_close_date:     hasCloseDate || undefined,
+        actionable_now:     actionableNow || undefined,
         sort_by:            sortBy,
         sort_desc:          sortBy !== "close_date",
         page,
@@ -442,7 +457,7 @@ export default function DevicesPageContent({
     } finally {
       setLoading(false);
     }
-  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, sortBy, page, viewMode, lockedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, actionableNow, sortBy, page, viewMode, lockedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (profileReady) fetchDevices(); }, [fetchDevices, profileReady]);
 
@@ -521,6 +536,7 @@ export default function DevicesPageContent({
     ai_readiness_labels: filterAiReadiness.length ? filterAiReadiness : undefined,
     closing_soon_days: closingSoon ? parseInt(closingSoon) : undefined,
     has_close_date: hasCloseDate || undefined,
+    actionable_now: actionableNow || undefined,
   };
   const exportCsvUrl   = devices.exportCsv(exportParams);
   const exportExcelUrl = devices.exportExcel(exportParams);
@@ -568,6 +584,7 @@ export default function DevicesPageContent({
     const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7;
     const isSoon   = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
     const isSelected = selectedDevice?.id === device.id;
+    const natureBanner = getDeviceNatureBanner(device);
 
     return (
       <button
@@ -616,7 +633,7 @@ export default function DevicesPageContent({
           {/* Méta droite */}
           <div className="shrink-0 text-right pl-2">
             <p className={clsx("text-xs font-medium tabular-nums", isUrgent ? "text-orange-600 font-bold" : isSoon ? "text-amber-600" : "text-slate-500")}>
-              {device.close_date ? formatDate(device.close_date) : device.status === "recurring" ? "Récurrent" : "—"}
+              {device.close_date ? formatDate(device.close_date) : natureBanner?.label || (device.status === "recurring" ? "Récurrent" : "—")}
             </p>
             <p className={clsx("mt-0.5 text-xs font-semibold", device.amount_max ? "text-slate-900" : "text-slate-300")}>
               {device.amount_max ? formatAmount(device.amount_max, device.currency) : "—"}
@@ -724,6 +741,21 @@ export default function DevicesPageContent({
       )}
 
       {/* ── Barre recherche + filtres ────────────────────────────────────── */}
+      {introTitle && (
+        <div className="mb-4 rounded-[28px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-sky-50 px-5 py-4 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Selection prioritaire</p>
+              <h2 className="mt-1 text-base font-bold text-slate-950">{introTitle}</h2>
+              {introText && <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{introText}</p>}
+            </div>
+            <div className="rounded-2xl border border-emerald-100 bg-white/80 px-4 py-2 text-xs font-medium text-emerald-800">
+              Ouvert / Recurrent / Date fiable
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2 mb-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

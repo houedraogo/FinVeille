@@ -218,7 +218,7 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
                 </span>
                 <span className={clsx("flex items-center gap-1.5", device.close_date ? isClosingSoon && "font-medium text-orange-600" : "italic text-slate-400")}>
                   <Calendar className="h-3.5 w-3.5" />
-                  {device.close_date ? formatDate(device.close_date) : "Clôture non renseignée"}
+                  {device.close_date ? formatDate(device.close_date) : natureBanner?.label || "Date non communiquée"}
                 </span>
               </div>
             </div>
@@ -243,7 +243,7 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
 
           <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 border-t border-slate-100 pt-3 sm:grid-cols-4">
             <MetaLine label="Type" value={DEVICE_TYPE_LABELS[device.device_type] || device.device_type} />
-            <MetaLine label="Clôture" value={device.close_date ? formatDate(device.close_date) : "Non communiquée"} emphasized={Boolean(device.close_date)} />
+            <MetaLine label="Clôture" value={device.close_date ? formatDate(device.close_date) : natureBanner?.label || "Date non communiquée"} emphasized={Boolean(device.close_date)} />
             <MetaLine label="Portée" value={[device.country, device.region].filter(Boolean).join(" · ") || "Non renseignée"} />
             <MetaLine label="Montant" value={device.amount_max ? formatAmount(device.amount_max, device.currency) : "À confirmer"} emphasized={Boolean(device.amount_max)} />
           </div>

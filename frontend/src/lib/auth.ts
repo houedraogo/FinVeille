@@ -26,6 +26,11 @@ export function getCurrentRole(): AppRole {
   return getStoredUser()?.role || "reader";
 }
 
+export function isStoredAdmin(user: StoredUser | null | undefined): boolean {
+  if (!user) return false;
+  return user.role === "admin" || user.platform_role === "super_admin";
+}
+
 export function isAdminRole(role: AppRole): boolean {
   return role === "admin";
 }
