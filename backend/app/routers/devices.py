@@ -278,6 +278,29 @@ async def _scrape_device_url(url: str) -> dict:
 router = APIRouter(prefix="/api/v1/devices", tags=["devices"])
 
 
+def _can_use_admin_catalog(current_user: User | None) -> bool:
+    if not current_user:
+        return False
+    return current_user.role == "admin" or getattr(current_user, "platform_role", "member") == "super_admin"
+
+
+def resolve_onboarding_result_filters(
+    total: int,
+    institutional_total: int,
+    device_types: Optional[List[str]],
+) -> tuple[int, Optional[List[str]]]:
+    """
+    Aligne le nombre affiche pendant l'onboarding avec la page ouverte ensuite.
+
+    Si aucun financement direct ne correspond mais que des signaux institutionnels
+    existent, l'onboarding doit annoncer ces signaux et ouvrir exactement ce
+    segment, au lieu d'annoncer un nombre puis d'arriver sur une page vide.
+    """
+    if total == 0 and institutional_total > 0:
+        return institutional_total, ["institutional_project"]
+    return total, device_types
+
+
 @router.get("/", response_model=DeviceListResponse)
 async def list_devices(
     q: Optional[str] = Query(None, description="Recherche plein texte"),
@@ -294,6 +317,9 @@ async def list_devices(
     close_date_after: Optional[date] = Query(None),
     min_ai_readiness: Optional[int] = Query(None, ge=0, le=100),
     ai_readiness_labels: Optional[List[str]] = Query(None),
+    include_all_statuses: bool = Query(False),
+    include_rejected: bool = Query(False),
+    include_low_quality: bool = Query(False),
     sort_by: str = Query("updated_at"),
     sort_desc: bool = Query(True),
     page: int = Query(1, ge=1),
@@ -301,6 +327,10 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_current_user),
 ):
+    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality
+    if admin_catalog_requested and not _can_use_admin_catalog(current_user):
+        raise HTTPException(status_code=403, detail="Le catalogue complet est reserve aux administrateurs.")
+
     # ── Filtre profil strict pour les utilisateurs normaux ─────────────────
     # Les admins voient tout (filtre pays manuel respecté).
     # Les utilisateurs normaux voient UNIQUEMENT les dispositifs de leurs pays
@@ -346,6 +376,9 @@ async def list_devices(
         close_date_after=close_date_after,
         min_ai_readiness=min_ai_readiness,
         ai_readiness_labels=ai_readiness_labels,
+        include_all_statuses=include_all_statuses,
+        include_rejected=include_rejected,
+        include_low_quality=include_low_quality,
         sort_by=sort_by,
         sort_desc=sort_desc, page=page, page_size=page_size,
     )
@@ -367,6 +400,7 @@ async def onboarding_preview(
     device_types: Optional[List[str]] = Query(None),
     sectors: Optional[List[str]] = Query(None),
     status: Optional[List[str]] = Query(None),
+    actionable_now: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_current_user),
 ):
@@ -394,6 +428,7 @@ async def onboarding_preview(
         "device_types": device_types,
         "sectors": sectors,
         "status": status,
+        "actionable_now": actionable_now,
         "sort_by": "relevance",
         "page": 1,
         "page_size": 1,
@@ -418,6 +453,15 @@ async def onboarding_preview(
         private_result = await service.search(DeviceSearchParams(**{**base_params, "device_types": private_types}))
         investisseurs = private_result["total"]
 
+    institutional_result = await service.search(
+        DeviceSearchParams(**{**base_params, "device_types": ["institutional_project"]})
+    )
+    display_total, result_device_types = resolve_onboarding_result_filters(
+        total_result["total"],
+        institutional_result["total"],
+        device_types,
+    )
+
     urgent_result = await service.search(
         DeviceSearchParams(
             **{
@@ -430,9 +474,14 @@ async def onboarding_preview(
 
     return {
         "total": total_result["total"],
+        "display_total": display_total,
         "subventions": subventions,
         "investisseurs": investisseurs,
+        "institutionnels": institutional_result["total"],
         "urgentes": urgent_result["total"],
+        "result_device_types": result_device_types,
+        "result_status": status,
+        "result_actionable_now": actionable_now,
         "has_real_count": True,
     }
 
@@ -500,7 +549,11 @@ async def export_csv(
     closing_soon_days: Optional[int] = Query(None),
     has_close_date: Optional[bool] = Query(None),
     actionable_now: Optional[bool] = Query(None),
+    include_all_statuses: bool = Query(False),
+    include_rejected: bool = Query(False),
+    include_low_quality: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     """Export CSV streamé — BOM UTF-8 pour compatibilité Excel, max 5 000 lignes."""
     params = DeviceSearchParams(
@@ -510,7 +563,14 @@ async def export_csv(
         actionable_now=actionable_now,
         ai_readiness_labels=ai_readiness_labels,
         min_ai_readiness=min_ai_readiness,
+        include_all_statuses=include_all_statuses,
+        include_rejected=include_rejected,
+        include_low_quality=include_low_quality,
     )
+    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality
+    if admin_catalog_requested and not _can_use_admin_catalog(current_user):
+        raise HTTPException(status_code=403, detail="Le catalogue complet est reserve aux administrateurs.")
+
     service = DeviceService(db)
 
     async def generate_csv():
@@ -553,7 +613,11 @@ async def export_excel(
     closing_soon_days: Optional[int] = Query(None),
     has_close_date: Optional[bool] = Query(None),
     actionable_now: Optional[bool] = Query(None),
+    include_all_statuses: bool = Query(False),
+    include_rejected: bool = Query(False),
+    include_low_quality: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     """Export Excel (.xlsx) avec formatage — max 5 000 lignes."""
     try:
@@ -570,7 +634,14 @@ async def export_excel(
         actionable_now=actionable_now,
         ai_readiness_labels=ai_readiness_labels,
         min_ai_readiness=min_ai_readiness,
+        include_all_statuses=include_all_statuses,
+        include_rejected=include_rejected,
+        include_low_quality=include_low_quality,
     )
+    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality
+    if admin_catalog_requested and not _can_use_admin_catalog(current_user):
+        raise HTTPException(status_code=403, detail="Le catalogue complet est reserve aux administrateurs.")
+
     service = DeviceService(db)
 
     # ── Collecter les données ─────────────────────────────────────────────

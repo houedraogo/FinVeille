@@ -380,6 +380,7 @@ class Normalizer:
             "private_investor",
             "africa_business_heroes",
             "global_south_opportunities",
+            "vc4a_programs",
             "orange_corners_ocif",
             "baobab_network",
             "awdf_grants",
@@ -472,6 +473,40 @@ class Normalizer:
                 return True
             if any(marker in text for marker in ("annual report", "regional workshop", "read our", "who regional workshop")):
                 return True
+        if self.profile.key == "vc4a_programs":
+            title_text = unidecode((item.title or "").lower())
+            text = unidecode(f"{item.title or ''} {raw_body or ''}".lower())
+            noise_markers = (
+                "image:",
+                "go back",
+                "quick links",
+                "smart search",
+                "explore all",
+                "list your support program",
+                "promote your program",
+                "benefits for",
+                "what is vc4a",
+                "terms",
+                "disclaimer",
+                "featured programs",
+            )
+            action_markers = (
+                "applications close",
+                "apply",
+                "acceleration program",
+                "fellowship program",
+                "funding opportunity",
+                "competition",
+                "challenge",
+                "grant",
+                "startup",
+            )
+            if any(marker in title_text for marker in noise_markers):
+                return True
+            if text.count("applications close") > 1:
+                return True
+            if not any(marker in text for marker in action_markers):
+                return True
 
         return False
 
@@ -495,6 +530,8 @@ class Normalizer:
             return "TLcom Capital - investissement dans les startups africaines"
         if "villgroafrica.org/innovators/apply-now" in source_url:
             return "Villgro Africa - incubation et financement sante en Afrique"
+        if "tonyelumelufoundation.org" in source_url:
+            return "Tony Elumelu Foundation - programme entrepreneuriat africain"
 
         return cleaned
 
@@ -519,6 +556,8 @@ class Normalizer:
                 return investor_fields
         if self.profile and self.profile.key == "aecf":
             return self._build_aecf_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "vc4a_programs":
+            return self._build_vc4a_fields(normalized_title, raw_body, close_date, open_date)
         if "globalsouthopportunities.com" in source_url or (self.profile and self.profile.key == "global_south_opportunities"):
             return self._build_global_south_opportunities_fields(normalized_title, raw_body, close_date, open_date)
         if self.profile and self.profile.key == "orange_corners_ocif":
@@ -533,6 +572,8 @@ class Normalizer:
             return self._build_tlcom_fields(normalized_title, raw_body, close_date, open_date)
         if self.profile and self.profile.key == "villgro_africa":
             return self._build_villgro_fields(normalized_title, raw_body, close_date, open_date)
+        if self.profile and self.profile.key == "tony_elumelu_foundation":
+            return self._build_tef_fields(normalized_title, raw_body, close_date, open_date)
 
         is_abh = "africabusinessheroes.org" in source_url or (
             self.profile and self.profile.key == "africa_business_heroes"
@@ -1057,6 +1098,80 @@ class Normalizer:
             "keywords": extract_keywords(normalized_title + " villgro africa healthcare medtech biotech incubation"),
         }
 
+    def _build_tef_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        if not body:
+            return {}
+
+        presentation = (
+            "Le Tony Elumelu Foundation Entrepreneurship Programme soutient les entrepreneurs africains en phase "
+            "de demarrage ou de croissance initiale. Le programme combine formation business, mentorat, mise en "
+            "reseau panafricaine et capital d'amorcage pour aider les porteurs a structurer et accelerer leur entreprise."
+        )
+
+        eligibility = (
+            "Le programme s'adresse aux entrepreneurs africains, porteurs d'une entreprise ou d'une idee d'entreprise "
+            "a fort potentiel, generalement en phase early-stage. Les candidats doivent verifier chaque annee les pays "
+            "eligibles, les secteurs ouverts, les criteres d'age ou de maturite et les conditions de depot sur TEFConnect."
+        )
+
+        funding = (
+            "Le dispositif met historiquement en avant une combinaison de formation, mentorat et seed capital pouvant "
+            "aller jusqu'a 5 000 USD pour les entrepreneurs selectionnes, selon les modalites confirmees pour la cohorte "
+            "en cours. La valeur principale tient aussi a l'accompagnement, au reseau et a la visibilite continentale."
+        )
+
+        procedure = (
+            "Les candidatures se font via la plateforme officielle TEFConnect lorsque la fenetre annuelle est ouverte. "
+            "Le processus comprend le depot du profil, la verification d'eligibilite, l'evaluation du projet, puis la "
+            "selection des entrepreneurs retenus pour la cohorte."
+        )
+
+        full_description = build_structured_sections(
+            presentation=presentation,
+            eligibility=eligibility,
+            funding=funding,
+            procedure=procedure,
+            close_date=close_date,
+            open_date=open_date,
+            recurrence_notes=(
+                "Le programme fonctionne par cohortes annuelles ou recurrentes. La source officielle doit etre verifiee "
+                "pour confirmer l'ouverture exacte de la prochaine fenetre de candidature."
+            ),
+        )
+
+        return {
+            "title": "Tony Elumelu Foundation - programme entrepreneuriat africain",
+            "short_description": (
+                "Programme panafricain pour entrepreneurs early-stage, combinant formation, mentorat, reseau et "
+                "seed capital selon les cohortes ouvertes."
+            ),
+            "full_description": full_description,
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": "subvention",
+            "aid_nature": "seed_grant",
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "continental",
+            "beneficiaries": ["entrepreneurs", "startups", "pme"],
+            "sectors": ["entrepreneuriat", "innovation", "transversal"],
+            "specific_conditions": (
+                "La fenetre de candidature, les criteres detailles et les pieces demandees peuvent varier selon la cohorte annuelle."
+            ),
+            "required_documents": (
+                "Les informations de candidature doivent etre confirmees sur TEFConnect ou sur la page officielle du programme."
+            ),
+            "keywords": extract_keywords(normalized_title + " tony elumelu foundation entrepreneurship programme africa seed grant"),
+        }
+
     def _build_aecf_fields(
         self,
         normalized_title: str,
@@ -1169,6 +1284,105 @@ class Normalizer:
             }
 
         return {}
+
+    def _build_vc4a_fields(
+        self,
+        normalized_title: str,
+        raw_body: str,
+        close_date: Optional[date],
+        open_date: Optional[date],
+    ) -> Dict[str, Any]:
+        body = clean_editorial_text(raw_body)
+        normalized = unidecode(f"{normalized_title} {body}".lower())
+        if not body:
+            return {}
+
+        device_type = "accompagnement"
+        if any(marker in normalized for marker in ("funding opportunity", "grant", "prize", "award")):
+            device_type = "subvention"
+        elif any(marker in normalized for marker in ("competition", "challenge", "award")):
+            device_type = "concours"
+
+        program_kind = "programme d'accompagnement"
+        if device_type == "subvention":
+            program_kind = "opportunite de financement"
+        elif device_type == "concours":
+            program_kind = "concours ou challenge"
+
+        sentences = [
+            sanitize_text(part)
+            for part in re.split(r"(?<=[.!?])\s+", body)
+            if len(sanitize_text(part)) >= 45
+        ]
+        useful_sentences = []
+        for sentence in sentences:
+            lowered = unidecode(sentence.lower())
+            if normalized_title.lower() in sentence.lower():
+                continue
+            if any(marker in lowered for marker in ("image:", "learn more", "applications close", "sign in")):
+                continue
+            useful_sentences.append(sentence)
+            if len(useful_sentences) >= 2:
+                break
+
+        context = " ".join(useful_sentences).strip()
+        if not context:
+            context = (
+                "La page VC4A presente cette opportunite comme un programme ouvert aux entrepreneurs, "
+                "startups ou porteurs de projets souhaitant accelerer leur developpement."
+            )
+
+        deadline = close_date.strftime("%d/%m/%Y") if close_date else None
+        presentation = (
+            f"{normalized_title} est un {program_kind} repere sur VC4A pour des startups, entrepreneurs "
+            f"ou porteurs de projets. {context}"
+        )
+        eligibility = (
+            "L'opportunite s'adresse principalement a des startups, entrepreneurs ou porteurs de projets "
+            "qui correspondent au theme du programme. Les conditions exactes doivent etre confirmees sur "
+            "la page officielle VC4A avant de candidater."
+        )
+        funding = (
+            "Le type d'avantage depend du programme : financement, prix, accompagnement, mise en relation "
+            "investisseurs ou acceleration. Le montant exact doit etre verifie sur la page officielle lorsque "
+            "la fiche VC4A ne l'indique pas explicitement."
+        )
+        procedure = (
+            "Consulter la page officielle, verifier les criteres d'eligibilite puis deposer la candidature "
+            "via le lien VC4A ou le site partenaire indique."
+        )
+        if deadline:
+            procedure += f" Date limite detectee : {deadline}."
+
+        return {
+            "short_description": (
+                f"{program_kind.capitalize()} pour startups et entrepreneurs, recense sur VC4A"
+                + (
+                    f", avec une date limite au {deadline}. La fiche aide a reperer rapidement le theme, "
+                    "le type d'appui et l'action a mener pour candidater."
+                    if deadline
+                    else ". La fiche aide a reperer rapidement le theme, le type d'appui et l'action a mener pour candidater."
+                )
+            ),
+            "full_description": build_structured_sections(
+                presentation=presentation,
+                eligibility=eligibility,
+                funding=funding,
+                procedure=procedure,
+                close_date=close_date,
+                open_date=open_date,
+            ),
+            "eligibility_criteria": eligibility,
+            "funding_details": funding,
+            "device_type": device_type,
+            "country": "Afrique",
+            "region": "Afrique",
+            "zone": "Afrique",
+            "geographic_scope": "continental",
+            "beneficiaries": ["startups", "entrepreneurs", "porteurs de projet"],
+            "sectors": self._detect_sectors(normalized) or ["transversal"],
+            "keywords": extract_keywords(normalized_title + " vc4a startup africa opportunity"),
+        }
 
     def _build_private_investor_fields(
         self,
@@ -1559,6 +1773,7 @@ class Normalizer:
             "ademe",
             "prix_pierre_castel",
             "global_south_opportunities",
+            "vc4a_programs",
         }:
             return {}
 

@@ -137,6 +137,29 @@ class DeviceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("content_sections_json", "ai_rewritten_sections_json", mode="before")
+    @classmethod
+    def normalize_sections_payload(cls, value):
+        if value is None or isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            sections: list[dict[str, Any]] = []
+            for key, content in value.items():
+                if isinstance(content, dict):
+                    section = {"key": str(key), **content}
+                    section.setdefault("title", str(key).replace("_", " ").title())
+                    sections.append(section)
+                elif content:
+                    sections.append(
+                        {
+                            "key": str(key),
+                            "title": str(key).replace("_", " ").title(),
+                            "content": str(content),
+                        }
+                    )
+            return sections
+        return None
+
     model_config = {"from_attributes": True}
 
 
@@ -180,6 +203,9 @@ class DeviceSearchParams(BaseModel):
     min_ai_readiness: Optional[int] = None
     ai_readiness_labels: Optional[List[str]] = None
     validation_status: Optional[str] = None
+    include_all_statuses: bool = False
+    include_rejected: bool = False
+    include_low_quality: bool = False
     sort_by: str = "updated_at"
     sort_desc: bool = True
     page: int = 1

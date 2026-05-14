@@ -15,9 +15,91 @@ from app.utils.text_utils import normalize_title, generate_slug, compute_complet
 from app.utils.hash_utils import compute_content_hash, compute_fingerprint
 
 
+WEST_AFRICA_COUNTRIES = {
+    "benin",
+    "burkina faso",
+    "cote d'ivoire",
+    "cote d ivoire",
+    "ghana",
+    "guinee",
+    "guinea",
+    "mali",
+    "niger",
+    "nigeria",
+    "senegal",
+    "togo",
+}
+
+AFRICA_COUNTRIES = WEST_AFRICA_COUNTRIES | {
+    "algerie",
+    "cameroon",
+    "cameroun",
+    "ethiopie",
+    "kenya",
+    "madagascar",
+    "maroc",
+    "morocco",
+    "rd congo",
+    "tunisie",
+    "tunisia",
+}
+
+
 class DeviceService:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    @staticmethod
+    def _country_key(country: str) -> str:
+        replacements = {
+            "é": "e",
+            "è": "e",
+            "ê": "e",
+            "ë": "e",
+            "à": "a",
+            "â": "a",
+            "î": "i",
+            "ï": "i",
+            "ô": "o",
+            "ö": "o",
+            "ù": "u",
+            "û": "u",
+            "ü": "u",
+            "ç": "c",
+            "’": "'",
+        }
+        value = country.strip().lower()
+        for src, dst in replacements.items():
+            value = value.replace(src, dst)
+        return value
+
+    @classmethod
+    def _expanded_country_filter(cls, countries: list[str]) -> list[str]:
+        """
+        Quand un utilisateur choisit un pays africain, les opportunites regionales
+        "Afrique" ou "Afrique de l'Ouest" doivent aussi remonter.
+        """
+        expanded = list(dict.fromkeys(countries))
+        keys = {cls._country_key(country) for country in countries}
+
+        aliases = {
+            "benin": "Bénin",
+            "cote d'ivoire": "Côte d'Ivoire",
+            "cote d ivoire": "Côte d'Ivoire",
+            "guinee": "Guinée",
+            "senegal": "Sénégal",
+            "ethiopie": "Éthiopie",
+        }
+        for key in keys:
+            alias = aliases.get(key)
+            if alias and alias not in expanded:
+                expanded.append(alias)
+
+        if keys & WEST_AFRICA_COUNTRIES and "Afrique de l'Ouest" not in expanded:
+            expanded.append("Afrique de l'Ouest")
+        if keys & AFRICA_COUNTRIES and "Afrique" not in expanded:
+            expanded.append("Afrique")
+        return expanded
 
     @staticmethod
     def _visible_quality_filter():
@@ -30,6 +112,24 @@ class DeviceService:
             full_len >= 80,
             eligibility_len >= 40,
             short_len >= 140,
+        )
+
+    @staticmethod
+    def _default_public_status_filter():
+        """
+        Catalogue utilisateur par defaut.
+
+        On n'expose plus les fiches standby ambiguës sans date ni preuve de
+        recurrence. Elles restent visibles via filtres explicites ou vue admin.
+        """
+        today = date.today()
+        return or_(
+            Device.status.in_(["open", "recurring"]),
+            and_(
+                Device.close_date.is_not(None),
+                Device.close_date >= today,
+                Device.status.in_(["standby", "open", "recurring"]),
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -45,11 +145,11 @@ class DeviceService:
         Construit la requête SQLAlchemy avec tous les filtres actifs,
         sans pagination ni tri. Réutilisée par search() et stream_for_export().
         """
-        query = (
-            select(Device)
-            .where(Device.validation_status != "rejected")
-            .where(self._visible_quality_filter())
-        )
+        query = select(Device)
+        if not params.include_rejected:
+            query = query.where(Device.validation_status != "rejected")
+        if not params.include_low_quality:
+            query = query.where(self._visible_quality_filter())
 
         if params.q:
             tsquery = func.plainto_tsquery("french", params.q)
@@ -66,7 +166,7 @@ class DeviceService:
             )
 
         if params.countries:
-            query = query.where(Device.country.in_(params.countries))
+            query = query.where(Device.country.in_(self._expanded_country_filter(params.countries)))
         if params.device_types:
             query = query.where(Device.device_type.in_(params.device_types))
         if params.sectors:
@@ -87,11 +187,11 @@ class DeviceService:
             )
         elif params.status:
             query = query.where(Device.status.in_(params.status))
-        elif not params.validation_status:
-            query = query.where(Device.status.in_(["open", "recurring", "standby"]))
+        elif not params.validation_status and not params.include_all_statuses:
+            query = query.where(self._default_public_status_filter())
         if params.validation_status:
             query = query.where(Device.validation_status == params.validation_status)
-        else:
+        elif not params.include_rejected:
             query = query.where(Device.validation_status.in_(["auto_published", "approved", "validated"]))
         if params.closing_soon_days:
             deadline = date.today() + timedelta(days=params.closing_soon_days)
@@ -166,7 +266,17 @@ class DeviceService:
                 + case((Device.short_description.ilike(like_query), 0.08), else_=0.0)
             )
         if params.countries:
-            score = score + case((Device.country.in_(params.countries), 0.22), else_=0.0)
+            expanded_countries = self._expanded_country_filter(params.countries)
+            regional_countries = [
+                country for country in expanded_countries
+                if country not in params.countries and country != "Afrique"
+            ]
+            score = score + case(
+                (Device.country.in_(params.countries), 0.26),
+                (Device.country.in_(regional_countries), 0.16),
+                (Device.country == "Afrique", 0.06),
+                else_=0.0,
+            )
         if params.device_types:
             score = score + case((Device.device_type.in_(params.device_types), 0.18), else_=0.0)
         if params.sectors:
@@ -188,8 +298,12 @@ class DeviceService:
         reasons: list[str] = []
         if params.q:
             reasons.append(f"contient les termes de recherche \"{params.q}\"")
-        if params.countries and device.country in params.countries:
-            reasons.append(f"pays cible: {device.country}")
+        if params.countries:
+            expanded_countries = DeviceService._expanded_country_filter(params.countries)
+            if device.country in params.countries:
+                reasons.append(f"pays cible: {device.country}")
+            elif device.country in expanded_countries:
+                reasons.append(f"couvre aussi votre zone: {device.country}")
         if params.device_types and device.device_type in params.device_types:
             reasons.append(f"type recherche: {device.device_type}")
         if params.sectors:
