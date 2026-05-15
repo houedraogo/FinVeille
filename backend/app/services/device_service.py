@@ -115,6 +115,17 @@ class DeviceService:
         )
 
     @staticmethod
+    def _default_public_type_filter():
+        """
+        Catalogue public par defaut.
+
+        Les projets institutionnels et fiches encore "a qualifier" restent
+        consultables en vue admin ou via filtres explicites, mais ne doivent
+        pas polluer les listes utilisateur comme des opportunites actionnables.
+        """
+        return Device.device_type.notin_(["institutional_project", "autre"])
+
+    @staticmethod
     def _default_public_status_filter():
         """
         Catalogue utilisateur par defaut.
@@ -150,6 +161,8 @@ class DeviceService:
             query = query.where(Device.validation_status != "rejected")
         if not params.include_low_quality:
             query = query.where(self._visible_quality_filter())
+        if not params.include_all_statuses and not params.device_types:
+            query = query.where(self._default_public_type_filter())
 
         if params.q:
             tsquery = func.plainto_tsquery("french", params.q)

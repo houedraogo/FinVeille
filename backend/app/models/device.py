@@ -87,7 +87,7 @@ class Device(Base):
 
     # --- Workflow validation ---
     validation_status = Column(String(50), default="auto_published", index=True)
-    # 'pending_review' | 'approved' | 'rejected' | 'auto_published'
+    # 'pending_review' | 'approved' | 'rejected' | 'auto_published' | 'admin_only'
     validated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     validated_at = Column(DateTime(timezone=True))
 

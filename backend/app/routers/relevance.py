@@ -25,6 +25,28 @@ from app.services.opportunity_relevance_service import OpportunityRelevanceServi
 
 router = APIRouter(prefix="/api/v1", tags=["relevance"])
 
+QUALIFIED_RECOMMENDATION_TYPES = {
+    "subvention",
+    "pret",
+    "avance_remboursable",
+    "garantie",
+    "credit_impot",
+    "exoneration",
+    "aap",
+    "appel_a_projets",
+    "ami",
+    "accompagnement",
+    "concours",
+    "investissement",
+}
+
+
+def _recommendation_types(values: list[str] | None) -> list[str] | None:
+    if not values:
+        return None
+    cleaned = [item for item in values if item in QUALIFIED_RECOMMENDATION_TYPES]
+    return cleaned or ["__no_type_match__"]
+
 
 @router.get("/me/profile", response_model=OrganizationProfileResponse | None)
 async def get_my_profile(
@@ -192,7 +214,9 @@ async def get_recommendations(
 
     params = DeviceSearchParams(
         countries=project.countries if project and project.countries else (profile.countries if profile else None),
-        device_types=project.target_funding_types if project and project.target_funding_types else (profile.target_funding_types if profile else None),
+        device_types=_recommendation_types(
+            project.target_funding_types if project and project.target_funding_types else (profile.target_funding_types if profile else None)
+        ),
         sectors=project.sectors if project and project.sectors else (profile.sectors if profile else None),
         beneficiaries=project.beneficiaries if project and project.beneficiaries else None,
         status=["open", "recurring", "standby"],
@@ -247,7 +271,9 @@ async def refresh_recommendations(
     project = await service.get_project(organization_id, project_id)
     params = DeviceSearchParams(
         countries=project.countries if project and project.countries else (profile.countries if profile else None),
-        device_types=project.target_funding_types if project and project.target_funding_types else (profile.target_funding_types if profile else None),
+        device_types=_recommendation_types(
+            project.target_funding_types if project and project.target_funding_types else (profile.target_funding_types if profile else None)
+        ),
         sectors=project.sectors if project and project.sectors else (profile.sectors if profile else None),
         beneficiaries=project.beneficiaries if project and project.beneficiaries else None,
         status=["open", "recurring", "standby"],

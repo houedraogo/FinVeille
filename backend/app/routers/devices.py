@@ -284,10 +284,98 @@ def _can_use_admin_catalog(current_user: User | None) -> bool:
     return current_user.role == "admin" or getattr(current_user, "platform_role", "member") == "super_admin"
 
 
+def _is_standard_user(current_user: User | None) -> bool:
+    if not current_user:
+        return False
+    return not _can_use_admin_catalog(current_user)
+
+
+def _remove_unqualified_public_types(device_types: Optional[List[str]]) -> Optional[List[str]]:
+    qualified_public_types = [
+        "subvention",
+        "pret",
+        "avance_remboursable",
+        "garantie",
+        "credit_impot",
+        "exoneration",
+        "aap",
+        "appel_a_projets",
+        "ami",
+        "accompagnement",
+        "concours",
+        "investissement",
+    ]
+    if not device_types:
+        return qualified_public_types
+    cleaned = [item for item in device_types if item not in {"autre", "institutional_project"}]
+    return cleaned or ["__no_type_match__"]
+
+
+PROFILE_BENEFICIARY_MAP = {
+    "entrepreneur": [
+        "entreprise",
+        "pme",
+        "tpe",
+        "mpme",
+        "startup",
+        "entrepreneur",
+        "porteur projet",
+        "porteur de projet",
+        "jeune entrepreneur",
+        "femme entrepreneure",
+        "cooperative",
+        "entreprise sociale",
+        "exploitant agricole",
+        "structure_accompagnement",
+    ],
+    "association": [
+        "association",
+        "ong",
+        "osc",
+        "organisation communautaire",
+        "organisation locale",
+        "cooperative",
+        "mutuelle",
+        "entreprise sociale",
+    ],
+    "collectivite": [
+        "collectivite",
+        "collectivite territoriale",
+        "mairie",
+        "commune",
+        "region",
+        "institution publique",
+        "etat",
+        "ministere",
+        "acteur territorial",
+    ],
+    "consultant": [
+        "entreprise",
+        "pme",
+        "tpe",
+        "mpme",
+        "startup",
+        "entrepreneur",
+        "association",
+        "ong",
+        "collectivite",
+        "institution publique",
+        "cooperative",
+    ],
+}
+
+
+def _profile_beneficiaries(profile: OrganizationProfile | None) -> Optional[List[str]]:
+    if not profile or not profile.organization_type:
+        return None
+    return PROFILE_BENEFICIARY_MAP.get(str(profile.organization_type).lower())
+
+
 def resolve_onboarding_result_filters(
     total: int,
     institutional_total: int,
     device_types: Optional[List[str]],
+    beneficiaries: Optional[List[str]] = None,
 ) -> tuple[int, Optional[List[str]]]:
     """
     Aligne le nombre affiche pendant l'onboarding avec la page ouverte ensuite.
@@ -296,7 +384,19 @@ def resolve_onboarding_result_filters(
     existent, l'onboarding doit annoncer ces signaux et ouvrir exactement ce
     segment, au lieu d'annoncer un nombre puis d'arriver sur une page vide.
     """
-    if total == 0 and institutional_total > 0:
+    institutional_beneficiaries = {
+        "collectivite",
+        "collectivite territoriale",
+        "mairie",
+        "commune",
+        "region",
+        "institution publique",
+        "etat",
+        "ministere",
+        "acteur territorial",
+    }
+    can_show_institutional = not beneficiaries or bool(set(beneficiaries) & institutional_beneficiaries)
+    if total == 0 and institutional_total > 0 and can_show_institutional:
         return institutional_total, ["institutional_project"]
     return total, device_types
 
@@ -338,11 +438,9 @@ async def list_devices(
     # Si le profil n'existe pas ou n'a pas de pays → 0 résultats.
     effective_countries = countries  # utilisé tel quel pour les admins
 
-    if (
-        current_user
-        and current_user.role != "admin"
-        and getattr(current_user, "platform_role", "member") != "super_admin"
-    ):
+    effective_beneficiaries = beneficiaries
+
+    if _is_standard_user(current_user):
         # Pour les utilisateurs normaux : toujours appliquer le profil,
         # ignorer tout filtre pays manuel envoyé par le client.
         try:
@@ -355,6 +453,13 @@ async def list_devices(
                 profile = prof_row.scalar_one_or_none()
                 if profile and profile.countries:
                     effective_countries = profile.countries
+                    profile_beneficiaries = _profile_beneficiaries(profile)
+                    if profile_beneficiaries:
+                        if beneficiaries:
+                            overlap = sorted(set(beneficiaries) & set(profile_beneficiaries))
+                            effective_beneficiaries = overlap or ["__no_beneficiary_match__"]
+                        else:
+                            effective_beneficiaries = profile_beneficiaries
                 else:
                     # Profil sans pays → 0 résultats (onboarding incomplet)
                     effective_countries = ["__no_country_match__"]
@@ -365,9 +470,11 @@ async def list_devices(
             # Erreur inattendue → ne pas exposer tous les dispositifs
             effective_countries = ["__no_country_match__"]
 
+    effective_device_types = _remove_unqualified_public_types(device_types) if _is_standard_user(current_user) else device_types
+
     params = DeviceSearchParams(
-        q=q, countries=effective_countries, device_types=device_types,
-        sectors=sectors, beneficiaries=beneficiaries, status=status,
+        q=q, countries=effective_countries, device_types=effective_device_types,
+        sectors=sectors, beneficiaries=effective_beneficiaries, status=status,
         validation_status=validation_status,
         closing_soon_days=closing_soon_days,
         has_close_date=has_close_date,
@@ -399,6 +506,7 @@ async def onboarding_preview(
     countries: Optional[List[str]] = Query(None),
     device_types: Optional[List[str]] = Query(None),
     sectors: Optional[List[str]] = Query(None),
+    beneficiaries: Optional[List[str]] = Query(None),
     status: Optional[List[str]] = Query(None),
     actionable_now: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -427,6 +535,7 @@ async def onboarding_preview(
         "countries": countries,
         "device_types": device_types,
         "sectors": sectors,
+        "beneficiaries": beneficiaries,
         "status": status,
         "actionable_now": actionable_now,
         "sort_by": "relevance",
@@ -460,6 +569,7 @@ async def onboarding_preview(
         total_result["total"],
         institutional_result["total"],
         device_types,
+        beneficiaries,
     )
 
     urgent_result = await service.search(

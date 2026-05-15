@@ -115,6 +115,26 @@ def _standby_is_explained(device: Device) -> bool:
     )
 
 
+def _is_non_actionable_institutional(device: Device) -> bool:
+    text = _norm(
+        " ".join(
+            [
+                device.device_type or "",
+                device.short_description or "",
+                device.full_description or "",
+                device.eligibility_criteria or "",
+                device.funding_details or "",
+            ]
+        )
+    )
+    return bool(
+        device.device_type == "institutional_project"
+        or "projet institutionnel" in text
+        or "pas un appel a candidatures direct" in text
+        or "ne represente pas une aide directement attribuable" in text
+    )
+
+
 def _issues_for(device: Device) -> list[str]:
     issues: list[str] = []
     short_len = len(_compact(device.short_description))
@@ -159,6 +179,8 @@ def _issues_for(device: Device) -> list[str]:
         issues.append("doublons_champs")
     if device.device_type in {"autre", "", None}:
         issues.append("type_trop_generique")
+    if _is_non_actionable_institutional(device):
+        issues.append("projet_institutionnel_non_actionnable")
     if (
         device.status in {"standby", "unknown"}
         and device.validation_status == "auto_published"
@@ -186,6 +208,7 @@ def _decision_level(issues: list[str]) -> str:
         "doublons_champs",
         "type_trop_generique",
         "statut_peu_decisionnel",
+        "projet_institutionnel_non_actionnable",
     }
     if any(issue in blocking for issue in issues):
         return "a_corriger"

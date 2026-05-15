@@ -678,7 +678,7 @@ def _audit_action_from_score(score: int, flags: list[str]) -> str:
         return "source_a_revoir"
     if "pending_review" in flags or "open_without_date" in flags or "recurring_ambiguous" in flags:
         return "a_verifier"
-    if "weak_text" in flags or "english_text" in flags or "html_raw" in flags:
+    if "weak_text" in flags or "english_text" in flags or "html_raw" in flags or "institutional_non_actionable" in flags:
         return "a_enrichir"
     if score >= 70:
         return "source_a_revoir"
@@ -725,6 +725,14 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
         Device.short_description.ilike("%<p%"),
         Device.full_description.ilike("%<div%"),
         Device.full_description.ilike("%&lt;%"),
+    )
+    institutional_non_actionable_condition = or_(
+        Device.device_type == "institutional_project",
+        Device.short_description.ilike("%projet institutionnel%"),
+        Device.full_description.ilike("%projet institutionnel%"),
+        Device.eligibility_criteria.ilike("%pas un appel% candidatures direct%"),
+        Device.funding_details.ilike("%ne representent pas une aide directement attribuable%"),
+        Device.funding_details.ilike("%ne représentent pas une aide directement attribuable%"),
     )
     non_public_condition = or_(*[Device.source_url.ilike(pattern) for pattern in _NON_PUBLIC_URL_PATTERNS])
     open_without_date_condition = and_(
@@ -789,6 +797,7 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
         "generic_text": await count_scalar(select(func.count(Device.id)).where(generic_condition)),
         "english_text": await count_scalar(select(func.count(Device.id)).where(english_condition)),
         "html_raw": await count_scalar(select(func.count(Device.id)).where(html_condition)),
+        "institutional_non_actionable": await count_scalar(select(func.count(Device.id)).where(institutional_non_actionable_condition)),
         "non_public_urls": await count_scalar(select(func.count(Device.id)).where(non_public_condition)),
         "open_without_date": await count_scalar(select(func.count(Device.id)).where(open_without_date_condition)),
         "open_with_past_close_date": await count_scalar(select(func.count(Device.id)).where(open_with_past_close_date_condition)),
@@ -823,6 +832,7 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
         "generic_text": generic_condition,
         "english_text": english_condition,
         "html_raw": html_condition,
+        "institutional_non_actionable": institutional_non_actionable_condition,
         "open_without_date": open_without_date_condition,
         "open_with_past_close_date": open_with_past_close_date_condition,
         "expired_unreachable": expired_unreachable_condition,
@@ -872,6 +882,7 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
                 func.sum(case((generic_condition, 1), else_=0)).label("generic_texts"),
                 func.sum(case((english_condition, 1), else_=0)).label("english_texts"),
                 func.sum(case((html_condition, 1), else_=0)).label("html_raws"),
+                func.sum(case((institutional_non_actionable_condition, 1), else_=0)).label("institutional_non_actionables"),
                 func.sum(case((non_public_condition, 1), else_=0)).label("non_public_urls"),
                 func.sum(case((open_without_date_condition, 1), else_=0)).label("open_without_dates"),
                 func.sum(case((Device.validation_status == "pending_review", 1), else_=0)).label("pending_reviews"),
@@ -919,6 +930,7 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
         generic_texts = int(row.generic_texts or 0)
         english_texts = int(row.english_texts or 0)
         html_raws = int(row.html_raws or 0)
+        institutional_non_actionables = int(row.institutional_non_actionables or 0)
         non_public_urls = int(row.non_public_urls or 0)
         open_without_dates = int(row.open_without_dates or 0)
         pending_reviews = int(row.pending_reviews or 0)
@@ -946,6 +958,8 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
             flags.append("english_text")
         if html_raws:
             flags.append("html_raw")
+        if institutional_non_actionables:
+            flags.append("institutional_non_actionable")
         if non_public_urls:
             flags.append("too_many_non_public_urls")
         if pending_reviews:
@@ -955,7 +969,7 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
 
         score = (
             min(40, log_info["failed_runs"] * 12 + int(row.consecutive_errors or 0) * 8)
-            + min(25, round((weak_texts + generic_texts + html_raws) / max(device_count, 1) * 25))
+            + min(25, round((weak_texts + generic_texts + html_raws + institutional_non_actionables) / max(device_count, 1) * 25))
             + min(20, round(missing_dates / max(device_count, 1) * 20))
             + min(15, pending_reviews * 3 + recurring_ambiguous * 2 + non_public_urls * 2)
         )
@@ -984,6 +998,7 @@ async def build_catalog_audit(db, *, sample_limit: int = 8, source_limit: int = 
                     "generic_texts": generic_texts,
                     "english_texts": english_texts,
                     "html_raws": html_raws,
+                    "institutional_non_actionables": institutional_non_actionables,
                     "non_public_urls": non_public_urls,
                     "open_without_dates": open_without_dates,
                     "pending_reviews": pending_reviews,

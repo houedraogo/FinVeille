@@ -11,6 +11,7 @@ from app.models.relevance import OrganizationProfile
 from app.models.source import Source
 from app.models.collection_log import CollectionLog
 from app.models.user import User
+from app.services.device_service import DeviceService
 from app.services.opportunity_relevance_service import OpportunityRelevanceService
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
@@ -28,10 +29,33 @@ def _scope_conds(scope: Optional[str]) -> list:
     return []
 
 
+def _is_admin(user: User) -> bool:
+    return user.role == "admin" or getattr(user, "platform_role", "member") == "super_admin"
+
+
+def _public_catalog_conds(user: User, today: date) -> list:
+    """Conditions communes du catalogue propre expose aux utilisateurs."""
+    if _is_admin(user):
+        return []
+    return [
+        Device.validation_status.in_(["auto_published", "approved", "validated"]),
+        Device.device_type.notin_(["institutional_project", "autre"]),
+        or_(
+            Device.status.in_(["open", "recurring"]),
+            (
+                (Device.close_date.is_not(None))
+                & (Device.close_date >= today)
+                & (Device.status.in_(["standby", "open", "recurring"]))
+            ),
+        ),
+        DeviceService._visible_quality_filter(),
+    ]
+
+
 async def _profile_conds(db: AsyncSession, user: User) -> list:
     """Retourne les conditions de filtrage basées sur le profil de l'organisation de l'utilisateur."""
     # Les admins voient tout sans filtre de profil
-    if user.role == "admin" or getattr(user, "platform_role", "member") == "super_admin":
+    if _is_admin(user):
         return []
 
     service = OpportunityRelevanceService(db)
@@ -49,7 +73,7 @@ async def _profile_conds(db: AsyncSession, user: User) -> list:
     conds = []
     # Filtre par pays du profil
     if profile.countries:
-        conds.append(Device.country.in_(profile.countries))
+        conds.append(Device.country.in_(DeviceService._expanded_country_filter(profile.countries)))
 
     return conds
 
@@ -67,6 +91,7 @@ async def get_dashboard(
 
     # Conditions combinées : scope (type) + profil (pays)
     conds = _scope_conds(scope)
+    conds += _public_catalog_conds(current_user, today)
     conds += await _profile_conds(db, current_user)
 
     # ── Compteurs principaux ─────────────────────────────────────────────────────
