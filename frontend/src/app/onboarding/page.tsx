@@ -126,6 +126,28 @@ const PUBLIC_TYPES  = ["subvention", "aap", "concours", "pret", "accompagnement"
 const PRIVATE_TYPES = ["investissement"];
 const ALL_TYPES     = [...PUBLIC_TYPES, ...PRIVATE_TYPES];
 
+const PROFILE_BENEFICIARIES: Record<string, string[]> = {
+  entrepreneur: [
+    "entreprise",
+    "pme",
+    "tpe",
+    "mpme",
+    "startup",
+    "entrepreneur",
+    "porteur projet",
+    "porteur de projet",
+    "jeune entrepreneur",
+    "femme entrepreneure",
+    "cooperative",
+    "entreprise sociale",
+    "exploitant agricole",
+    "structure_accompagnement",
+  ],
+  association: ["association", "ong", "osc", "organisation communautaire", "organisation locale", "cooperative", "mutuelle", "entreprise sociale"],
+  collectivite: ["collectivite", "collectivite territoriale", "mairie", "commune", "region", "institution publique", "etat", "ministere", "acteur territorial"],
+  consultant: ["entreprise", "pme", "tpe", "mpme", "startup", "entrepreneur", "association", "ong", "collectivite", "institution publique", "cooperative"],
+};
+
 const FINANCING_SCOPES: { key: FinancingScope; label: string; sub: string; icon: typeof Building2; types: string[] }[] = [
   { key: "public",   label: "Financements publics",       sub: "Subventions, AAP, concours, prêts, accompagnement…",                icon: Building2,   types: PUBLIC_TYPES },
   { key: "private",  label: "Investisseurs privés",        sub: "Fonds d'investissement, business angels, capital-risque…",         icon: TrendingUp,  types: PRIVATE_TYPES },
@@ -248,6 +270,7 @@ export default function OnboardingPage() {
           countries: selectedCountries,
           sectors,
           device_types: deviceTypes,
+          beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : undefined,
           status: financingScope === "private" ? undefined : ["open", "recurring"],
           actionable_now: true,
         });
@@ -366,6 +389,7 @@ export default function OnboardingPage() {
         countries: selectedCountries,
         sectors,
         device_types: preview?.result_device_types?.length ? preview.result_device_types : deviceTypes,
+        beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : undefined,
         status: preview?.result_status ?? (financingScope === "private" ? undefined : ["open", "recurring"]),
         actionable_now: preview?.result_actionable_now ?? true,
         sort_by: "relevance",
@@ -388,6 +412,7 @@ export default function OnboardingPage() {
           summary: "Projet créé automatiquement depuis l'onboarding Kafundo.",
           countries: selectedCountries,
           sectors,
+          beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : [],
           target_funding_types: deviceTypes,
           is_primary: true,
         });

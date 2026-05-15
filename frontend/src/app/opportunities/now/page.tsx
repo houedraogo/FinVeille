@@ -8,7 +8,6 @@ const ACTIONABLE_TYPES = [
   "garantie",
   "concours",
   "investissement",
-  "autre",
 ];
 
 export default function OpportunitiesNowPage() {
@@ -20,8 +19,6 @@ export default function OpportunitiesNowPage() {
       defaultSort="close_date"
       showClosingFilter={true}
       actionableNow={true}
-      introTitle="Une vue resserree sur les financements vraiment exploitables"
-      introText="Cette selection masque les fiches trop ambigues et garde uniquement les opportunites ouvertes, recurrentes ou avec une date limite fiable."
     />
   );
 }

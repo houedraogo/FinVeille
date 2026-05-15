@@ -22,6 +22,7 @@ import {
 import clsx from "clsx";
 
 const STATUSES = ["open", "recurring", "standby", "closed", "expired"];
+const DEVICE_FILTERS_SESSION_PREFIX = "kafundo_devices_filters:";
 const AI_READINESS_LABELS: Record<string, string> = {
   pret_pour_recommandation_ia: "Très recommandé",
   utilisable_avec_prudence: "À confirmer",
@@ -59,6 +60,21 @@ interface Props {
 }
 
 type ViewMode = "split" | "table";
+
+type PersistedDeviceFilters = {
+  q?: string;
+  countries?: string[];
+  deviceTypes?: string[];
+  sectors?: string[];
+  statuses?: string[];
+  aiReadiness?: string[];
+  closingSoon?: string;
+  hasCloseDate?: boolean;
+  actionableNow?: boolean | null;
+  adminFullCatalog?: boolean;
+  sortBy?: string;
+  page?: number;
+};
 
 // ── Volet droit : résumé d'un dispositif ────────────────────────────────────
 
@@ -364,9 +380,25 @@ export default function DevicesPageContent({
   const [profileActive,    setProfileActive]    = useState(false);
   const [userIsStaff,      setUserIsStaff]      = useState(false);
   const [profileReady,     setProfileReady]     = useState(false);
-  const [adminFullCatalog, setAdminFullCatalog] = useState(false);
+  const [adminFullCatalog, setAdminFullCatalog] = useState(() => canAccessAdmin(getCurrentRole()));
   const [savedActionableNow, setSavedActionableNow] = useState<boolean | null>(null);
   const effectiveActionableNow = savedActionableNow ?? actionableNow;
+
+  const applyPersistedFilters = useCallback((filters: PersistedDeviceFilters) => {
+    setQ(filters.q || "");
+    setDebouncedQ(filters.q || "");
+    setFilterCountries(Array.isArray(filters.countries) ? filters.countries : []);
+    setFilterTypes(Array.isArray(filters.deviceTypes) ? filters.deviceTypes : []);
+    setFilterSectors(Array.isArray(filters.sectors) ? filters.sectors : []);
+    setFilterStatuses(Array.isArray(filters.statuses) ? filters.statuses : []);
+    setFilterAiReadiness(Array.isArray(filters.aiReadiness) ? filters.aiReadiness : []);
+    setClosingSoon(filters.closingSoon || "");
+    setHasCloseDate(Boolean(filters.hasCloseDate));
+    setSavedActionableNow(typeof filters.actionableNow === "boolean" ? filters.actionableNow : null);
+    if (typeof filters.adminFullCatalog === "boolean") setAdminFullCatalog(filters.adminFullCatalog);
+    setSortBy(filters.sortBy || defaultSort);
+    setPage(filters.page && filters.page > 0 ? filters.page : 1);
+  }, [defaultSort]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
@@ -385,30 +417,43 @@ export default function DevicesPageContent({
 
     const pendingSearch = consumePendingSavedSearch(pathname);
     if (pendingSearch) {
-      setQ(pendingSearch.search.filters.q);
-      setDebouncedQ(pendingSearch.search.filters.q);
-      setFilterCountries(pendingSearch.search.filters.countries);
-      setFilterTypes(pendingSearch.search.filters.deviceTypes);
-      setFilterSectors(pendingSearch.search.filters.sectors);
-      setFilterStatuses(pendingSearch.search.filters.statuses);
-      setClosingSoon(pendingSearch.search.filters.closingSoon);
-      setHasCloseDate(!!pendingSearch.search.filters.hasCloseDate);
-      setSavedActionableNow(
-        typeof pendingSearch.search.filters.actionableNow === "boolean"
-          ? pendingSearch.search.filters.actionableNow
-          : null
-      );
-      setSortBy(pendingSearch.search.filters.sortBy || defaultSort);
-      setPage(1);
+      applyPersistedFilters({
+        q: pendingSearch.search.filters.q,
+        countries: pendingSearch.search.filters.countries,
+        deviceTypes: pendingSearch.search.filters.deviceTypes,
+        sectors: pendingSearch.search.filters.sectors,
+        statuses: pendingSearch.search.filters.statuses,
+        closingSoon: pendingSearch.search.filters.closingSoon,
+        hasCloseDate: pendingSearch.search.filters.hasCloseDate,
+        actionableNow: pendingSearch.search.filters.actionableNow,
+        sortBy: pendingSearch.search.filters.sortBy || defaultSort,
+        page: 1,
+      });
       setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
       setProfileReady(true);
       return;
     }
-    setSavedActionableNow(null);
+
+    const sessionKey = `${DEVICE_FILTERS_SESSION_PREFIX}${pathname}`;
+    let restoredFromSession = false;
+    try {
+      const raw = window.sessionStorage.getItem(sessionKey);
+      if (raw) {
+        applyPersistedFilters(JSON.parse(raw));
+        restoredFromSession = true;
+      } else {
+        setSavedActionableNow(null);
+      }
+    } catch {
+      setSavedActionableNow(null);
+    }
 
     const role = getCurrentRole();
     const isStaff = canAccessAdmin(role);
     setUserIsStaff(isStaff);
+    if (isStaff && !restoredFromSession) {
+      setAdminFullCatalog(true);
+    }
 
     // Pour les utilisateurs normaux, le filtre pays est appliqué silencieusement
     // côté backend. On affiche juste la bannière "Contenu personnalisé" pour informer.
@@ -416,13 +461,27 @@ export default function DevicesPageContent({
       relevance.getProfile().then((profile: any) => {
         const hasProfile = profile && (profile.countries?.length || profile.sectors?.length);
         if (hasProfile) setProfileActive(true);
+        if (!restoredFromSession) {
+          const preferences = getUserPreferences();
+          const onboardingTypes = Array.isArray(preferences.onboardingDeviceTypes)
+            ? preferences.onboardingDeviceTypes.filter((type) => !lockedDeviceTypes.length || lockedDeviceTypes.includes(type))
+            : [];
+          const profileSectors = Array.isArray(profile?.sectors) ? profile.sectors : [];
+          const onboardingSectors = Array.isArray(preferences.onboardingSectors) ? preferences.onboardingSectors : [];
+          setFilterTypes(onboardingTypes);
+          setFilterSectors(onboardingSectors.length ? onboardingSectors : profileSectors);
+          setFilterStatuses(actionableNow ? ["open", "recurring"] : []);
+          setSavedActionableNow(actionableNow);
+          setSortBy(defaultSort);
+          setPage(1);
+        }
         setProfileReady(true);
       }).catch(() => setProfileReady(true));
       return;
     }
 
     setProfileReady(true);
-  }, [pathname, defaultSort]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pathname, defaultSort, applyPersistedFilters, lockedDeviceTypes, actionableNow]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSavedViewMode(pathname, viewMode);
@@ -435,6 +494,25 @@ export default function DevicesPageContent({
       panelRef.current.scrollTop = 0;
     }
   }, [selectedDevice?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!profileReady) return;
+    const payload: PersistedDeviceFilters = {
+      q,
+      countries: filterCountries,
+      deviceTypes: filterTypes,
+      sectors: filterSectors,
+      statuses: filterStatuses,
+      aiReadiness: filterAiReadiness,
+      closingSoon,
+      hasCloseDate,
+      actionableNow: savedActionableNow,
+      adminFullCatalog,
+      sortBy,
+      page,
+    };
+    window.sessionStorage.setItem(`${DEVICE_FILTERS_SESSION_PREFIX}${pathname}`, JSON.stringify(payload));
+  }, [profileReady, pathname, q, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, savedActionableNow, adminFullCatalog, sortBy, page]);
 
   const fetchDevices = useCallback(async () => {
     setLoading(true);
@@ -485,7 +563,7 @@ export default function DevicesPageContent({
   const clearFilters = () => {
     setFilterCountries([]); setFilterTypes([]); setFilterSectors([]);
     setFilterStatuses([]); setFilterAiReadiness([]); setClosingSoon(""); setHasCloseDate(false); setPage(1);
-    setEditingSavedSearchId(null); setProfileActive(false); setAdminFullCatalog(false); setSavedActionableNow(null);
+    setEditingSavedSearchId(null); setProfileActive(false); setAdminFullCatalog(userIsStaff); setSavedActionableNow(null);
   };
 
   const hasFilters = filterCountries.length || filterTypes.length || filterSectors.length ||
