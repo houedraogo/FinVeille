@@ -49,11 +49,18 @@ export default function LoginPage() {
 
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
-  // Lire ?plan= côté client (évite useSearchParams et son Suspense requis au build)
+  // Lire ?plan= et ?mode= côté client (évite useSearchParams et son Suspense requis au build)
   const getPlanParam = () => {
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("plan");
   };
+
+  // Ouvrir directement l'onglet inscription si ?mode=register dans l'URL
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const m = new URLSearchParams(window.location.search).get("mode");
+    if (m === "register") setMode("register");
+  }, []);
 
   const finishAuth = (result: { access_token: string; user: unknown }) => {
     localStorage.setItem("kafundo_token", result.access_token);
