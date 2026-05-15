@@ -227,19 +227,40 @@ export default function BillingPage() {
 
                 <div className="mt-auto pt-5">
                   {isEnterprise ? (
-                    <Link href="mailto:admin@kafundo.com" className="btn-secondary w-full justify-center text-xs">
-                      Contacter
+                    <a
+                      href="mailto:contact@kafundo.com"
+                      className="btn-secondary w-full justify-center text-xs"
+                    >
+                      Contacter l'équipe
                       <ExternalLink className="h-3.5 w-3.5" />
-                    </Link>
+                    </a>
+                  ) : isCurrent ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="btn-secondary w-full justify-center text-xs opacity-60"
+                    >
+                      Offre active
+                    </button>
+                  ) : plan.slug === "free" ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCheckout(plan.slug)}
+                      disabled={busyPlan === plan.slug}
+                      className="btn-secondary w-full justify-center text-xs"
+                    >
+                      {busyPlan === plan.slug ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      Commencer gratuitement
+                    </button>
                   ) : (
                     <button
                       type="button"
                       onClick={() => handleCheckout(plan.slug)}
-                      disabled={isCurrent || busyPlan === plan.slug}
-                      className={clsx("w-full justify-center text-xs", isCurrent ? "btn-secondary opacity-60" : "btn-primary")}
+                      disabled={busyPlan === plan.slug}
+                      className="btn-primary w-full justify-center text-xs"
                     >
                       {busyPlan === plan.slug ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                      {isCurrent ? "Offre active" : "Choisir ce plan"}
+                      Essayer 14 jours
                     </button>
                   )}
                 </div>
