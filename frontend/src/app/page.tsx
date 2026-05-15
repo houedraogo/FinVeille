@@ -240,7 +240,7 @@ export default function DashboardPage() {
 
     // 4. Compléter profil si peu de résultats
     if (recommendations.length < 3) {
-      const extra = Math.max(10, stats.total - recommendations.length);
+      const extra = Math.max(0, stats.total_active - recommendations.length);
       actions.push({
         id: "complete-profile",
         icon: Plus,
@@ -295,16 +295,24 @@ export default function DashboardPage() {
     <AppLayout>
 
       {/* ── Hero banner ──────────────────────────────────────────────────────── */}
-      <section className={clsx(
-        "mb-6 overflow-hidden rounded-[28px] border border-white/10 px-6 py-6 text-white",
-        "bg-gradient-to-br shadow-[0_20px_60px_-30px_rgba(37,99,235,0.45)]",
-        cfg.heroGradient,
-      )}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <section
+        className={clsx(
+          "relative mb-6 overflow-hidden rounded-[30px] border px-6 py-6 text-white shadow-[0_24px_70px_-34px_rgba(15,23,42,0.65)]",
+          isPrivate ? "border-violet-300/25" : "border-blue-300/25",
+        )}
+        style={{
+          background: isPrivate
+            ? "linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #1e1b4b 100%)"
+            : "linear-gradient(135deg, #0b1f59 0%, #1646c8 48%, #0284c7 100%)",
+        }}
+      >
+        <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-white/14 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-56 w-72 rounded-full bg-cyan-300/18 blur-3xl" />
+
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <span className={clsx(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-widest",
-              cfg.heroBadgeBg, cfg.heroBadgeText,
+              "inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/14 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/90 backdrop-blur",
             )}>
               {isPrivate ? <TrendingUp className="h-3.5 w-3.5" /> : <Building2 className="h-3.5 w-3.5" />}
               {cfg.badgeLabel}
@@ -315,26 +323,26 @@ export default function DashboardPage() {
             <p className="mt-2 text-sm leading-6 text-white/75">{cfg.heroSubtitle}</p>
           </div>
 
-          <div className="flex flex-wrap gap-4 lg:shrink-0">
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-center backdrop-blur-sm">
+          <div className="grid grid-cols-3 gap-3 lg:shrink-0">
+            <div className="rounded-2xl border border-white/20 bg-white/14 px-4 py-3 text-center backdrop-blur-sm">
               <p className="text-2xl font-bold">{stats.total_active.toLocaleString("fr")}</p>
               <p className="mt-0.5 text-[11px] text-white/70">{isPrivate ? "Fonds actifs" : "Opportunités actives"}</p>
             </div>
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-center backdrop-blur-sm">
+            <div className="rounded-2xl border border-white/20 bg-white/14 px-4 py-3 text-center backdrop-blur-sm">
               <p className="text-2xl font-bold">{stats.new_last_7_days.toLocaleString("fr")}</p>
               <p className="mt-0.5 text-[11px] text-white/70">Nouveaux (7j)</p>
             </div>
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-center backdrop-blur-sm">
+            <div className="rounded-2xl border border-white/20 bg-white/14 px-4 py-3 text-center backdrop-blur-sm">
               <p className="text-2xl font-bold">{stats.countries_count.toLocaleString("fr")}</p>
               <p className="mt-0.5 text-[11px] text-white/70">Pays couverts</p>
             </div>
           </div>
         </div>
 
-        <div className="mt-4 flex items-center justify-end">
+        <div className="relative mt-5 flex items-center justify-end">
           <Link
             href={cfg.catalogHref}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-white/90"
           >
             {cfg.catalogLabel}
             <ArrowRight className="h-3.5 w-3.5" />
@@ -349,10 +357,10 @@ export default function DashboardPage() {
 
         {/* 💰 Opportunités financières détectées */}
         <div className={clsx(
-          "rounded-3xl border p-6",
+          "rounded-3xl border p-6 shadow-[0_18px_50px_-36px_rgba(15,23,42,0.5)]",
           isPrivate
-            ? "border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50/50"
-            : "border-primary-200 bg-gradient-to-br from-primary-50 to-blue-50/50",
+            ? "border-violet-200 bg-gradient-to-br from-white via-violet-50 to-indigo-50"
+            : "border-blue-200 bg-gradient-to-br from-white via-blue-50 to-cyan-50",
         )}>
           <div className="flex items-center gap-3 mb-5">
             <div className={clsx(
@@ -394,7 +402,7 @@ export default function DashboardPage() {
             {/* Fort potentiel */}
             <div className="rounded-2xl border border-white/70 bg-white/80 px-3 py-3 text-center">
               <Zap className="mx-auto mb-1 h-4 w-4 text-amber-500" />
-              <p className="text-xl font-bold text-slate-900">{highPotentialRecs.length || Math.max(0, Math.floor(stats.total_active * 0.4))}</p>
+              <p className="text-xl font-bold text-slate-900">{highPotentialRecs.length}</p>
               <p className="text-[11px] text-slate-500">fort<br />potentiel</p>
             </div>
           </div>
@@ -408,7 +416,7 @@ export default function DashboardPage() {
             )}
           >
             <Zap className="h-4 w-4" />
-            Voir toutes mes opportunités
+            Voir mes opportunités prioritaires
             <ChevronRight className="h-4 w-4" />
           </Link>
         </div>
@@ -644,14 +652,14 @@ export default function DashboardPage() {
               })}
 
               {/* "Opportunités à explorer" si peu de recs */}
-              {recommendations.length < 3 && stats.total > recommendations.length && (
+              {recommendations.length < 3 && stats.total_active > recommendations.length && (
                 <Link
                   href={cfg.catalogHref}
                   className="flex items-center justify-between rounded-2xl border border-dashed border-primary-300 bg-primary-50/60 px-4 py-3 transition-colors hover:bg-primary-50"
                 >
                   <div>
                     <p className="text-sm font-semibold text-primary-800">
-                      🔍 {stats.total} opportunités supplémentaires disponibles
+                      🔍 {stats.total_active} opportunités actives disponibles
                     </p>
                     <p className="text-xs text-primary-600">→ Élargissez votre profil pour en débloquer davantage</p>
                   </div>

@@ -6,7 +6,8 @@ import AppLayout from "@/components/AppLayout";
 import LimitNotice from "@/components/LimitNotice";
 import { billing, devices, relevance } from "@/lib/api";
 import { canAccessAdmin, getCurrentRole } from "@/lib/auth";
-import { Device, DeviceListResponse, DEVICE_TYPE_LABELS, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
+import { Device, DeviceListResponse, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
+import { getUserDeviceTypeMeta } from "@/lib/deviceTypes";
 import { COUNTRIES, SECTORS } from "@/lib/constants";
 import { formatAmount, formatDate, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import { consumePendingSavedSearch, getSavedViewMode, getUserPreferences, saveSearch, saveUserPreferences, setSavedViewMode, isFavoriteDevice, toggleFavoriteDevice, getPipelineDevice, type DevicePipelineStatus } from "@/lib/workspace";
@@ -96,6 +97,7 @@ function DevicePanel({
   const eligibility  = sanitizeDisplayText(device.eligibility_criteria);
   const fundingInfo  = sanitizeDisplayText(device.funding_details);
   const natureBanner = getDeviceNatureBanner(device);
+  const typeMeta = getUserDeviceTypeMeta(device.device_type);
 
   const goNoGo = device.decision_analysis?.go_no_go;
   const goNoGoCfg = goNoGo === "go"
@@ -111,8 +113,8 @@ function DevicePanel({
       {/* Header fixe */}
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className={clsx("rounded-full px-2.5 py-1 text-[11px] font-semibold", DEVICE_TYPE_COLORS[device.device_type] || "bg-slate-100 text-slate-600")}>
-            {DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
+          <span className={clsx("rounded-full px-2.5 py-1 text-[11px] font-semibold", typeMeta.color || DEVICE_TYPE_COLORS[device.device_type] || "bg-slate-100 text-slate-600")} title={typeMeta.short}>
+            {typeMeta.label}
           </span>
           <span className={clsx("rounded-full px-2.5 py-1 text-[11px] font-semibold", STATUS_COLORS[device.status])}>
             {STATUS_LABELS[device.status] || device.status}
@@ -362,6 +364,9 @@ export default function DevicesPageContent({
   const [profileActive,    setProfileActive]    = useState(false);
   const [userIsStaff,      setUserIsStaff]      = useState(false);
   const [profileReady,     setProfileReady]     = useState(false);
+  const [adminFullCatalog, setAdminFullCatalog] = useState(false);
+  const [savedActionableNow, setSavedActionableNow] = useState<boolean | null>(null);
+  const effectiveActionableNow = savedActionableNow ?? actionableNow;
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
@@ -388,12 +393,18 @@ export default function DevicesPageContent({
       setFilterStatuses(pendingSearch.search.filters.statuses);
       setClosingSoon(pendingSearch.search.filters.closingSoon);
       setHasCloseDate(!!pendingSearch.search.filters.hasCloseDate);
+      setSavedActionableNow(
+        typeof pendingSearch.search.filters.actionableNow === "boolean"
+          ? pendingSearch.search.filters.actionableNow
+          : null
+      );
       setSortBy(pendingSearch.search.filters.sortBy || defaultSort);
       setPage(1);
       setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
       setProfileReady(true);
       return;
     }
+    setSavedActionableNow(null);
 
     const role = getCurrentRole();
     const isStaff = canAccessAdmin(role);
@@ -429,7 +440,9 @@ export default function DevicesPageContent({
     setLoading(true);
     setError(null);
     try {
-      const effectiveTypes = filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
+      const effectiveTypes = adminFullCatalog
+        ? (filterTypes.length > 0 ? filterTypes : undefined)
+        : filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
       const data = await devices.list({
         q: debouncedQ || undefined,
         countries:          filterCountries.length   ? filterCountries   : undefined,
@@ -439,7 +452,10 @@ export default function DevicesPageContent({
         ai_readiness_labels:filterAiReadiness.length ? filterAiReadiness : undefined,
         closing_soon_days:  closingSoon ? parseInt(closingSoon) : undefined,
         has_close_date:     hasCloseDate || undefined,
-        actionable_now:     actionableNow || undefined,
+        actionable_now:     adminFullCatalog ? undefined : effectiveActionableNow || undefined,
+        include_all_statuses: adminFullCatalog || undefined,
+        include_rejected: adminFullCatalog || undefined,
+        include_low_quality: adminFullCatalog || undefined,
         sort_by:            sortBy,
         sort_desc:          sortBy !== "close_date",
         page,
@@ -457,7 +473,7 @@ export default function DevicesPageContent({
     } finally {
       setLoading(false);
     }
-  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, actionableNow, sortBy, page, viewMode, lockedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, effectiveActionableNow, adminFullCatalog, sortBy, page, viewMode, lockedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (profileReady) fetchDevices(); }, [fetchDevices, profileReady]);
 
@@ -469,11 +485,11 @@ export default function DevicesPageContent({
   const clearFilters = () => {
     setFilterCountries([]); setFilterTypes([]); setFilterSectors([]);
     setFilterStatuses([]); setFilterAiReadiness([]); setClosingSoon(""); setHasCloseDate(false); setPage(1);
-    setEditingSavedSearchId(null); setProfileActive(false);
+    setEditingSavedSearchId(null); setProfileActive(false); setAdminFullCatalog(false); setSavedActionableNow(null);
   };
 
   const hasFilters = filterCountries.length || filterTypes.length || filterSectors.length ||
-    filterStatuses.length || filterAiReadiness.length || closingSoon || hasCloseDate;
+    filterStatuses.length || filterAiReadiness.length || closingSoon || hasCloseDate || adminFullCatalog;
 
   const pageIds = result?.items.map((d) => d.id) ?? [];
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
@@ -522,13 +538,15 @@ export default function DevicesPageContent({
     saveSearch({
       id: editingSavedSearchId || crypto.randomUUID(), name, title, path: pathname,
       resultCount: result?.total ?? null, savedAt: new Date().toISOString(),
-      filters: { q: q.trim(), countries: filterCountries, deviceTypes: filterTypes, sectors: filterSectors, statuses: filterStatuses, closingSoon, hasCloseDate, sortBy },
+      filters: { q: q.trim(), countries: filterCountries, deviceTypes: filterTypes, sectors: filterSectors, statuses: filterStatuses, closingSoon, hasCloseDate, actionableNow: effectiveActionableNow, sortBy },
     });
     setBulkMsg({ type: "success", text: editingSavedSearchId ? `Recherche mise à jour : ${name}` : `Recherche enregistrée : ${name}` });
     setEditingSavedSearchId(null);
   };
 
-  const effectiveTypesForExport = filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
+  const effectiveTypesForExport = adminFullCatalog
+    ? (filterTypes.length > 0 ? filterTypes : undefined)
+    : filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
   const exportParams = {
     q: debouncedQ || undefined, countries: filterCountries.length ? filterCountries : undefined,
     device_types: effectiveTypesForExport, sectors: filterSectors.length ? filterSectors : undefined,
@@ -536,7 +554,10 @@ export default function DevicesPageContent({
     ai_readiness_labels: filterAiReadiness.length ? filterAiReadiness : undefined,
     closing_soon_days: closingSoon ? parseInt(closingSoon) : undefined,
     has_close_date: hasCloseDate || undefined,
-    actionable_now: actionableNow || undefined,
+    actionable_now: adminFullCatalog ? undefined : effectiveActionableNow || undefined,
+    include_all_statuses: adminFullCatalog || undefined,
+    include_rejected: adminFullCatalog || undefined,
+    include_low_quality: adminFullCatalog || undefined,
   };
   const exportCsvUrl   = devices.exportCsv(exportParams);
   const exportExcelUrl = devices.exportExcel(exportParams);
@@ -557,7 +578,7 @@ export default function DevicesPageContent({
     if (device.match_reasons?.length) return `Correspondance : ${device.match_reasons.slice(0, 3).join(" + ")}.`;
     const reasons: string[] = [];
     if (filterCountries.includes(device.country)) reasons.push(`pays ${device.country}`);
-    if (filterTypes.includes(device.device_type)) reasons.push(`type ${DEVICE_TYPE_LABELS[device.device_type] || device.device_type}`);
+    if (filterTypes.includes(device.device_type)) reasons.push(`type ${getUserDeviceTypeMeta(device.device_type).label}`);
     const matchedSector = filterSectors.find((s) => (device.sectors || []).includes(s));
     if (matchedSector) reasons.push(`secteur ${matchedSector}`);
     if (q.trim()) reasons.push(`recherche "${q.trim()}"`);
@@ -585,6 +606,7 @@ export default function DevicesPageContent({
     const isSoon   = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
     const isSelected = selectedDevice?.id === device.id;
     const natureBanner = getDeviceNatureBanner(device);
+    const typeMeta = getUserDeviceTypeMeta(device.device_type);
 
     return (
       <button
@@ -611,8 +633,8 @@ export default function DevicesPageContent({
           <div className="min-w-0 flex-1">
             {/* Badges */}
             <div className="flex flex-wrap items-center gap-1 mb-1">
-              <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", DEVICE_TYPE_COLORS[device.device_type] || "bg-slate-100 text-slate-600")}>
-                {DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
+              <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", typeMeta.color || DEVICE_TYPE_COLORS[device.device_type] || "bg-slate-100 text-slate-600")} title={typeMeta.short}>
+                {typeMeta.label}
               </span>
               {device.status !== "open" && (
                 <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", STATUS_COLORS[device.status])}>
@@ -741,6 +763,37 @@ export default function DevicesPageContent({
       )}
 
       {/* ── Barre recherche + filtres ────────────────────────────────────── */}
+      {userIsStaff && (
+        <div className={clsx(
+          "mb-3 flex flex-col gap-3 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+          adminFullCatalog ? "border-slate-300 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-700",
+        )}>
+          <div>
+            <p className={clsx("text-xs font-semibold uppercase tracking-[0.16em]", adminFullCatalog ? "text-blue-200" : "text-slate-500")}>
+              Vue admin
+            </p>
+            <p className="mt-1 text-sm font-semibold">
+              {adminFullCatalog ? "Catalogue complet active" : "Catalogue publie uniquement"}
+            </p>
+            <p className={clsx("mt-0.5 text-xs", adminFullCatalog ? "text-slate-300" : "text-slate-500")}>
+              {adminFullCatalog
+                ? "Tous les statuts, fiches rejetees et fiches faibles sont inclus pour controle."
+                : "Vue identique au catalogue propre expose aux utilisateurs."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setAdminFullCatalog((value) => !value); setPage(1); setSelectedDevice(null); }}
+            className={clsx(
+              "inline-flex items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition",
+              adminFullCatalog ? "bg-white text-slate-950 hover:bg-blue-50" : "bg-slate-950 text-white hover:bg-primary-700",
+            )}
+          >
+            {adminFullCatalog ? "Revenir au catalogue publie" : "Voir tout le catalogue"}
+          </button>
+        </div>
+      )}
+
       {introTitle && (
         <div className="mb-4 rounded-[28px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-sky-50 px-5 py-4 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -770,7 +823,7 @@ export default function DevicesPageContent({
             Filtres
             {hasFilters && (
               <span className="bg-primary-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) + Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate)}
+                {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) + Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate) + Number(adminFullCatalog)}
               </span>
             )}
           </button>
@@ -828,7 +881,7 @@ export default function DevicesPageContent({
                   {availableDeviceTypes.map((k) => (
                     <button key={k} onClick={() => toggleFilter(filterTypes, setFilterTypes, k)}
                       className={clsx("badge cursor-pointer", filterTypes.includes(k) ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200")}>
-                      {DEVICE_TYPE_LABELS[k] ?? k}
+                      {getUserDeviceTypeMeta(k).label}
                     </button>
                   ))}
                 </div>
@@ -1032,9 +1085,17 @@ export default function DevicesPageContent({
                             <div className="mt-1 text-xs text-slate-500">{device.organism}</div>
                           </td>
                           <td className="px-4 py-4">
-                            <span className={clsx("rounded-full px-2.5 py-1 text-xs font-medium", DEVICE_TYPE_COLORS[device.device_type] || "bg-slate-100 text-slate-600")}>
-                              {DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
-                            </span>
+                            {(() => {
+                              const typeMeta = getUserDeviceTypeMeta(device.device_type);
+                              return (
+                                <div>
+                                  <span className={clsx("rounded-full px-2.5 py-1 text-xs font-medium", typeMeta.color || DEVICE_TYPE_COLORS[device.device_type] || "bg-slate-100 text-slate-600")} title={typeMeta.short}>
+                                    {typeMeta.label}
+                                  </span>
+                                  <p className="mt-1 max-w-[190px] text-[11px] leading-4 text-slate-400">{typeMeta.short}</p>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-4 text-slate-700">{[device.country, device.region].filter(Boolean).join(" · ") || "—"}</td>
                           <td className="px-4 py-4 text-slate-700">{device.amount_max ? formatAmount(device.amount_max, device.currency) : "—"}</td>

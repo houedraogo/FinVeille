@@ -114,7 +114,11 @@ type OnboardingPreview = {
   total: number;
   subventions: number;
   investisseurs: number;
+  institutionnels: number;
   urgentes: number;
+  result_device_types?: string[] | null;
+  result_status?: string[] | null;
+  result_actionable_now?: boolean | null;
   has_real_count?: boolean;
 };
 
@@ -216,7 +220,16 @@ export default function OnboardingPage() {
   // ── Simulation analyse (step 1) ─────────────────────────────────────────────
 
   useEffect(() => {
-    if (step !== 1) return;
+    const shouldPreview = step === 3 && !!financingScope;
+    if (!shouldPreview) {
+      if (step < 4) {
+        setAnalysisPhase(0);
+        setSimCount(0);
+        setPreview(null);
+        setPreviewError(null);
+      }
+      return;
+    }
     if (selectedCountries.length === 0) {
       setAnalysisPhase(0);
       setSimCount(0);
@@ -236,14 +249,20 @@ export default function OnboardingPage() {
           sectors,
           device_types: deviceTypes,
           status: financingScope === "private" ? undefined : ["open", "recurring"],
+          actionable_now: true,
         });
         if (!active) return;
-        const safeTotal = Number(data?.total ?? 0);
+        const safeTotal = Number(data?.display_total ?? data?.total ?? 0);
+        const institutionalCount = Number(data?.institutionnels ?? 0);
         setPreview({
           total: safeTotal,
           subventions: Number(data?.subventions ?? 0),
           investisseurs: Number(data?.investisseurs ?? 0),
+          institutionnels: institutionalCount,
           urgentes: Number(data?.urgentes ?? 0),
+          result_device_types: Array.isArray(data?.result_device_types) ? data.result_device_types : null,
+          result_status: Array.isArray(data?.result_status) ? data.result_status : null,
+          result_actionable_now: typeof data?.result_actionable_now === "boolean" ? data.result_actionable_now : null,
           has_real_count: Boolean(data?.has_real_count),
         });
         setSimCount(safeTotal);
@@ -323,13 +342,14 @@ export default function OnboardingPage() {
     resultCount: null,
     savedAt: new Date().toISOString(),
     filters: {
-      q: sectors.slice(0, 2).join(" "),
+      q: "",
       countries: selectedCountries,
-      deviceTypes,
+      deviceTypes: preview?.result_device_types?.length ? preview.result_device_types : deviceTypes,
       sectors,
-      statuses: financingScope === "private" ? [] : ["open", "recurring"],
+      statuses: preview?.result_status ?? (financingScope === "private" ? [] : ["open", "recurring"]),
       closingSoon: "",
       hasCloseDate: false,
+      actionableNow: preview?.result_actionable_now ?? true,
       sortBy: "relevance",
     },
   });
@@ -343,11 +363,11 @@ export default function OnboardingPage() {
 
     try {
       const data = await devices.list({
-        q: sectors.slice(0, 2).join(" ") || undefined,
         countries: selectedCountries,
         sectors,
-        device_types: deviceTypes,
-        status: financingScope === "private" ? undefined : ["open", "recurring"],
+        device_types: preview?.result_device_types?.length ? preview.result_device_types : deviceTypes,
+        status: preview?.result_status ?? (financingScope === "private" ? undefined : ["open", "recurring"]),
+        actionable_now: preview?.result_actionable_now ?? true,
         sort_by: "relevance",
         page: 1,
         page_size: 5,
@@ -414,7 +434,8 @@ export default function OnboardingPage() {
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
 
-  const breakdown = preview ?? { total: simCount, subventions: 0, investisseurs: 0, urgentes: 0 };
+  const breakdown = preview ?? { total: simCount, subventions: 0, investisseurs: 0, institutionnels: 0, urgentes: 0 };
+  const hasInstitutionalSignals = Boolean(preview?.result_device_types?.includes("institutional_project"));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/40">
@@ -775,9 +796,19 @@ export default function OnboardingPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-emerald-800">
-                          🎯 Nous avons identifié{" "}
-                          <span className="text-2xl font-bold text-emerald-700">{simCount}</span>{" "}
-                          opportunité{simCount > 1 ? "s" : ""} réellement disponible{simCount > 1 ? "s" : ""} pour ce ciblage
+                          {hasInstitutionalSignals ? (
+                            <>
+                              🎯 Aucun financement direct trouvé, mais{" "}
+                              <span className="text-2xl font-bold text-emerald-700">{breakdown.institutionnels}</span>{" "}
+                              signal{breakdown.institutionnels > 1 ? "s" : ""} pays à surveiller
+                            </>
+                          ) : (
+                            <>
+                              🎯 Nous avons identifié{" "}
+                              <span className="text-2xl font-bold text-emerald-700">{simCount}</span>{" "}
+                              opportunité{simCount > 1 ? "s" : ""} réellement disponible{simCount > 1 ? "s" : ""} pour ce ciblage
+                            </>
+                          )}
                         </p>
                         {previewError && (
                           <p className="mt-1 text-xs text-orange-600">{previewError}</p>
@@ -887,7 +918,9 @@ export default function OnboardingPage() {
                       </div>
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-widest text-primary-600">Résultat de votre analyse</p>
-                        <p className="text-2xl font-bold text-slate-950">{simCount} financements disponibles</p>
+                        <p className="text-2xl font-bold text-slate-950">
+                          {hasInstitutionalSignals ? "Aucun financement direct trouvé" : `${simCount} financements disponibles`}
+                        </p>
                       </div>
                     </div>
 
@@ -907,6 +940,15 @@ export default function OnboardingPage() {
                           <div>
                             <p className="text-xl font-bold text-violet-800">{breakdown.investisseurs}</p>
                             <p className="text-xs text-violet-600">investisseurs pertinents</p>
+                          </div>
+                        </div>
+                      )}
+                      {breakdown.institutionnels > 0 && (
+                        <div className="flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50/80 px-4 py-3">
+                          <Globe2 className="h-5 w-5 text-blue-600 shrink-0" />
+                          <div>
+                            <p className="text-xl font-bold text-blue-800">{breakdown.institutionnels}</p>
+                            <p className="text-xs text-blue-600">signaux institutionnels</p>
                           </div>
                         </div>
                       )}
@@ -952,7 +994,7 @@ export default function OnboardingPage() {
                       ) : (
                         <>
                           <Zap className="h-5 w-5" />
-                          Voir mes {simCount} financements
+                          {hasInstitutionalSignals ? "Continuer avec ma veille" : `Voir mes ${simCount} financements`}
                           <ArrowRight className="h-5 w-5" />
                         </>
                       )}

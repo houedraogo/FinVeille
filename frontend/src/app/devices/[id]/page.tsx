@@ -7,7 +7,8 @@ import AppLayout from "@/components/AppLayout";
 import DeviceCard from "@/components/DeviceCard";
 import { devices } from "@/lib/api";
 import { canModerateDevices, getCurrentRole, type AppRole } from "@/lib/auth";
-import { Device, DEVICE_TYPE_LABELS, STATUS_LABELS } from "@/lib/types";
+import { Device, STATUS_LABELS } from "@/lib/types";
+import { getUserDeviceTypeMeta } from "@/lib/deviceTypes";
 import { formatAmount, formatDate, formatDateRelative, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import {
   addPipelineDocument,
@@ -578,7 +579,7 @@ function getDecisionBanner(device: Device, daysLeft: number | null) {
 
 function buildDecisionSummary(device: Device, presentationContent: string, fundingContent: string, daysLeft: number | null) {
   const parts = [];
-  const deviceType = DEVICE_TYPE_LABELS[device.device_type] || device.device_type;
+  const deviceType = getUserDeviceTypeMeta(device.device_type).label;
   const presentation = sanitizeDisplayText(presentationContent)
     .replace(/^##\s*[^\n]+\n+/i, "")
     .replace(/^\s*(Presentation|Présentation)\s+/i, "")
@@ -1285,6 +1286,7 @@ export default function DeviceDetailPage() {
   const hasRichContent = !!(device.full_description || device.eligibility_criteria || device.eligible_expenses);
   const hasEnrichedContent = !!(device.auto_summary || device.full_description || device.eligibility_criteria || device.eligible_expenses);
   const hero = TYPE_HERO[device.device_type] || TYPE_HERO.autre;
+  const typeMeta = getUserDeviceTypeMeta(device.device_type);
   const natureBanner = getDeviceNatureBanner(device);
   const beneficiarySummary = device.beneficiaries?.length
     ? device.beneficiaries.map((item) => item.replace(/_/g, " ")).join(", ")
@@ -1501,7 +1503,7 @@ export default function DeviceDetailPage() {
         <div className={clsx("mb-4 rounded-2xl bg-gradient-to-br p-5 text-white shadow-md", hero.from, hero.to)}>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
-              {DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
+              {typeMeta.label}
             </span>
             <span className="rounded-full bg-white/25 px-2.5 py-1 text-xs font-medium text-white">
               {STATUS_LABELS[device.status]}
@@ -1530,6 +1532,7 @@ export default function DeviceDetailPage() {
             <div className="min-w-0 flex-1">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">Opportunité de financement</p>
               <h1 className="mb-2 text-2xl font-bold leading-snug text-white">{device.title}</h1>
+              <p className="mb-3 max-w-2xl text-sm leading-relaxed text-white/80">{typeMeta.short}</p>
               {device.auto_summary && (
                 <p className="line-clamp-3 text-sm italic leading-relaxed text-white/80">
                   {sanitizeDisplayText(device.auto_summary)}
@@ -1718,7 +1721,8 @@ export default function DeviceDetailPage() {
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Type</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{DEVICE_TYPE_LABELS[device.device_type] || device.device_type}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{typeMeta.label}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{typeMeta.short}</p>
                 </div>
               </div>
             </div>
@@ -1811,7 +1815,7 @@ export default function DeviceDetailPage() {
           />
           <InsightCard
             label="Type réel"
-            value={DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
+            value={typeMeta.label}
             icon={Tag}
           />
         </div>

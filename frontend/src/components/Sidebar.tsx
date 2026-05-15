@@ -40,7 +40,7 @@ const NAV_GROUPS = [
     items: [
       {
         href: "/devices",
-        label: "Opportunités publiques",
+        label: "Opportunités à prioriser",
         icon: Landmark,
         activeFn: (pathname: string, _sp: URLSearchParams) => pathname === "/devices",
       },
@@ -57,7 +57,7 @@ const NAV_GROUPS = [
     items: [
       {
         href: "/devices/private",
-        label: "Fonds & Investisseurs",
+        label: "Fonds à prioriser",
         icon: TrendingUp,
         activeFn: (pathname: string) => pathname === "/devices/private",
       },

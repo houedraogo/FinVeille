@@ -62,8 +62,16 @@ export default function RecommendationsPage() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <section className="overflow-hidden rounded-[30px] border border-primary-100 bg-gradient-to-br from-primary-950 via-primary-900 to-blue-700 px-6 py-6 text-white shadow-[0_24px_70px_-34px_rgba(37,99,235,0.55)]">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <section
+          className="relative overflow-hidden rounded-[30px] border border-blue-300/25 px-6 py-6 text-white shadow-[0_24px_70px_-34px_rgba(15,23,42,0.65)]"
+          style={{
+            background: "linear-gradient(135deg, #071a46 0%, #123da3 48%, #0369a1 100%)",
+          }}
+        >
+          <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-white/14 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-80 rounded-full bg-cyan-300/18 blur-3xl" />
+
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white/85">
                 <Sparkles className="h-3.5 w-3.5" />
@@ -98,18 +106,18 @@ export default function RecommendationsPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur-sm">
+          <div className="relative mt-6 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/20 bg-white/14 px-4 py-4 backdrop-blur-sm">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Priorité haute</p>
               <p className="mt-2 text-2xl font-bold">{highPriorityCount}</p>
               <p className="mt-1 text-sm text-white/75">À regarder en premier cette semaine.</p>
             </div>
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur-sm">
+            <div className="rounded-2xl border border-white/20 bg-white/14 px-4 py-4 backdrop-blur-sm">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Bonnes pistes</p>
               <p className="mt-2 text-2xl font-bold">{mediumPriorityCount}</p>
               <p className="mt-1 text-sm text-white/75">Pertinentes mais avec quelques points à confirmer.</p>
             </div>
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur-sm">
+            <div className="rounded-2xl border border-white/20 bg-white/14 px-4 py-4 backdrop-blur-sm">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Actions rapides</p>
               <p className="mt-2 text-2xl font-bold">{quickActionCount}</p>
               <p className="mt-1 text-sm text-white/75">Demandent une décision ou une vérification très prochainement.</p>
@@ -188,8 +196,8 @@ export default function RecommendationsPage() {
                   {recommendedDevices.length} opportunité{recommendedDevices.length > 1 ? "s" : ""} classée{recommendedDevices.length > 1 ? "s" : ""} selon votre profil.
                 </p>
               </div>
-              <Link href="/devices?sort_by=relevance" className="text-sm font-medium text-primary-600 hover:text-primary-700">
-                Voir tout le catalogue
+              <Link href="/opportunities/now" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+                Voir les opportunités à saisir
               </Link>
             </div>
 

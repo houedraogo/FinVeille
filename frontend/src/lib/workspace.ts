@@ -17,6 +17,7 @@ export interface SavedSearchFilters {
   statuses: string[];
   closingSoon: string;
   hasCloseDate?: boolean;
+  actionableNow?: boolean;
   sortBy: string;
 }
 

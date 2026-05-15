@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Calendar, MapPin, Building2, ExternalLink, TrendingUp, Heart, Flag, ThumbsUp, ThumbsDown, AlertCircle } from "lucide-react";
 import clsx from "clsx";
 
-import { Device, DEVICE_TYPE_LABELS, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
+import { Device, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
+import { getUserDeviceTypeMeta } from "@/lib/deviceTypes";
 import { formatAmount, formatDate, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import { getPipelineDevice, isFavoriteDevice, toggleFavoriteDevice, type DevicePipelineStatus } from "@/lib/workspace";
 
@@ -67,6 +68,7 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
   const isClosingSoon = daysLeft !== null && daysLeft <= 30 && daysLeft >= 0;
   const natureBanner = getDeviceNatureBanner(device);
   const aiReadiness = getAiReadinessMeta(device);
+  const typeMeta = getUserDeviceTypeMeta(device.device_type);
   const smartHint = isClosingSoon
     ? "Attention : deadline proche. Priorise cette opportunité si elle correspond à ton projet."
     : device.relevance_label
@@ -156,9 +158,9 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={clsx("badge flex items-center gap-1 text-xs", DEVICE_TYPE_COLORS[device.device_type] || "bg-gray-100 text-gray-600")}>
+            <span className={clsx("badge flex items-center gap-1 text-xs", typeMeta.color || DEVICE_TYPE_COLORS[device.device_type] || "bg-gray-100 text-gray-600")} title={typeMeta.short}>
               {device.device_type === "investissement" && <TrendingUp className="h-3 w-3" />}
-              {DEVICE_TYPE_LABELS[device.device_type] || device.device_type}
+              {typeMeta.label}
             </span>
             <span className={clsx("badge text-xs", STATUS_COLORS[device.status])}>
               {STATUS_LABELS[device.status] || device.status}
@@ -242,7 +244,11 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
           )}
 
           <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 border-t border-slate-100 pt-3 sm:grid-cols-4">
-            <MetaLine label="Type" value={DEVICE_TYPE_LABELS[device.device_type] || device.device_type} />
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Type</p>
+              <p className="mt-1 break-words text-sm font-semibold leading-5 text-slate-900">{typeMeta.label}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{typeMeta.short}</p>
+            </div>
             <MetaLine label="Clôture" value={device.close_date ? formatDate(device.close_date) : natureBanner?.label || "Date non communiquée"} emphasized={Boolean(device.close_date)} />
             <MetaLine label="Portée" value={[device.country, device.region].filter(Boolean).join(" · ") || "Non renseignée"} />
             <MetaLine label="Montant" value={device.amount_max ? formatAmount(device.amount_max, device.currency) : "À confirmer"} emphasized={Boolean(device.amount_max)} />
@@ -266,7 +272,8 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
           )}
 
           <div className={clsx("mt-3 rounded-2xl border px-4 py-2.5 text-sm leading-6", isClosingSoon ? "border-orange-200 bg-orange-50 text-orange-800" : "border-slate-200 bg-slate-50 text-slate-600")}>
-            {smartHint}
+            <p className="font-medium text-slate-800">{typeMeta.decision}</p>
+            <p className="mt-1 text-slate-600">{smartHint}</p>
           </div>
 
           <div className="mt-3 space-y-0">
