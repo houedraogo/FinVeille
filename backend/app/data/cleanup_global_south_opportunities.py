@@ -1,242 +1,175 @@
+from __future__ import annotations
+
+import argparse
 import asyncio
-import re
-from decimal import Decimal
+import json
+from datetime import datetime, timezone
+from typing import Any
 
-from bs4 import BeautifulSoup
 from sqlalchemy import select
+from unidecode import unidecode
 
+from app.data.audit_english_titles import looks_english_title
 from app.database import AsyncSessionLocal
 from app.models.device import Device
 from app.models.source import Source
-from app.services.device_quality import DeviceQualityGate
-from app.utils.text_utils import build_structured_sections, clean_editorial_text, compute_completeness
+from app.utils.text_utils import clean_editorial_text, normalize_title
 
 
 SOURCE_NAME = "Global South Opportunities - Funding"
 
-
-def _classify_device_type(device: Device) -> str:
-    blob = clean_editorial_text(f"{device.title or ''} {device.short_description or ''} {device.full_description or ''}").lower()
-    current = device.device_type or "autre"
-    if current not in {"autre", "", None}:
-        return current
-    if any(marker in blob for marker in ("challenge", "award", "prize", "competition", "solve")):
-        return "concours"
-    if any(marker in blob for marker in ("accelerator", "fellowship", "study visit", "exchange", "programme", "program")):
-        return "accompagnement"
-    if any(marker in blob for marker in ("grant", "funding", "fund")):
-        return "subvention"
-    return current
-
-
-def _normalize_status(device: Device) -> bool:
-    changed = False
-    if device.close_date:
-        return changed
-
-    if device.status == "open":
-        # Global South relaie beaucoup d'articles sans date exploitable.
-        # Sans deadline fiable, on évite de présenter l'opportunité comme ouverte.
-        device.status = "standby"
-        changed = True
-
-    if device.status == "standby" and not device.recurrence_notes:
-        device.recurrence_notes = (
-            "Date limite non communiquee par la source publique. "
-            "La fiche reste exploitable avec verification sur la source officielle du programme."
-        )
-        changed = True
-
-    return changed
-
-
-def _extract_text_blocks(raw_html: str | None) -> tuple[list[str], list[str]]:
-    if not raw_html:
-        return [], []
-    soup = BeautifulSoup(raw_html, "lxml")
-    paragraphs = [
-        clean_editorial_text(node.get_text(" ", strip=True))
-        for node in soup.select("p")
-        if clean_editorial_text(node.get_text(" ", strip=True))
-    ]
-    bullets = [
-        clean_editorial_text(node.get_text(" ", strip=True))
-        for node in soup.select("li")
-        if clean_editorial_text(node.get_text(" ", strip=True))
-    ]
-    return paragraphs, bullets
+TITLE_MAP = {
+    "Wild Wonder Foundation Micro Grants 2026: Funding for Nature Journaling Clubs Worldwide": "Micro-subventions Wild Wonder Foundation 2026 pour clubs de nature journaling",
+    "Apply for the Fully Funded UK-German Study Visit 2026: Funded Teacher Exchange in Wales": "Visite d'étude UK-German 2026 entièrement financée pour enseignants",
+    "University of Bayreuth Opens 2026 Funding Calls Through Humboldt Centre for International Research Collaboration": "Appels à financement 2026 de l'Université de Bayreuth via le Humboldt Centre",
+    "Applications are Open for the New Community-Centered Connectivity Grant Program – Apply By 7 May 2026": "Programme de subvention pour la connectivité communautaire",
+    "FAO World Food Forum 2026 Youth Research Prize: Funding Opportunity for Forest Restoration Innovation": "Prix Jeunes chercheurs FAO World Food Forum 2026 pour la restauration forestière",
+    "MIT Solve 10 th Anniversary Global Challenge 2026: Scaling Solutions for a Better Future": "Challenge mondial MIT Solve 2026 pour solutions à fort impact",
+    "MIT Solve – 10 th Anniversary Global Challenge (Solver Impact Fund)": "Challenge mondial MIT Solve - Solver Impact Fund",
+    "National Geographic Climate Storytelling Grant 2026: Call for Proposals": "Subvention National Geographic 2026 pour récits climat",
+    "FIFA Global Citizen Education Fund Applications Open for Grassroots Organizations Supporting Education and Sports – Apply By 28 May 2026": "Fonds FIFA Global Citizen Education pour organisations locales éducation et sport",
+    "Sharjah Film Platform 2026: Short Film Production Grant for Filmmakers Worldwide": "Subvention Sharjah Film Platform 2026 pour production de courts métrages",
+    "Inspiring Asia Micro Film Festival 2026: Global Call for Direct Film Submissions on Community Empowerment": "Appel Inspiring Asia Micro Film Festival 2026 pour films sur l'autonomisation communautaire",
+    "Wellcome Accelerator Awards 2026: Up to £200,000 Research Funding for UK-Based Researchers": "Wellcome Accelerator Awards 2026 pour chercheurs basés au Royaume-Uni",
+    "Challenge Zindi IA santé multilingue pour langues africaines": "Prix Zindi IA santé multilingue pour langues africaines",
+    "Wellcome Accelerator Awards 2026 pour chercheurs sous-représentés au Royaume-Uni": "Prix Wellcome Accelerator 2026 pour chercheurs sous-représentés au Royaume-Uni",
+    "Agog Open Call 2026: Up to $1M Funding for Climate Futures and Immersive Media Projects": "Appel Agog 2026 pour projets climat et médias immersifs",
+    "Applications are Open: Connected Futures Cohort 2026 for U.S.-Based Social Impact Organisations": "Cohorte Connected Futures 2026 pour organisations à impact social",
+    "Apply Now for the William A. Zoghbi Global Research Initiative – Upto $25, 000 in Funding": "Initiative de recherche William A. Zoghbi - financement jusqu'à 25 000 USD",
+    "Apply for The Draper Richards Kaplan Foundation (DRK) Grants – Up to $300, 000 of Support": "Subventions Draper Richards Kaplan Foundation jusqu'à 300 000 USD",
+    "Black Teacher Project Wellness Grant 2026: Supporting Black Educator Wellbeing and Educational Liberation": "Subvention Black Teacher Project Wellness 2026 pour le bien-être des éducateurs",
+    "Call for Applications: Digital Energy Challenge 2026": "Appel à candidatures Digital Energy Challenge 2026",
+    "Call for Applications: Forest Conservation Fund 2026": "Appel à candidatures Forest Conservation Fund 2026",
+    "Call for Applications: NIHR Doctoral Award (Cohort 3) – Funding Opportunity": "Appel à candidatures NIHR Doctoral Award - cohorte 3",
+    "Call for Applications: Reuters News Accelerator Program 2026 – A Career-Defining Opportunity for Mid-Career Journalists": "Programme Reuters News Accelerator 2026 pour journalistes confirmés",
+    "Call for Applications: Subspace Foundation Grants Program for AI 3. 0 Innovation": "Programme de subventions Subspace Foundation pour l'innovation IA 3.0",
+    "Change Makers Micro-grant Program: Round 3 Applications are Now open!": "Programme de micro-subventions Change Makers - cycle 3",
+    "DIV Fund 2026 Request for Proposals: Funding for Innovations Tackling Global Poverty": "Fonds DIV 2026 pour innovations contre la pauvreté mondiale",
+    "Driving Innovation for Impact: A Guide to the 2026 DIV Fund and How to Apply": "Guide du fonds DIV 2026 pour innovations à impact",
+    "Elevate Prize 2027 Nominations Open – $300, 000 Funding for Global Social Impact Leaders": "Elevate Prize 2027 pour leaders mondiaux de l'impact social",
+    "Funding Opportunity: Japanese Award for Most Innovative Development Project (MIDP) 2026": "Prix japonais MIDP 2026 pour projet de développement innovant",
+    "Global Biodiversity Information Facility (GBIF) Graduate Researchers Award 2026 – €5, 000 Prize for Master’s and PhD Students in Biodiversity Research": "Prix GBIF 2026 pour jeunes chercheurs en biodiversité",
+    "Heroes of Tomorrow: UN SDG Action Awards 2026": "UN SDG Action Awards 2026 - Heroes of Tomorrow",
+    "Holohil Grant Program 2026: How Wildlife Researchers Can Get Funding for Conservation Tracking Projects": "Programme Holohil 2026 pour projets de suivi de la faune",
+    "Next Wave Fund 2026: Technology Startup Accelerator and Crowdfunding Support Programme (Kickstarter & Google)": "Next Wave Fund 2026 pour startups technologiques et crowdfunding",
+    "RELX Environmental Challenge 2026: $150,000 Global Innovation Prize for Water, Sanitation and Ocean Solutions": "RELX Environmental Challenge 2026 pour solutions eau, assainissement et océans",
+    "Research Grant Schemes 2026: Advancing Human Rights and Peace in Southeast Asia": "Subventions de recherche 2026 pour droits humains et paix en Asie du Sud-Est",
+    "SIPRA Challenge Fund Large Grants 2026": "Grandes subventions SIPRA Challenge Fund 2026",
+    "TWAS–Fayzah M. Al-Kharafi Award 2026: Recognizing Women Scientists in Developing Countries": "Prix TWAS-Fayzah M. Al-Kharafi 2026 pour femmes scientifiques",
+    "The Dana Foundation Opens 2026 Funding Applications for Locally Led Development Initiatives": "Financements 2026 de la Dana Foundation pour initiatives locales de développement",
+    "Tolka Literary Journal Call for Submissions: Submit Original Non-Fiction Writing (€600 Payment Available)": "Appel à contributions Tolka Literary Journal pour textes non fictionnels",
+    "Wellcome Launches Accelerator Awards 2026 for Black, Bangladeshi, and Pakistani Researchers in the UK": "Wellcome Accelerator Awards 2026 pour chercheurs sous-représentés au Royaume-Uni",
+    "William T. Grant Foundation Opens 2026 Research Grants on Reducing Inequality in Youth Outcomes": "Subventions de recherche William T. Grant Foundation sur les inégalités des jeunes",
+}
 
 
-def _normalize_amount_text(text: str) -> str:
-    value = text.replace("Upto", "Up to").replace("upto", "up to")
-    value = re.sub(r"\s+", " ", value)
-    value = value.replace("$ ", "$").replace("€ ", "€")
-    return value.strip()
+def _translate_title(device: Device) -> bool:
+    current = clean_editorial_text(device.title or "")
+    new_title = TITLE_MAP.get(current)
+    if not new_title or new_title == current:
+        return False
+    device.title = new_title
+    device.title_normalized = normalize_title(new_title)
+    tags = list(device.tags or [])
+    if "titre_francise" not in tags:
+        tags.append("titre_francise")
+    device.tags = tags
+    analysis = dict(device.decision_analysis or {})
+    analysis["title_cleanup"] = {
+        "original_title": current,
+        "title_fr_cleaned_at": datetime.now(timezone.utc).isoformat(),
+        "source": "global_south_cleanup",
+    }
+    device.decision_analysis = analysis
+    return True
 
 
-def _extract_amount_hint(device: Device, paragraphs: list[str]) -> str:
-    if device.amount_min or device.amount_max:
-        if device.amount_min and device.amount_max and device.amount_min != device.amount_max:
-            return f"Le soutien annoncé se situe entre {device.amount_min} et {device.amount_max} {device.currency or 'EUR'}."
-        amount = device.amount_max or device.amount_min
-        return f"Le montant annoncé peut atteindre {amount} {device.currency or 'EUR'}."
-
-    candidates = [device.title or "", *paragraphs[:6]]
-    pattern = re.compile(
-        r"((?:up to|upto|between|from)\s+)?([$€£]\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:million|m|k|thousand))?|\d[\d,]*(?:\.\d+)?\s?(?:USD|EUR|GBP|dollars|euros|pounds))",
-        re.IGNORECASE,
+def _hold_missing_date(device: Device) -> bool:
+    if device.close_date is not None or device.validation_status == "pending_review":
+        return False
+    if device.status not in {"standby", "open"}:
+        return False
+    device.validation_status = "pending_review"
+    tags = list(device.tags or [])
+    for tag in ["source:global_south", "quality:missing_deadline", "needs_manual_deadline_check"]:
+        if tag not in tags:
+            tags.append(tag)
+    device.tags = tags
+    analysis = dict(device.decision_analysis or {})
+    analysis.update(
+        {
+            "go_no_go": "a_verifier",
+            "recommended_priority": "faible",
+            "why_cautious": (
+                "La source Global South Opportunities ne donne pas de date limite fiable dans les champs stockés. "
+                "La fiche doit être vérifiée avant publication utilisateur."
+            ),
+            "recommended_action": "Vérifier la page officielle et confirmer l'échéance avant de recommander cette opportunité.",
+        }
     )
-    for candidate in candidates:
-        match = pattern.search(candidate)
-        if match:
-            amount = _normalize_amount_text(match.group(0))
-            return f"La source mentionne un soutien financier indicatif de {amount}, à confirmer sur le site officiel du programme."
-    return "Le montant exact ou les avantages associés doivent être confirmés sur la source officielle du programme."
+    device.decision_analysis = analysis
+    return True
 
 
-def _extract_benefit_hint(paragraphs: list[str], bullets: list[str]) -> str:
-    combined = [*paragraphs[:8], *bullets[:8]]
-    keywords = (
-        "mentorship",
-        "training",
-        "accelerator",
-        "acceleration",
-        "technical assistance",
-        "coaching",
-        "network",
-        "support",
-        "exposure",
-        "fellowship",
-        "award",
-        "prize",
+def _mark_admin_only(device: Device, reason: str) -> bool:
+    if device.validation_status == "admin_only":
+        return False
+
+    device.validation_status = "admin_only"
+    tags = list(device.tags or [])
+    for tag in ["source:global_south_admin_only", "visibility:admin_only", f"admin_only_reason:{reason}"]:
+        if tag not in tags:
+            tags.append(tag)
+    device.tags = tags
+
+    analysis = dict(device.decision_analysis or {})
+    analysis.update(
+        {
+            "public_visibility": "admin_only",
+            "admin_only_reason": reason,
+            "go_no_go": "a_verifier",
+            "recommended_priority": "faible",
+            "why_cautious": (
+                "La source Global South Opportunities donne un signal utile, mais la fiche doit etre qualifiee "
+                "avant publication utilisateur."
+            ),
+            "recommended_action": "Verifier la page officielle, franciser le titre et confirmer l'echeance avant publication.",
+        }
     )
-    hits: list[str] = []
-    for item in combined:
-        lowered = item.lower()
-        if any(keyword in lowered for keyword in keywords):
-            hits.append(item)
-        if len(hits) >= 2:
-            break
-    if not hits:
-        return ""
-    lowered = " ".join(hits).lower()
-    categories: list[str] = []
-    if any(keyword in lowered for keyword in ("mentorship", "coaching")):
-        categories.append("mentorat")
-    if any(keyword in lowered for keyword in ("training", "accelerator", "acceleration", "fellowship")):
-        categories.append("programme d'accompagnement")
-    if any(keyword in lowered for keyword in ("network", "exposure")):
-        categories.append("mise en réseau et visibilité")
-    if any(keyword in lowered for keyword in ("technical assistance", "support")):
-        categories.append("appui technique")
-    if not categories:
-        categories.append("accompagnement complémentaire")
-    if len(categories) == 1:
-        return f"La source mentionne aussi un {categories[0]} en complément éventuel du financement."
-    if len(categories) == 2:
-        return f"La source mentionne aussi un {categories[0]} ainsi qu'une {categories[1]} en complément éventuel du financement."
-    return (
-        "La source mentionne aussi plusieurs avantages non financiers, notamment "
-        + ", ".join(categories[:-1])
-        + f" et {categories[-1]}."
-    )
+    device.decision_analysis = analysis
+    return True
 
 
-def _format_beneficiaries(values: list[str] | None) -> str:
-    cleaned = [clean_editorial_text(value) for value in (values or []) if clean_editorial_text(value)]
-    if not cleaned:
-        return ""
-    if len(cleaned) == 1:
-        return cleaned[0].lower()
-    if len(cleaned) == 2:
-        return f"{cleaned[0].lower()} et {cleaned[1].lower()}"
-    return f"{', '.join(value.lower() for value in cleaned[:-1])} et {cleaned[-1].lower()}"
+def _should_be_admin_only(device: Device) -> str | None:
+    title = clean_editorial_text(device.title or "")
+    status = str(device.status or "").lower()
+    device_type = str(device.device_type or "").lower()
+    has_reliable_date = bool(device.close_date or device.is_recurring or status in {"expired", "closed", "recurring"})
+    title_is_english = looks_english_title(title)
+    generic_type = device_type in {"", "autre", "unknown"}
+    tags_blob = unidecode(" ".join(device.tags or [])).lower()
+
+    if title_is_english:
+        return "english_title"
+    if not has_reliable_date:
+        return "missing_reliable_deadline"
+    if status == "standby":
+        return "standby_without_public_decision"
+    if generic_type:
+        return "generic_type"
+    if "quality:english_content_remaining" in tags_blob:
+        return "english_content"
+    return None
 
 
-def _build_summary(device: Device, paragraphs: list[str], amount_hint: str, benefit_hint: str) -> str:
-    title = clean_editorial_text(device.title or "Cette opportunité")
-    beneficiaries = _format_beneficiaries(device.beneficiaries)
-    sectors = ", ".join(device.sectors or [])
-    country = clean_editorial_text(device.country or "")
-    parts = [f"{title} est une opportunité relayée par Global South Opportunities."]
-    if beneficiaries:
-        parts.append(f"Elle s'adresse en priorité aux {beneficiaries}.")
-    elif country:
-        parts.append(f"Elle concerne principalement des candidatures liées à la zone {country}.")
-    if sectors:
-        parts.append(f"Les thématiques mises en avant dans la fiche incluent notamment : {sectors}.")
-    if device.close_date:
-        parts.append(f"La date limite actuellement repérée est le {device.close_date.strftime('%d/%m/%Y')}.")
-    if amount_hint:
-        parts.append(amount_hint)
-    if benefit_hint:
-        parts.append(benefit_hint)
-    if not device.close_date:
-        parts.append("La date limite n'est pas confirmée de manière fiable dans la source relayée, ce qui justifie un suivi prudent.")
-    return " ".join(part.strip() for part in parts if part).strip()[:500]
+async def run(dry_run: bool = True) -> dict[str, Any]:
+    stats = {"seen": 0, "titles_changed": 0, "held_for_review": 0, "admin_only": 0}
+    preview: list[dict[str, str | None]] = []
 
-
-def _build_eligibility(device: Device, paragraphs: list[str], bullets: list[str]) -> str:
-    beneficiaries = _format_beneficiaries(device.beneficiaries)
-    sectors = ", ".join(device.sectors or [])
-    country = clean_editorial_text(device.country or "")
-    parts: list[str] = []
-    if beneficiaries:
-        parts.append(f"La source vise principalement les profils suivants : {beneficiaries}.")
-    elif country:
-        parts.append(f"La source présente cette opportunité pour des candidats intervenant principalement sur la zone {country}.")
-
-    scope_hint = ""
-    for item in [*paragraphs[:6], *bullets[:8]]:
-        lowered = item.lower()
-        if any(keyword in lowered for keyword in ("eligib", "applicant", "who can apply", "open to", "target", "applicants")):
-            scope_hint = item
-            break
-    if scope_hint:
-        parts.append(
-            "Le texte relayé indique des critères autour du profil des candidats, du secteur d'activité ou de la zone d'intervention. "
-            f"Repère utile : {scope_hint[:260]}."
-        )
-
-    if sectors:
-        parts.append(f"Les secteurs mis en avant sur la fiche incluent notamment : {sectors}.")
-
-    parts.append("Les critères détaillés de recevabilité doivent être vérifiés sur le site officiel du programme avant toute décision.")
-    return " ".join(parts)
-
-
-def _build_funding(amount_hint: str, benefit_hint: str) -> str:
-    parts = [amount_hint]
-    if benefit_hint:
-        parts.append(benefit_hint)
-    parts.append("Les montants, avantages non financiers et éventuelles contreparties doivent être confirmés sur la source officielle.")
-    return " ".join(part.strip() for part in parts if part).strip()
-
-
-def _build_procedure(device: Device) -> str:
-    return (
-        "Cette fiche est relayée par Global South Opportunities. Il faut donc ouvrir la source officielle mentionnée dans l'article pour "
-        "confirmer la date limite, les modalités de dépôt et les pièces attendues avant candidature."
-    )
-
-
-def _should_force_publish(device: Device) -> bool:
-    return (
-        len(clean_editorial_text(device.short_description or "")) >= 140
-        and len(clean_editorial_text(device.full_description or "")) >= 280
-        and len(clean_editorial_text(device.eligibility_criteria or "")) >= 110
-        and len(clean_editorial_text(device.funding_details or "")) >= 90
-        and device.status in {"standby", "open", "recurring"}
-    )
-
-
-async def run() -> dict:
-    gate = DeviceQualityGate()
     async with AsyncSessionLocal() as db:
-        source = (await db.execute(select(Source).where(Source.name == SOURCE_NAME))).scalar_one_or_none()
-        if source is None:
-            raise RuntimeError(f"Source introuvable: {SOURCE_NAME}")
-
+        source = (
+            await db.execute(select(Source).where(Source.name == SOURCE_NAME))
+        ).scalar_one()
         devices = (
             await db.execute(
                 select(Device)
@@ -245,91 +178,46 @@ async def run() -> dict:
             )
         ).scalars().all()
 
-        updated = 0
-        auto_published = 0
-        preview: list[dict] = []
-
         for device in devices:
-            changed = False
+            stats["seen"] += 1
+            before_title = device.title
+            before_validation = device.validation_status
+            title_changed = _translate_title(device)
+            reason = _should_be_admin_only(device)
+            hidden = _mark_admin_only(device, reason) if reason else False
+            held = False if reason else _hold_missing_date(device)
+            if title_changed:
+                stats["titles_changed"] += 1
+            if hidden:
+                stats["admin_only"] += 1
+            if held:
+                stats["held_for_review"] += 1
+            if (title_changed or held or hidden) and len(preview) < 80:
+                preview.append(
+                    {
+                        "id": str(device.id),
+                        "old_title": before_title,
+                        "new_title": device.title,
+                        "status": device.status,
+                        "validation": f"{before_validation} -> {device.validation_status}",
+                        "reason": reason,
+                        "close_date": device.close_date.isoformat() if device.close_date else None,
+                    }
+                )
 
-            new_type = _classify_device_type(device)
-            if new_type != device.device_type:
-                device.device_type = new_type
-                changed = True
+        if dry_run:
+            await db.rollback()
+        else:
+            await db.commit()
 
-            if _normalize_status(device):
-                changed = True
-
-            paragraphs, bullets = _extract_text_blocks(device.source_raw)
-            amount_hint = _extract_amount_hint(device, paragraphs)
-            benefit_hint = _extract_benefit_hint(paragraphs, bullets)
-            summary = _build_summary(device, paragraphs, amount_hint, benefit_hint)
-            eligibility = _build_eligibility(device, paragraphs, bullets)
-            funding = _build_funding(amount_hint, benefit_hint)
-            full_description = build_structured_sections(
-                presentation=summary,
-                eligibility=eligibility,
-                funding=funding,
-                open_date=device.open_date,
-                close_date=device.close_date,
-                procedure=_build_procedure(device),
-                recurrence_notes=device.recurrence_notes,
-            )
-
-            if summary != (device.short_description or ""):
-                device.short_description = summary
-                changed = True
-            if eligibility != (device.eligibility_criteria or ""):
-                device.eligibility_criteria = eligibility
-                changed = True
-            if funding != (device.funding_details or ""):
-                device.funding_details = funding
-                changed = True
-            if full_description != (device.full_description or ""):
-                device.full_description = full_description
-                changed = True
-
-            payload = {column.name: getattr(device, column.name) for column in Device.__table__.columns}
-            decision = gate.evaluate(payload)
-            if decision.validation_status != device.validation_status:
-                device.validation_status = decision.validation_status
-                changed = True
-
-            if device.validation_status == "pending_review" and _should_force_publish(device):
-                device.validation_status = "auto_published"
-                changed = True
-
-            payload = {column.name: getattr(device, column.name) for column in Device.__table__.columns}
-            device.completeness_score = compute_completeness(payload)
-
-            if device.validation_status == "auto_published":
-                auto_published += 1
-
-            if changed:
-                updated += 1
-                if len(preview) < 12:
-                    preview.append(
-                        {
-                            "title": device.title,
-                            "status": device.status,
-                            "validation_status": device.validation_status,
-                            "short_description": device.short_description,
-                        }
-                    )
-
-        await db.commit()
-
-        return {
-            "source": SOURCE_NAME,
-            "updated": updated,
-            "auto_published_after_cleanup": auto_published,
-            "preview": preview,
-        }
+    return {"dry_run": dry_run, "stats": stats, "preview": preview}
 
 
 def main() -> None:
-    result = asyncio.run(run())
-    print(result)
+    parser = argparse.ArgumentParser(description="Nettoie Global South Opportunities.")
+    parser.add_argument("--apply", action="store_true")
+    args = parser.parse_args()
+    print(json.dumps(asyncio.run(run(dry_run=not args.apply)), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

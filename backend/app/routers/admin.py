@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, update
+from sqlalchemy import Integer, cast, or_, select, func, and_, update
 from datetime import date, timedelta, datetime, timezone
 from typing import List, Optional
 from uuid import UUID
@@ -35,6 +35,60 @@ from app.tasks.quality_tasks import (
 )
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+AFRICAN_SOURCE_MARKERS = (
+    "afrique",
+    "africa",
+    "aecf",
+    "awdf",
+    "baobab",
+    "janngo",
+    "tlcom",
+    "villgro",
+    "orange corners",
+    "tony elumelu",
+    "global south",
+    "vc4a",
+    "i&p",
+    "investisseurs & partenaires",
+    "burkina",
+    "benin",
+    "bénin",
+    "ivoire",
+    "abidjan",
+    "ouagadougou",
+)
+
+
+def _source_is_african_actionable(source: Source) -> bool:
+    haystack = " ".join(
+        [
+            source.name or "",
+            source.organism or "",
+            source.country or "",
+            source.region or "",
+            source.notes or "",
+            source.url or "",
+        ]
+    ).lower()
+    return any(marker in haystack for marker in AFRICAN_SOURCE_MARKERS)
+
+
+def _source_action_label(source: Source, metrics: dict) -> str:
+    if source.is_active and metrics["total"] == 0:
+        return "a_configurer"
+    if metrics["weak_texts"] > 0:
+        return "nettoyer_textes"
+    if source.consecutive_errors:
+        return "corriger_collecte"
+    if metrics["public_total"] == 0 and metrics["total"] > 0:
+        return "a_requalifier"
+    if metrics["missing_dates"] and metrics["public_total"]:
+        return "dates_a_completer"
+    if not source.is_active and source.collection_mode == "manual":
+        return "veille_manuelle"
+    return "ok"
 
 
 async def _count_scalar(db: AsyncSession, statement) -> int:
@@ -156,6 +210,143 @@ async def source_quality_report(
         "totals": audit["totals"],
         "action_counts": audit["action_counts"],
         "rows": audit["source_report"]["rows"],
+    }
+
+
+@router.get("/africa-sources")
+async def africa_actionable_sources(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin", "editor"])),
+):
+    """Pilotage des sources africaines actionnables et manuelles qualifiees."""
+    sources = (await db.execute(select(Source).order_by(Source.name.asc()))).scalars().all()
+    african_sources = [source for source in sources if _source_is_african_actionable(source)]
+    source_ids = [source.id for source in african_sources]
+
+    if not source_ids:
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "summary": {
+                "total_sources": 0,
+                "active_sources": 0,
+                "manual_sources": 0,
+                "automatic_sources": 0,
+                "public_devices": 0,
+                "admin_only_devices": 0,
+                "sources_to_fix": 0,
+            },
+            "action_counts": {},
+            "rows": [],
+        }
+
+    public_statuses = ("auto_published", "approved", "validated")
+    device_rows = (
+        await db.execute(
+            select(
+                Device.source_id,
+                func.count(Device.id),
+                func.sum(cast(Device.validation_status.in_(public_statuses), Integer)),
+                func.sum(cast(Device.validation_status == "admin_only", Integer)),
+                func.sum(cast(Device.close_date.is_(None), Integer)),
+                func.sum(
+                    cast(
+                        or_(
+                            Device.short_description.is_(None),
+                            func.length(func.trim(func.coalesce(Device.short_description, ""))) < 120,
+                        ),
+                        Integer,
+                    )
+                ),
+                func.sum(cast(Device.status == "open", Integer)),
+                func.sum(cast(Device.status == "recurring", Integer)),
+            )
+            .where(Device.source_id.in_(source_ids))
+            .group_by(Device.source_id)
+        )
+    ).all()
+
+    metrics_by_source = {
+        source_id: {
+            "total": int(total or 0),
+            "public_total": int(public_total or 0),
+            "admin_only_total": int(admin_only_total or 0),
+            "missing_dates": int(missing_dates or 0),
+            "weak_texts": int(weak_texts or 0),
+            "open_total": int(open_total or 0),
+            "recurring_total": int(recurring_total or 0),
+        }
+        for source_id, total, public_total, admin_only_total, missing_dates, weak_texts, open_total, recurring_total in device_rows
+    }
+
+    default_metrics = {
+        "total": 0,
+        "public_total": 0,
+        "admin_only_total": 0,
+        "missing_dates": 0,
+        "weak_texts": 0,
+        "open_total": 0,
+        "recurring_total": 0,
+    }
+    rows = []
+    action_counts: dict[str, int] = {}
+    for source in african_sources:
+        metrics = metrics_by_source.get(source.id, default_metrics)
+        action = _source_action_label(source, metrics)
+        action_counts[action] = action_counts.get(action, 0) + 1
+        health = max(
+            0,
+            100
+            - min(40, (source.consecutive_errors or 0) * 10)
+            - (25 if source.is_active and metrics["total"] == 0 else 0)
+            - min(20, metrics["weak_texts"] * 5)
+            - (10 if metrics["public_total"] == 0 and metrics["total"] > 0 else 0),
+        )
+        rows.append(
+            {
+                "source_id": str(source.id),
+                "name": source.name,
+                "organism": source.organism,
+                "country": source.country,
+                "region": source.region,
+                "url": source.url,
+                "category": source.category,
+                "collection_mode": source.collection_mode,
+                "is_active": source.is_active,
+                "reliability": source.reliability,
+                "check_frequency": source.check_frequency,
+                "last_success_at": source.last_success_at.isoformat() if source.last_success_at else None,
+                "last_checked_at": source.last_checked_at.isoformat() if source.last_checked_at else None,
+                "consecutive_errors": source.consecutive_errors or 0,
+                "health": health,
+                "recommended_action": action,
+                **metrics,
+            }
+        )
+
+    rows.sort(
+        key=lambda item: (
+            item["recommended_action"] == "ok",
+            item["recommended_action"] == "veille_manuelle",
+            -item["public_total"],
+            item["name"],
+        )
+    )
+
+    public_devices = sum(row["public_total"] for row in rows)
+    admin_only_devices = sum(row["admin_only_total"] for row in rows)
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "total_sources": len(rows),
+            "active_sources": sum(1 for row in rows if row["is_active"]),
+            "manual_sources": sum(1 for row in rows if row["collection_mode"] == "manual"),
+            "automatic_sources": sum(1 for row in rows if row["collection_mode"] != "manual"),
+            "public_devices": public_devices,
+            "admin_only_devices": admin_only_devices,
+            "sources_to_fix": sum(1 for row in rows if row["recommended_action"] not in {"ok", "veille_manuelle"}),
+        },
+        "action_counts": action_counts,
+        "rows": rows,
     }
 
 

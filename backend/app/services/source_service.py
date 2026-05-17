@@ -50,7 +50,7 @@ class SourceService:
         merged = dict(config or {})
         merged["source_kind"] = source_kind
 
-        if collection_mode == "manual" and source_kind in {"pdf_manual", "manual_import"}:
+        if collection_mode == "manual" and source_kind in {"pdf_manual", "manual_import", "qualified_manual"}:
             merged.setdefault("document_type", "pdf")
             return merged
 
@@ -97,6 +97,8 @@ class SourceService:
             summary = "La source servira surtout de reference documentaire ou de creation manuelle de fiche."
         elif source_kind == "manual_import":
             summary = "La source sert a rattacher des fiches importees ou gerees manuellement dans la plateforme."
+        elif source_kind == "qualified_manual":
+            summary = "La source est qualifiee manuellement : elle sert de reference fiable sans collecte automatique complete."
         elif source_kind == "single_program_page":
             summary = "La collecte creera ou mettra a jour une fiche principale a partir d'une page unique."
         elif source_kind == "institutional_project":

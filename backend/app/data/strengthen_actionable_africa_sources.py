@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.database import AsyncSessionLocal
 from app.models.device import Device
@@ -118,7 +118,11 @@ def _sections(
 DEVICE_BLUEPRINTS: list[dict[str, Any]] = [
     {
         "source_name": "GSMA Innovation Fund - calls",
-        "title": "GSMA Innovation Fund for Green Transition for Mobile",
+        "title": "Fonds d'innovation GSMA - transition verte par le mobile",
+        "match_titles": [
+            "GSMA Innovation Fund for Green Transition for Mobile",
+            "Fonds d'innovation GSMA - transition verte par le mobile",
+        ],
         "organism": "GSMA",
         "organism_type": "fondation / secteur prive",
         "country": "International",
@@ -401,14 +405,20 @@ async def _unique_slug(db, title: str, existing_id=None) -> str:
 
 
 async def _upsert_device(db, source: Source, payload: dict[str, Any]) -> tuple[str, Device]:
-    device = (
+    match_titles = list(dict.fromkeys([payload["title"], *(payload.get("match_titles") or [])]))
+    matches = (
         await db.execute(
-            select(Device).where(
-                Device.title == payload["title"],
+            select(Device)
+            .where(
                 Device.source_id == source.id,
+                or_(Device.title.in_(match_titles), Device.source_url == payload["source_url"]),
             )
+            .order_by(Device.validation_status.asc(), Device.updated_at.desc())
         )
-    ).scalar_one_or_none()
+    ).scalars().all()
+    device = next((match for match in matches if match.validation_status != "admin_only"), None)
+    if device is None and matches:
+        device = matches[0]
 
     action = "updated"
     if device is None:

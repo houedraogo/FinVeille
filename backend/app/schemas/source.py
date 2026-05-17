@@ -13,6 +13,7 @@ SourceKind = Literal[
     "institutional_project",
     "editorial_funding",
     "manual_import",
+    "qualified_manual",
 ]
 
 
@@ -55,8 +56,8 @@ class _SourceBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_shape(self):
-        if self.source_kind in {"pdf_manual", "manual_import"} and self.collection_mode != "manual":
-            raise ValueError("Une source de type pdf_manual doit utiliser le mode de collecte manual.")
+        if self.source_kind in {"pdf_manual", "manual_import", "qualified_manual"} and self.collection_mode != "manual":
+            raise ValueError("Une source manuelle ou qualifiee doit utiliser le mode de collecte manual.")
 
         if self.collection_mode != "html":
             return self

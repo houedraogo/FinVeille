@@ -380,24 +380,9 @@ def resolve_onboarding_result_filters(
     """
     Aligne le nombre affiche pendant l'onboarding avec la page ouverte ensuite.
 
-    Si aucun financement direct ne correspond mais que des signaux institutionnels
-    existent, l'onboarding doit annoncer ces signaux et ouvrir exactement ce
-    segment, au lieu d'annoncer un nombre puis d'arriver sur une page vide.
+    L'onboarding utilisateur ne doit pas compter les signaux institutionnels
+    comme des opportunites actionnables. Ils restent exploitables en admin.
     """
-    institutional_beneficiaries = {
-        "collectivite",
-        "collectivite territoriale",
-        "mairie",
-        "commune",
-        "region",
-        "institution publique",
-        "etat",
-        "ministere",
-        "acteur territorial",
-    }
-    can_show_institutional = not beneficiaries or bool(set(beneficiaries) & institutional_beneficiaries)
-    if total == 0 and institutional_total > 0 and can_show_institutional:
-        return institutional_total, ["institutional_project"]
     return total, device_types
 
 

@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
@@ -15,6 +16,7 @@ from app.services.ai_readiness import compute_ai_readiness
 from app.services.device_quality import DeviceQualityGate
 from app.services.device_service import DeviceService
 from app.utils.hash_utils import compute_content_hash
+from app.utils.text_utils import clean_editorial_text, looks_english_text
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,86 @@ class CollectionPipeline:
             "ai_readiness_label": readiness.label,
             "ai_readiness_reasons": readiness.reasons,
         }
+
+    def _source_blob(self) -> str:
+        return " ".join(
+            str(value or "")
+            for value in (
+                self.source.get("name"),
+                self.source.get("organism"),
+                self.source.get("url"),
+            )
+        ).lower()
+
+    def _is_global_south_source(self) -> bool:
+        source_blob = self._source_blob()
+        return "globalsouthopportunities.com" in source_blob or "global south opportunities" in source_blob
+
+    def _is_les_aides_source(self) -> bool:
+        source_blob = self._source_blob()
+        return "les-aides.fr" in source_blob or "les aides" in source_blob
+
+    def _apply_source_visibility_rules(self, device: dict, quality_reasons: list[str]) -> None:
+        title = clean_editorial_text(device.get("title") or "")
+        source_url = str(device.get("source_url") or self.source.get("url") or "")
+        host = urlparse(source_url).netloc.lower()
+        status = str(device.get("status") or "").lower()
+        has_reliable_date = bool(device.get("close_date") or device.get("is_recurring") or status in {"expired", "closed", "recurring"})
+        reasons = set(quality_reasons or [])
+
+        if self._is_global_south_source():
+            title_is_english = looks_english_text(title)
+            generic_type = str(device.get("device_type") or "").lower() in {"autre", "unknown", ""}
+            should_hide = (
+                title_is_english
+                or not has_reliable_date
+                or status == "standby"
+                or generic_type
+                or bool(reasons.intersection({"english_content_remaining", "open_without_close_date", "no_reliable_status_or_close_date"}))
+            )
+            if should_hide:
+                device["validation_status"] = "admin_only"
+                tags = set(device.get("tags") or [])
+                tags.update({"source:global_south_admin_only", "visibility:admin_only"})
+                if title_is_english:
+                    tags.add("quality:english_title_admin_only")
+                if not has_reliable_date:
+                    tags.add("quality:missing_reliable_deadline")
+                if generic_type:
+                    tags.add("quality:generic_type_admin_only")
+                device["tags"] = sorted(tags)
+
+                analysis = dict(device.get("decision_analysis") or {})
+                analysis["public_visibility"] = "admin_only"
+                analysis["admin_only_reason"] = "Global South: fiche a qualifier avant publication publique"
+                analysis["source_visibility_rule"] = {
+                    "source": "Global South Opportunities",
+                    "host": host,
+                    "title_is_english": title_is_english,
+                    "has_reliable_date": has_reliable_date,
+                    "status": status,
+                    "generic_type": generic_type,
+                    "quality_reasons": sorted(reasons),
+                }
+                device["decision_analysis"] = analysis
+
+        if self._is_les_aides_source() and status == "standby" and not has_reliable_date:
+            device["validation_status"] = "admin_only"
+            tags = set(device.get("tags") or [])
+            tags.update({"source:les_aides_admin_only", "visibility:admin_only", "quality:missing_reliable_deadline"})
+            device["tags"] = sorted(tags)
+
+            analysis = dict(device.get("decision_analysis") or {})
+            analysis["public_visibility"] = "admin_only"
+            analysis["admin_only_reason"] = "les-aides.fr: date limite non communiquee ou non exploitable"
+            analysis["source_visibility_rule"] = {
+                "source": "les-aides.fr",
+                "host": host,
+                "has_reliable_date": has_reliable_date,
+                "status": status,
+                "quality_reasons": sorted(reasons),
+            }
+            device["decision_analysis"] = analysis
 
     async def process(self, collection_result: CollectionResult) -> dict:
         stats = {"new": 0, "updated": 0, "skipped": 0, "errors": 0}
@@ -194,6 +276,7 @@ class CollectionPipeline:
         enriched["quality_gate_score"] = quality_decision.score
         if quality_decision.reasons:
             enriched["tags"] = sorted(set((enriched.get("tags") or []) + [f"quality:{reason}" for reason in quality_decision.reasons]))
+        self._apply_source_visibility_rules(enriched, quality_decision.reasons)
 
         ai_readiness = compute_ai_readiness(enriched, self.source)
         enriched["ai_readiness_score"] = ai_readiness.score

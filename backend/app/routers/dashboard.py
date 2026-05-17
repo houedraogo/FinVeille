@@ -74,6 +74,10 @@ async def _profile_conds(db: AsyncSession, user: User) -> list:
     # Filtre par pays du profil
     if profile.countries:
         conds.append(Device.country.in_(DeviceService._expanded_country_filter(profile.countries)))
+    if profile.sectors:
+        conds.append(Device.sectors.overlap(profile.sectors))
+    if profile.target_funding_types:
+        conds.append(Device.device_type.in_(profile.target_funding_types))
 
     return conds
 
@@ -96,7 +100,7 @@ async def get_dashboard(
 
     # ── Compteurs principaux ─────────────────────────────────────────────────────
 
-    r = await db.execute(select(func.count()).where(Device.status == "open", *conds))
+    r = await db.execute(select(func.count()).where(Device.status.in_(["open", "recurring"]), *conds))
     total_active = r.scalar() or 0
 
     r = await db.execute(select(func.count()).where(*conds) if conds else select(func.count()))

@@ -93,7 +93,16 @@ async def run(apply: bool = False, limit: int | None = None) -> dict:
 
             # Une fiche sans date ni preuve de recurrence ne doit pas etre publiee comme une opportunite sure.
             if next_status == "standby" and device.validation_status == "auto_published":
-                device.validation_status = "pending_review"
+                device.validation_status = "admin_only"
+                tags = list(device.tags or [])
+                for tag in ["source:les_aides_admin_only", "visibility:admin_only", "quality:missing_reliable_deadline"]:
+                    if tag not in tags:
+                        tags.append(tag)
+                device.tags = sorted(tags)
+                analysis = dict(device.decision_analysis or {})
+                analysis["public_visibility"] = "admin_only"
+                analysis["admin_only_reason"] = "les-aides.fr: date limite non communiquee ou non exploitable"
+                device.decision_analysis = analysis
                 changed = True
 
             if next_status in {"open", "recurring", "expired"} and device.validation_status == "pending_review":
