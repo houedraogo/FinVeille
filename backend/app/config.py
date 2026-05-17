@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     EMAIL_FROM: str = "noreply@kafundo.com"
+    ADMIN_EMAIL: str = "contact@kafundo.com"
 
     # Collecte
     DEFAULT_REQUEST_TIMEOUT: int = 30

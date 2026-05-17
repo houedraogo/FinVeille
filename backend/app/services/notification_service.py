@@ -155,6 +155,119 @@ class NotificationService:
             logger.error(f"[Email] ✗ Échec envoi à {to} — {e}")
             return False
 
+    # ─── Notifications admin ────────────────────────────────────────────────────
+
+    @staticmethod
+    def notify_admin_new_user(
+        user_email: str,
+        user_name: str,
+        method: str = "email",
+    ) -> bool:
+        """Notifie l'admin quand un nouvel utilisateur crée un compte."""
+        from datetime import datetime
+        now = datetime.now().strftime("%d/%m/%Y à %H:%M")
+        method_label = "Google OAuth" if method == "google" else "Email / mot de passe"
+        html = _email_wrapper(f"""
+      <tr><td style="padding:28px 32px 12px;background:linear-gradient(135deg,#0b1f59,#1646c8);text-align:center;">
+        <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.7);">Kafundo · Admin</p>
+        <h1 style="margin:8px 0 0;font-size:22px;font-weight:800;color:white;">🎉 Nouvel utilisateur</h1>
+      </td></tr>
+      <tr><td style="padding:28px 32px;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #e2e8f0;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Nom</span><br>
+              <strong style="font-size:15px;color:#1e293b;">{user_name or "—"}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #e2e8f0;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Email</span><br>
+              <strong style="font-size:15px;color:#1e293b;">{user_email}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #e2e8f0;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Méthode d'inscription</span><br>
+              <strong style="font-size:15px;color:#1e293b;">{method_label}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Date</span><br>
+              <strong style="font-size:15px;color:#1e293b;">{now}</strong>
+            </td>
+          </tr>
+        </table>
+        <div style="margin-top:24px;text-align:center;">
+          <a href="https://app.kafundo.com/admin" style="display:inline-block;background:#2563eb;color:white;text-decoration:none;font-weight:700;font-size:14px;padding:12px 28px;border-radius:12px;">
+            Voir dans l'admin →
+          </a>
+        </div>
+      </td></tr>
+        """, preheader=f"Nouvel utilisateur : {user_email}")
+        return NotificationService.send_email(
+            to=settings.ADMIN_EMAIL,
+            subject=f"[Kafundo] Nouvel utilisateur : {user_name or user_email}",
+            html_body=html,
+        )
+
+    @staticmethod
+    def notify_admin_new_subscription(
+        user_email: str,
+        user_name: str,
+        plan: str,
+        amount_eur: float | None = None,
+    ) -> bool:
+        """Notifie l'admin quand un utilisateur souscrit à un plan payant."""
+        from datetime import datetime
+        now = datetime.now().strftime("%d/%m/%Y à %H:%M")
+        amount_str = f"{amount_eur:.0f} €/mois" if amount_eur else "—"
+        html = _email_wrapper(f"""
+      <tr><td style="padding:28px 32px 12px;background:linear-gradient(135deg,#064e3b,#059669);text-align:center;">
+        <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.7);">Kafundo · Facturation</p>
+        <h1 style="margin:8px 0 0;font-size:22px;font-weight:800;color:white;">💳 Nouvel abonnement</h1>
+      </td></tr>
+      <tr><td style="padding:28px 32px;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border-radius:12px;border:1px solid #bbf7d0;">
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #bbf7d0;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Utilisateur</span><br>
+              <strong style="font-size:15px;color:#1e293b;">{user_name or user_email}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #bbf7d0;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Email</span><br>
+              <strong style="font-size:15px;color:#1e293b;">{user_email}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;border-bottom:1px solid #bbf7d0;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Plan souscrit</span><br>
+              <strong style="font-size:15px;color:#059669;text-transform:capitalize;">{plan}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px;">
+              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Montant · Date</span><br>
+              <strong style="font-size:15px;color:#1e293b;">{amount_str} — {now}</strong>
+            </td>
+          </tr>
+        </table>
+        <div style="margin-top:24px;text-align:center;">
+          <a href="https://app.kafundo.com/admin" style="display:inline-block;background:#059669;color:white;text-decoration:none;font-weight:700;font-size:14px;padding:12px 28px;border-radius:12px;">
+            Voir dans l'admin →
+          </a>
+        </div>
+      </td></tr>
+        """, preheader=f"Nouvel abonnement {plan} : {user_email}")
+        return NotificationService.send_email(
+            to=settings.ADMIN_EMAIL,
+            subject=f"[Kafundo] 💳 Abonnement {plan} — {user_name or user_email}",
+            html_body=html,
+        )
+
     @staticmethod
     def smtp_status() -> dict:
         """Vérifie si le SMTP est joignable. Utilisé par l'endpoint de test."""

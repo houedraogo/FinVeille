@@ -19,6 +19,7 @@ from app.schemas.billing import (
     SubscriptionResponse,
 )
 from app.services.billing_service import get_billing_context, get_current_organization_id, record_usage
+from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
 
@@ -300,6 +301,24 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             else:
                 customer.stripe_customer_id = customer_id
             await db.commit()
+
+            # Notifier l'admin du nouvel abonnement
+            try:
+                org_result = await db.execute(
+                    select(Organization).where(Organization.id == _uuid(organization_id))
+                )
+                org = org_result.scalar_one_or_none()
+                plan_name = (data.get("metadata") or {}).get("plan", "inconnu")
+                user_email = data.get("customer_email") or data.get("customer_details", {}).get("email", "—")
+                user_name = org.name if org else ""
+                NotificationService.notify_admin_new_subscription(
+                    user_email=user_email,
+                    user_name=user_name,
+                    plan=plan_name,
+                )
+            except Exception:
+                pass
+
         if subscription_id:
             stripe_subscription = stripe.Subscription.retrieve(subscription_id)
             await _upsert_subscription_from_stripe(db, stripe_subscription)

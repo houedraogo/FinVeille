@@ -13,6 +13,7 @@ from app.schemas.user import UserCreate, UserResponse, TokenResponse, LoginReque
 from app.utils.auth_utils import hash_password, verify_password, create_access_token
 from app.utils.google_auth import verify_google_credential
 from app.dependencies import get_current_user
+from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -121,6 +122,16 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     await _create_personal_org(db, user)
     await db.refresh(user)
 
+    # Notifier l'admin
+    try:
+        NotificationService.notify_admin_new_user(
+            user_email=user.email,
+            user_name=user.full_name or "",
+            method="email",
+        )
+    except Exception:
+        pass
+
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
@@ -145,6 +156,16 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession = Depends(get_db
         db.add(user)
         await db.commit()
         await db.refresh(user)
+
+        # Notifier l'admin
+        try:
+            NotificationService.notify_admin_new_user(
+                user_email=user.email,
+                user_name=user.full_name or "",
+                method="google",
+            )
+        except Exception:
+            pass
 
     if not user.full_name and google_user["full_name"]:
         user.full_name = google_user["full_name"]
