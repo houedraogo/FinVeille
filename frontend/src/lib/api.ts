@@ -271,6 +271,7 @@ export const admin = {
   qualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit"),
   catalogAudit: () => apiFetch<any>("/api/v1/admin/quality/catalog-audit"),
   sourceQualityReport: () => apiFetch<any>("/api/v1/admin/quality/source-report"),
+  africaSources: () => apiFetch<any>("/api/v1/admin/africa-sources"),
   runQualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit/run", { method: "POST" }),
   runCatalogQualityControl: () => apiFetch<any>("/api/v1/admin/quality/catalog-audit/run", { method: "POST" }),
   collectAll: () => apiFetch("/api/v1/admin/collect/all", { method: "POST" }),

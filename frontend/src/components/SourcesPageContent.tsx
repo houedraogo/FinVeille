@@ -36,17 +36,17 @@ function inferDefaultSourceKind(collectionMode: string): SourceKind {
 }
 
 function getSourceKindBadge(source: Pick<Source, "collection_mode" | "source_kind">) {
-  if (source.collection_mode === "manual" || source.source_kind === "pdf_manual") {
+  if (source.collection_mode === "manual" || ["pdf_manual", "manual_import", "qualified_manual"].includes(source.source_kind)) {
     return { label: "Source manuelle", tone: "bg-slate-100 text-slate-700" };
   }
-  if (source.source_kind === "single_program_page" || source.source_kind === "institutional_project") {
+  if (["single_program_page", "institutional_project", "editorial_funding"].includes(source.source_kind)) {
     return { label: "Page éditoriale", tone: "bg-amber-100 text-amber-700" };
   }
   return { label: "Collecte automatique", tone: "bg-emerald-100 text-emerald-700" };
 }
 
 function getSourceCollectionPreview(source: Pick<Source, "collection_mode" | "source_kind" | "is_active">) {
-  if (source.collection_mode === "manual" || source.source_kind === "pdf_manual") {
+  if (source.collection_mode === "manual" || ["pdf_manual", "manual_import", "qualified_manual"].includes(source.source_kind)) {
     return "Création ou suivi manuel d'une fiche à partir d'un document de référence.";
   }
   if (source.source_kind === "single_program_page") {
@@ -62,7 +62,7 @@ function getSourceCollectionPreview(source: Pick<Source, "collection_mode" | "so
 }
 
 function getLastCollectionLabel(source: Pick<Source, "collection_mode" | "source_kind" | "last_success_at">) {
-  if (source.collection_mode === "manual" || source.source_kind === "pdf_manual") {
+  if (source.collection_mode === "manual" || ["pdf_manual", "manual_import", "qualified_manual"].includes(source.source_kind)) {
     return {
       primary: "À qualifier",
       secondary: "Qualification manuelle attendue",
@@ -76,7 +76,7 @@ function getLastCollectionLabel(source: Pick<Source, "collection_mode" | "source
 }
 
 function getHealthBadge(source: Pick<Source, "collection_mode" | "source_kind" | "health_score" | "health_label">) {
-  if (source.collection_mode === "manual" || source.source_kind === "pdf_manual") {
+  if (source.collection_mode === "manual" || ["pdf_manual", "manual_import", "qualified_manual"].includes(source.source_kind)) {
     return {
       label: `Référence ${source.health_score}/100`,
       tone: "bg-slate-100 text-slate-700",

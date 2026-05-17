@@ -54,6 +54,23 @@ interface MatchResult {
   total: number;
 }
 
+const isMatchResult = (value: unknown): value is MatchResult => {
+  const candidate = value as Partial<MatchResult> | null;
+  const profile = candidate?.profile as Partial<Profile> | undefined;
+  return Boolean(
+    candidate
+    && profile
+    && Array.isArray(candidate.matches)
+    && typeof candidate.total === "number"
+    && Array.isArray(profile.sectors)
+    && Array.isArray(profile.countries)
+    && Array.isArray(profile.types)
+    && Array.isArray(profile.keywords)
+  );
+};
+
+const PREMIUM_MATCH_MESSAGE = "L'analyse de document est disponible avec une offre supérieure. Choisissez un plan Pro, Team ou Expert pour en bénéficier.";
+
 interface MatchPageState {
   fileName: string | null;
   fileSize: number | null;
@@ -95,9 +112,9 @@ export default function MatchPage() {
       const savedState = JSON.parse(rawState) as MatchPageState;
       setFileName(savedState.fileName);
       setFileSize(savedState.fileSize);
-      setResult(savedState.result);
+      setResult(isMatchResult(savedState.result) ? savedState.result : null);
       setError(savedState.error);
-      setStep(savedState.step);
+      setStep(isMatchResult(savedState.result) ? savedState.step : "idle");
     } catch {
       localStorage.removeItem(MATCH_STORAGE_KEY);
     }
@@ -167,6 +184,10 @@ export default function MatchPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (res.status === 402 || data.detail?.code === "feature_locked") {
+          setMatchingAllowed(false);
+          throw new Error(data.detail?.message || PREMIUM_MATCH_MESSAGE);
+        }
         const msg = typeof data.detail === "string"
           ? data.detail
           : data.detail?.message
@@ -178,6 +199,9 @@ export default function MatchPage() {
       }
 
       const data: MatchResult = await res.json();
+      if (!isMatchResult(data)) {
+        throw new Error("L'analyse n'a pas retourné un résultat exploitable. Réessayez avec un document plus détaillé.");
+      }
       persistMatchState({
         fileName: file.name,
         fileSize: file.size,
@@ -225,8 +249,8 @@ export default function MatchPage() {
         {!matchingAllowed && (
           <div className="mb-6 space-y-4">
             <LimitNotice
-              title="Analyse de document disponible à partir de l’offre Pro"
-              message="Cette fonctionnalité premium lit votre document projet, détecte les signaux clés et fait remonter les financements les plus cohérents. Elle n’est pas incluse dans l’offre Découverte."
+              title="Changez d’offre pour analyser vos documents"
+              message="L’analyse de document n’est pas incluse dans votre plan actuel. Passez à une offre Pro, Team ou Expert pour importer un document projet et recevoir les financements les plus pertinents."
             />
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary-600">
@@ -359,7 +383,7 @@ export default function MatchPage() {
         )}
 
         {/* Erreur */}
-        {error && (
+        {error && matchingAllowed && (
           <div className="mt-4 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
             <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <div>

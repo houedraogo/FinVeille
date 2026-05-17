@@ -383,12 +383,15 @@ export default function DevicesPageContent({
   const [adminFullCatalog, setAdminFullCatalog] = useState(() => canAccessAdmin(getCurrentRole()));
   const [savedActionableNow, setSavedActionableNow] = useState<boolean | null>(null);
   const effectiveActionableNow = savedActionableNow ?? actionableNow;
+  const adminCatalogEnabled = userIsStaff && adminFullCatalog;
 
   const applyPersistedFilters = useCallback((filters: PersistedDeviceFilters) => {
+    const restoredTypes = Array.isArray(filters.deviceTypes) ? filters.deviceTypes : [];
+    const allowedTypes = restoredTypes.filter((type) => !lockedDeviceTypes.length || lockedDeviceTypes.includes(type));
     setQ(filters.q || "");
     setDebouncedQ(filters.q || "");
     setFilterCountries(Array.isArray(filters.countries) ? filters.countries : []);
-    setFilterTypes(Array.isArray(filters.deviceTypes) ? filters.deviceTypes : []);
+    setFilterTypes(allowedTypes);
     setFilterSectors(Array.isArray(filters.sectors) ? filters.sectors : []);
     setFilterStatuses(Array.isArray(filters.statuses) ? filters.statuses : []);
     setFilterAiReadiness(Array.isArray(filters.aiReadiness) ? filters.aiReadiness : []);
@@ -398,7 +401,7 @@ export default function DevicesPageContent({
     if (typeof filters.adminFullCatalog === "boolean") setAdminFullCatalog(filters.adminFullCatalog);
     setSortBy(filters.sortBy || defaultSort);
     setPage(filters.page && filters.page > 0 ? filters.page : 1);
-  }, [defaultSort]);
+  }, [defaultSort, lockedDeviceTypes]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
@@ -453,6 +456,8 @@ export default function DevicesPageContent({
     setUserIsStaff(isStaff);
     if (isStaff && !restoredFromSession) {
       setAdminFullCatalog(true);
+    } else if (!isStaff) {
+      setAdminFullCatalog(false);
     }
 
     // Pour les utilisateurs normaux, le filtre pays est appliqué silencieusement
@@ -461,6 +466,7 @@ export default function DevicesPageContent({
       relevance.getProfile().then((profile: any) => {
         const hasProfile = profile && (profile.countries?.length || profile.sectors?.length);
         if (hasProfile) setProfileActive(true);
+        setPage(1);
         if (!restoredFromSession) {
           const preferences = getUserPreferences();
           const onboardingTypes = Array.isArray(preferences.onboardingDeviceTypes)
@@ -507,18 +513,18 @@ export default function DevicesPageContent({
       closingSoon,
       hasCloseDate,
       actionableNow: savedActionableNow,
-      adminFullCatalog,
+      adminFullCatalog: adminCatalogEnabled,
       sortBy,
       page,
     };
     window.sessionStorage.setItem(`${DEVICE_FILTERS_SESSION_PREFIX}${pathname}`, JSON.stringify(payload));
-  }, [profileReady, pathname, q, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, savedActionableNow, adminFullCatalog, sortBy, page]);
+  }, [profileReady, pathname, q, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, savedActionableNow, adminCatalogEnabled, sortBy, page]);
 
   const fetchDevices = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const effectiveTypes = adminFullCatalog
+      const effectiveTypes = adminCatalogEnabled
         ? (filterTypes.length > 0 ? filterTypes : undefined)
         : filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
       const data = await devices.list({
@@ -530,15 +536,19 @@ export default function DevicesPageContent({
         ai_readiness_labels:filterAiReadiness.length ? filterAiReadiness : undefined,
         closing_soon_days:  closingSoon ? parseInt(closingSoon) : undefined,
         has_close_date:     hasCloseDate || undefined,
-        actionable_now:     adminFullCatalog ? undefined : effectiveActionableNow || undefined,
-        include_all_statuses: adminFullCatalog || undefined,
-        include_rejected: adminFullCatalog || undefined,
-        include_low_quality: adminFullCatalog || undefined,
+        actionable_now:     adminCatalogEnabled ? undefined : effectiveActionableNow || undefined,
+        include_all_statuses: adminCatalogEnabled || undefined,
+        include_rejected: adminCatalogEnabled || undefined,
+        include_low_quality: adminCatalogEnabled || undefined,
         sort_by:            sortBy,
         sort_desc:          sortBy !== "close_date",
         page,
         page_size: viewMode === "table" ? 50 : 30,
       });
+      if (data.total > 0 && data.items.length === 0 && page > 1) {
+        setPage(1);
+        return;
+      }
       setResult(data);
       // Sélectionner automatiquement le premier élément en vue split
       if (viewMode === "split" && data.items.length > 0) {
@@ -551,7 +561,7 @@ export default function DevicesPageContent({
     } finally {
       setLoading(false);
     }
-  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, effectiveActionableNow, adminFullCatalog, sortBy, page, viewMode, lockedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, effectiveActionableNow, adminCatalogEnabled, sortBy, page, viewMode, lockedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (profileReady) fetchDevices(); }, [fetchDevices, profileReady]);
 
@@ -567,7 +577,7 @@ export default function DevicesPageContent({
   };
 
   const hasFilters = filterCountries.length || filterTypes.length || filterSectors.length ||
-    filterStatuses.length || filterAiReadiness.length || closingSoon || hasCloseDate || adminFullCatalog;
+    filterStatuses.length || filterAiReadiness.length || closingSoon || hasCloseDate || adminCatalogEnabled;
 
   const pageIds = result?.items.map((d) => d.id) ?? [];
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
@@ -622,7 +632,7 @@ export default function DevicesPageContent({
     setEditingSavedSearchId(null);
   };
 
-  const effectiveTypesForExport = adminFullCatalog
+  const effectiveTypesForExport = adminCatalogEnabled
     ? (filterTypes.length > 0 ? filterTypes : undefined)
     : filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
   const exportParams = {
@@ -632,10 +642,10 @@ export default function DevicesPageContent({
     ai_readiness_labels: filterAiReadiness.length ? filterAiReadiness : undefined,
     closing_soon_days: closingSoon ? parseInt(closingSoon) : undefined,
     has_close_date: hasCloseDate || undefined,
-    actionable_now: adminFullCatalog ? undefined : effectiveActionableNow || undefined,
-    include_all_statuses: adminFullCatalog || undefined,
-    include_rejected: adminFullCatalog || undefined,
-    include_low_quality: adminFullCatalog || undefined,
+    actionable_now: adminCatalogEnabled ? undefined : effectiveActionableNow || undefined,
+    include_all_statuses: adminCatalogEnabled || undefined,
+    include_rejected: adminCatalogEnabled || undefined,
+    include_low_quality: adminCatalogEnabled || undefined,
   };
   const exportCsvUrl   = devices.exportCsv(exportParams);
   const exportExcelUrl = devices.exportExcel(exportParams);
@@ -901,7 +911,7 @@ export default function DevicesPageContent({
             Filtres
             {hasFilters && (
               <span className="bg-primary-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) + Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate) + Number(adminFullCatalog)}
+                {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) + Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate) + Number(adminCatalogEnabled)}
               </span>
             )}
           </button>

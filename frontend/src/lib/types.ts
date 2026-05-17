@@ -188,7 +188,10 @@ export type SourceKind =
   | "listing"
   | "single_program_page"
   | "pdf_manual"
-  | "institutional_project";
+  | "institutional_project"
+  | "editorial_funding"
+  | "manual_import"
+  | "qualified_manual";
 
 export interface CollectionLog {
   id: string;
@@ -285,6 +288,9 @@ export const SOURCE_KIND_LABELS: Record<SourceKind, string> = {
   single_program_page: "Page unique programme",
   pdf_manual: "PDF manuel",
   institutional_project: "Projet institutionnel",
+  editorial_funding: "Source éditoriale",
+  manual_import: "Import manuel",
+  qualified_manual: "Source qualifiée manuelle",
 };
 
 export const DEVICE_TYPE_LABELS: Record<string, string> = {

@@ -7,7 +7,6 @@ const ACTIONABLE_TYPES = [
   "accompagnement",
   "garantie",
   "concours",
-  "investissement",
 ];
 
 export default function OpportunitiesNowPage() {

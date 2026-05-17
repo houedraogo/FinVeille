@@ -603,6 +603,30 @@ function buildDecisionSummary(device: Device, presentationContent: string, fundi
   return parts.join(" ");
 }
 
+function buildUserDecisionSummary(device: Device, presentationContent: string, fundingContent: string, daysLeft: number | null) {
+  if (!isInstitutionalProjectDevice(device)) {
+    return buildDecisionSummary(device, presentationContent, fundingContent, daysLeft);
+  }
+
+  const parts = [
+    `Cette fiche correspond a un projet institutionnel porte par ${device.organism}.`,
+    "Elle sert de signal de veille pour comprendre les priorites financees dans ce pays ou ce secteur.",
+  ];
+
+  if (device.close_date && daysLeft !== null && daysLeft >= 0) {
+    parts.push(`La date indiquee dans la source est le ${formatDate(device.close_date)} : elle correspond au calendrier du projet, pas a une date limite de candidature.`);
+  } else {
+    parts.push("Aucune date de candidature directe n'est publiee pour cette fiche.");
+  }
+
+  const presentation = sanitizeDisplayText(presentationContent).replace(/^##\s*[^\n]+\n+/i, "").trim();
+  if (presentation && presentation.length > 120) {
+    parts.push(presentation.slice(0, 180).replace(/\s+\S*$/, "") + ".");
+  }
+
+  return parts.join(" ");
+}
+
 function getDecisionPriority(device: Device, daysLeft: number | null): { label: string; className: string } {
   if (device.status === "expired" || device.status === "closed") {
     return { label: "Non prioritaire", className: "border-slate-200 bg-slate-100 text-slate-700" };
@@ -645,6 +669,16 @@ function getShortPreview(text: string, fallback: string): string {
   if (!cleaned) return fallback;
   const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] || cleaned;
   return firstSentence.length > 180 ? `${firstSentence.slice(0, 176).replace(/\s+\S*$/, "")}...` : firstSentence;
+}
+
+function isInstitutionalProjectDevice(device: Device): boolean {
+  const context = `${device.device_type || ""} ${device.organism || ""} ${device.source_url || ""}`.toLowerCase();
+  return (
+    device.device_type === "institutional_project" ||
+    context.includes("world bank") ||
+    context.includes("banque mondiale") ||
+    context.includes("projects.worldbank.org")
+  );
 }
 
 // ─── Score helpers ────────────────────────────────────────────────────────────
@@ -1321,29 +1355,41 @@ export default function DeviceDetailPage() {
   const displayFundingContent = sanitizeDisplayText(structuredFunding || fundingContent);
   const hasDistinctFundingText =
     displayFundingContent && normalizeForComparison(displayFundingContent) !== normalizeForComparison(displayPresentationContent);
+  const isInstitutionalSignal = isInstitutionalProjectDevice(device);
   const decisionBanner = getDecisionBanner(device, daysLeft);
-  const decisionSummary = buildDecisionSummary(device, displayPresentationContent, displayFundingContent, daysLeft);
+  const decisionSummary = buildUserDecisionSummary(device, displayPresentationContent, displayFundingContent, daysLeft);
   const decisionPriority = getDecisionPriority(device, daysLeft);
   const effortLabel = getEffortLabel(device);
-  const quickEligibility = beneficiarySummary || getShortPreview(displayEligibilityContent, "Profil a confirmer sur la source officielle");
+  const quickEligibility = isInstitutionalSignal
+    ? "Non candidatable directement"
+    : beneficiarySummary || getShortPreview(displayEligibilityContent, "Profil a confirmer sur la source officielle");
   const quickFunding = device.amount_max
     ? formatAmount(device.amount_max, device.currency)
-    : getShortPreview(displayFundingContent, "Montant a confirmer");
+    : isInstitutionalSignal
+      ? "Financement institutionnel"
+      : getShortPreview(displayFundingContent, "Montant a confirmer");
   const quickDeadline = device.close_date
-    ? `${formatDate(device.close_date)}${daysLeft !== null && daysLeft >= 0 ? `, J-${daysLeft}` : ""}`
+    ? `${formatDate(device.close_date)}${daysLeft !== null && daysLeft >= 0 && !isInstitutionalSignal ? `, J-${daysLeft}` : ""}`
     : natureBanner?.label || (device.is_recurring || device.status === "recurring" ? "Permanent" : "Date non communiquee");
   const quickReason =
     device.relevance_label ||
     getShortPreview(displayPresentationContent || device.short_description || "", "Opportunite a examiner selon votre profil et votre calendrier.");
   const aiReadiness = getAiReadinessMeta(device);
   const smartActionHint =
-    daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
+    isInstitutionalSignal
+      ? "Signal de veille : consulte la fiche projet pour comprendre le financement, mais ne la traite pas comme une candidature directe."
+      : daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
       ? `Attention : deadline proche, il reste ${daysLeft} jour${daysLeft > 1 ? "s" : ""}. Priorise cette aide si elle correspond à ton projet.`
       : device.ai_readiness_label === "pret_pour_recommandation_ia"
         ? "Bonne opportunité pour ton profil : ajoute-la à ton suivi pour décider plus vite."
         : device.amount_max
           ? "Conseil : le montant est indiqué. Compare-le à ton besoin réel avant de candidater."
           : "Astuce : ajoute cette opportunité à ton suivi pour la comparer avec d'autres financements.";
+  const sourceActionLabel = isInstitutionalSignal ? "Consulter la fiche projet" : "Verifier la source";
+  const sourceDetailActionLabel = isInstitutionalSignal ? "Ouvrir la fiche projet officielle" : "Ouvrir la source officielle";
+  const sourceContextText = isInstitutionalSignal
+    ? "Cette source presente le projet institutionnel. Elle ne contient pas forcement de formulaire de candidature."
+    : "La demande ou la consultation detaillee se fait aupres de l'organisme source.";
   const primaryActionLabel = device.source_url
     ? "Consulter la source officielle"
     : pipelineStatus
@@ -1608,7 +1654,7 @@ export default function DeviceDetailPage() {
                   className="flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  Verifier la source
+                  {sourceActionLabel}
                 </a>
               ) : (
                 <button
@@ -1752,7 +1798,7 @@ export default function DeviceDetailPage() {
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
                   >
                     <ExternalLink className="h-4 w-4" />
-                    Accéder au dispositif officiel
+                    {isInstitutionalSignal ? "Consulter la fiche projet" : "Accéder au dispositif officiel"}
                   </a>
                 ) : (
                   <button
@@ -1779,7 +1825,7 @@ export default function DeviceDetailPage() {
               {/* ── Accompagnement premium ── */}
               <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-4">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-600 mb-1">Service premium</p>
-                <p className="text-sm font-semibold text-slate-800 mb-0.5">Besoin d'aide pour candidater ?</p>
+                <p className="text-sm font-semibold text-slate-800 mb-0.5">{isInstitutionalSignal ? "Besoin d'analyser ce signal ?" : "Besoin d'aide pour candidater ?"}</p>
                 <p className="text-xs leading-5 text-slate-500 mb-3">
                   Un expert vous accompagne de la constitution du dossier jusqu'à l'obtention du financement.
                 </p>
@@ -1899,7 +1945,7 @@ export default function DeviceDetailPage() {
                   <div className="rounded-2xl border border-primary-100 bg-primary-50/60 p-4">
                     <p className="mb-2 text-sm font-semibold text-slate-900">Quelle démarche suivre ?</p>
                     <p className="mb-3 text-sm text-slate-600">
-                      La demande ou la consultation détaillée se fait auprès de l&apos;organisme source.
+                      {sourceContextText}
                     </p>
                     <a
                       href={device.source_url}
@@ -1908,7 +1954,7 @@ export default function DeviceDetailPage() {
                       className="inline-flex items-center gap-2 text-sm font-medium text-primary-700 hover:text-primary-800"
                     >
                       <ExternalLink className="h-4 w-4" />
-                      Ouvrir la source officielle
+                      {sourceDetailActionLabel}
                     </a>
                   </div>
                 )}
@@ -1926,7 +1972,7 @@ export default function DeviceDetailPage() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
               >
                 <ExternalLink className="h-4 w-4" />
-                Accéder au financement
+                {isInstitutionalSignal ? "Consulter le projet" : "Accéder au financement"}
                 <ArrowRight className="ml-auto h-4 w-4" />
               </a>
             )}

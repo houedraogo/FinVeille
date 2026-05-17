@@ -25,6 +25,7 @@ import {
   Wand2,
   ReceiptText,
   LineChart,
+  Globe2,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -165,6 +166,12 @@ const ADMIN_NAV_GROUPS = [
         label: "Qualite donnees",
         icon: LineChart,
         activeFn: (pathname: string) => pathname === "/admin/data-quality" || pathname === "/admin",
+      },
+      {
+        href: "/admin/africa-sources",
+        label: "Sources Afrique",
+        icon: Globe2,
+        activeFn: (pathname: string) => pathname === "/admin/africa-sources",
       },
       {
         href: "/sources",
