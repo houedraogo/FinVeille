@@ -30,6 +30,8 @@ from app.services.device_service import DeviceService
 from app.tasks.quality_tasks import (
     build_catalog_audit,
     build_quality_audit,
+    check_visible_source_links,
+    daily_visible_quality_audit,
     daily_catalog_quality_control,
     daily_quality_audit,
 )
@@ -211,6 +213,71 @@ async def source_quality_report(
         "action_counts": audit["action_counts"],
         "rows": audit["source_report"]["rows"],
     }
+
+
+@router.get("/quality/visible-audit")
+async def visible_quality_audit(
+    limit: int = Query(80, ge=1, le=250),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin", "editor"])),
+):
+    """Audit des fiches actuellement exposables aux utilisateurs."""
+    from app.services.visible_quality_service import build_visible_quality_audit
+
+    return await build_visible_quality_audit(db, limit=limit)
+
+
+@router.get("/quality/publication-queue")
+async def publication_quality_queue(
+    limit: int = Query(80, ge=1, le=250),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin", "editor"])),
+):
+    """Liste admin des fiches à corriger avant publication ou maintien public."""
+    from app.services.visible_quality_service import build_visible_quality_audit
+
+    audit = await build_visible_quality_audit(db, limit=limit)
+    return {
+        "generated_at": audit["generated_at"],
+        "total": audit["to_fix_total"],
+        "issue_counts": audit["issue_counts"],
+        "action_counts": audit["action_counts"],
+        "items": audit["items"],
+    }
+
+
+@router.post("/quality/visible-audit/run")
+async def run_visible_quality_audit(_=Depends(require_role(["admin"]))):
+    """Déclenche l'audit quotidien des fiches visibles utilisateur."""
+    daily_visible_quality_audit.delay()
+    return {"message": "Audit des fiches visibles déclenché en arrière-plan"}
+
+
+@router.post("/quality/link-check/run")
+async def run_visible_link_check(
+    batch_size: int = Query(80, ge=1, le=300),
+    _=Depends(require_role(["admin"])),
+):
+    """Déclenche la vérification HTTP des liens officiels visibles."""
+    check_visible_source_links.delay(batch_size=batch_size)
+    return {"message": f"Vérification de {batch_size} liens visibles déclenchée en arrière-plan"}
+
+
+@router.post("/quality/devices/{device_id}/action")
+async def quality_device_action(
+    device_id: UUID,
+    action: str = Query(..., pattern="^(publish|hide|rewrite|delete)$"),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin", "editor"])),
+):
+    """Action rapide qualité: Publier, Masquer, Reformuler, Supprimer/Rejeter."""
+    from app.services.visible_quality_service import apply_quality_action
+
+    try:
+        result = await apply_quality_action(db, device_id, action)
+    except ValueError as exc:
+        raise HTTPException(status_code=404 if "introuvable" in str(exc) else 422, detail=str(exc))
+    return result
 
 
 @router.get("/africa-sources")
@@ -1067,6 +1134,26 @@ async def merge_group(
 
 # --- Email ---
 
+def _email_event(
+    *,
+    user_id=None,
+    email: str,
+    template: str,
+    subject: str,
+    ok: bool,
+    metadata: dict | None = None,
+    error_message: str | None = None,
+) -> EmailEvent:
+    return EmailEvent(
+        user_id=user_id,
+        email=email,
+        template=template,
+        subject=subject,
+        status="sent" if ok else "failed",
+        error_message=None if ok else (error_message or "SMTP send failed"),
+        metadata_json=metadata or {},
+    )
+
 @router.get("/email/status")
 async def email_status(_=Depends(require_role(["admin"]))):
     """Vérifie la configuration et la joignabilité du serveur SMTP."""
@@ -1101,11 +1188,21 @@ async def send_test_email(
         "Ceci est un email de test. Si vous le recevez, votre configuration SMTP fonctionne correctement.",
     )
 
+    subject = "[Kafundo] Test de configuration email"
     ok = NotificationService.send_email(
         to=current_user.email,
-        subject="[Kafundo] Test de configuration email",
+        subject=subject,
         html_body=html,
     )
+    db.add(_email_event(
+        user_id=current_user.id,
+        email=current_user.email,
+        template="admin_test_email",
+        subject=subject,
+        ok=ok,
+        metadata={"triggered_by": str(current_user.id), "smtp_host": status.get("host")},
+    ))
+    await db.commit()
     if not ok:
         raise HTTPException(status_code=500, detail="Échec de l'envoi. Vérifiez les logs du backend.")
 
@@ -1185,12 +1282,16 @@ async def send_weekly_digest(
             subject=f"[Kafundo] Digest hebdo — {len(new_devices)} nouvelles opportunités",
             html_body=html,
         )
+        devices = new_devices
+        alert = type("DigestLogContext", (), {"id": "weekly_digest", "name": "Digest hebdo"})()
+        hours_back = 24 * 7
+        effective_since_dt = seven_days_ago
         db.add(
             EmailEvent(
                 user_id=user.id,
                 email=user.email,
-                template="new_opportunity_alert",
-                subject=f"[Kafundo] {len(devices)} nouvelle(s) opportunite(s) - {alert.name}",
+                template="weekly_digest",
+                subject=f"[Kafundo] Digest hebdo - {len(devices)} nouvelle(s) opportunite(s)",
                 status="sent" if ok else "failed",
                 metadata_json={
                     "alert_id": str(alert.id),
@@ -1205,6 +1306,8 @@ async def send_weekly_digest(
             sent += 1
         else:
             failed += 1
+
+    await db.commit()
 
     return {
         "sent": sent,
@@ -1274,10 +1377,26 @@ async def send_deadline_reminders(
             subject=f"[Kafundo] ⏰ {len(devices)} deadline(s) dans {days_ahead} jours",
             html_body=html,
         )
+        db.add(_email_event(
+            user_id=user.id,
+            email=user.email,
+            template="deadline_reminder",
+            subject=f"[Kafundo] {len(devices)} deadline(s) dans {days_ahead} jours",
+            ok=ok,
+            metadata={
+                "triggered_by": str(current_user.id),
+                "days_ahead": days_ahead,
+                "matches": len(devices),
+                "devices": [str(device.id) for device in devices[:20]],
+            },
+        ))
         if ok:
             sent += 1
         else:
             failed += 1
+
+    if user_devices:
+        await db.commit()
 
     return {
         "sent": sent,
@@ -1381,6 +1500,21 @@ async def send_new_opportunity_alerts(
             subject=f"[Kafundo] 🔔 {len(devices)} nouvelle(s) opportunité(s) — {alert.name}",
             html_body=html,
         )
+        db.add(_email_event(
+            user_id=user.id,
+            email=user.email,
+            template="new_opportunity_alert",
+            subject=f"[Kafundo] {len(devices)} nouvelle(s) opportunite(s) - {alert.name}",
+            ok=ok,
+            metadata={
+                "triggered_by": str(current_user.id),
+                "alert_id": str(alert.id),
+                "alert_name": alert.name,
+                "matches": len(devices),
+                "hours_back": hours_back,
+                "effective_since": effective_since_dt.isoformat(),
+            },
+        ))
         if ok:
             sent += 1
             # Mettre à jour last_triggered_at

@@ -20,13 +20,24 @@ REWRITE_FAILED = "failed"
 REWRITE_NEEDS_REVIEW = "needs_review"
 
 REWRITABLE_SECTION_KEYS = (
-    "presentation",
-    "eligibility",
-    "funding",
-    "calendar",
-    "procedure",
+    "why_this_opportunity",
+    "audience",
+    "benefits",
+    "availability",
+    "application",
     "checks",
 )
+
+REWRITE_SECTION_ORDER = REWRITABLE_SECTION_KEYS
+
+REWRITE_SECTION_TITLES = {
+    "why_this_opportunity": "Pourquoi regarder cette opportunite ?",
+    "audience": "Pour qui ?",
+    "benefits": "Ce que vous pouvez obtenir",
+    "availability": "Date limite ou disponibilite",
+    "application": "Comment candidater",
+    "checks": "Points a verifier",
+}
 
 
 @dataclass(frozen=True)
@@ -112,7 +123,7 @@ def build_rewrite_prompt(device: dict[str, Any], sections: list[dict[str, Any]])
             "content": clean_editorial_text(section.get("content") or "")[:1800],
         }
         for section in sections
-        if section.get("key") in REWRITABLE_SECTION_KEYS
+            if section.get("key") in SECTION_ORDER
     ]
     context = {
         "title": clean_editorial_text(device.get("title") or ""),
@@ -152,6 +163,58 @@ def build_rewrite_prompt(device: dict[str, Any], sections: list[dict[str, Any]])
         "- calendar : reprendre la date limite si elle existe, avec une presentation claire.\n"
         "- procedure : expliquer brievement comment consulter ou candidater.\n"
         "- checks : seulement les incertitudes reelles a confirmer.\n\n"
+        f"Donnees source:\n{json.dumps(context, ensure_ascii=False, default=str)}"
+    )
+
+
+def build_rewrite_prompt(device: dict[str, Any], sections: list[dict[str, Any]]) -> str:
+    compact_sections = [
+        {
+            "key": section.get("key"),
+            "title": section.get("title"),
+            "content": clean_editorial_text(section.get("content") or "")[:1800],
+        }
+        for section in sections
+        if section.get("key") in SECTION_ORDER
+    ]
+    context = {
+        "title": clean_editorial_text(device.get("title") or ""),
+        "organism": clean_editorial_text(device.get("organism") or ""),
+        "country": clean_editorial_text(device.get("country") or ""),
+        "device_type": clean_editorial_text(device.get("device_type") or ""),
+        "status": clean_editorial_text(device.get("status") or ""),
+        "close_date": str(device.get("close_date") or ""),
+        "amount_min": str(device.get("amount_min") or ""),
+        "amount_max": str(device.get("amount_max") or ""),
+        "currency": clean_editorial_text(device.get("currency") or ""),
+        "sections": compact_sections,
+    }
+    return (
+        "Reformule cette fiche en francais professionnel, clair et lisible.\n"
+        "Contraintes strictes:\n"
+        "- N'invente aucune information absente des champs fournis.\n"
+        "- Conserve les dates, montants, pays, organisme et conditions tels qu'ils sont fournis.\n"
+        "- Corrige accents, ponctuation, espaces, phrases collees et paragraphes.\n"
+        "- Supprime les doublons, fil d'Ariane, menus, textes techniques et HTML.\n"
+        "- N'ecris jamais de navigation du type 'Accueil', 'Documents a telecharger', 'FAQ', 'Deposez votre dossier'.\n"
+        "- Ecris dans un style naturel, business et directement comprehensible par un lecteur francophone.\n"
+        "- Utilise des phrases courtes et des listes quand plusieurs criteres sont presentes.\n"
+        "- Si une information manque, ecris 'Non communique par la source' ou 'A confirmer sur la source officielle'.\n"
+        "- Retourne uniquement un objet JSON valide.\n\n"
+        "Format JSON attendu:\n"
+        "{\"sections\":[{\"key\":\"why_this_opportunity\",\"title\":\"Pourquoi regarder cette opportunite ?\",\"content\":\"...\"},"
+        "{\"key\":\"audience\",\"title\":\"Pour qui ?\",\"content\":\"...\"},"
+        "{\"key\":\"benefits\",\"title\":\"Ce que vous pouvez obtenir\",\"content\":\"...\"},"
+        "{\"key\":\"availability\",\"title\":\"Date limite ou disponibilite\",\"content\":\"...\"},"
+        "{\"key\":\"application\",\"title\":\"Comment candidater\",\"content\":\"...\"},"
+        "{\"key\":\"checks\",\"title\":\"Points a verifier\",\"content\":\"...\"}]}\n\n"
+        "Attendus par section:\n"
+        "- why_this_opportunity : 1 paragraphe court qui explique l'interet concret de l'opportunite.\n"
+        "- audience : publics cibles et criteres principaux, en liste si possible.\n"
+        "- benefits : montant, dotation, accompagnement ou avantages; sinon dire clairement que la source ne le communique pas.\n"
+        "- availability : date limite, statut recurrent/permanent ou date non communiquee, sans inventer.\n"
+        "- application : demarche, lien, contact ou action a mener; sinon indiquer de consulter la source officielle.\n"
+        "- checks : seulement les incertitudes reelles a confirmer avant decision.\n\n"
         f"Donnees source:\n{json.dumps(context, ensure_ascii=False, default=str)}"
     )
 
@@ -225,14 +288,14 @@ def _normalize_rewritten_sections(payload: dict[str, Any]) -> list[dict[str, Any
         sections.append(
             {
                 "key": key,
-                "title": _normalize_rewrite_title(item.get("title") or SECTION_TITLES.get(key) or key, key=key),
+                "title": _normalize_rewrite_title(item.get("title") or REWRITE_SECTION_TITLES.get(key) or key, key=key),
                 "content": content,
                 "confidence": 80,
                 "source": "ai_rewrite",
             }
         )
 
-    return sorted(sections, key=lambda item: SECTION_ORDER.index(item["key"]) if item["key"] in SECTION_ORDER else 99)
+    return sorted(sections, key=lambda item: REWRITE_SECTION_ORDER.index(item["key"]) if item["key"] in REWRITE_SECTION_ORDER else 99)
 
 
 def _normalize_rewrite_title(value: str, *, key: str) -> str:
@@ -278,7 +341,7 @@ def _normalize_rewrite_content(value: str, *, key: str) -> str:
         if not normalized_line:
             continue
 
-        if key in {"eligibility", "calendar", "checks"}:
+        if key in {"audience", "availability", "checks"}:
             normalized_line = re.sub(r"^[-•]\s*", "- ", normalized_line)
             if not normalized_line.startswith("- "):
                 normalized_line = f"- {normalized_line}"

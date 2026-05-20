@@ -13,7 +13,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const response = await fetch(`${API_BASE}${path}`, { cache: "no-store", ...options, headers });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Erreur réseau" }));
@@ -269,11 +269,17 @@ export const admin = {
   operations: () => apiFetch<any>("/api/v1/admin/operations"),
   organizationOperations: (id: string) => apiFetch<any>(`/api/v1/admin/operations/organizations/${id}`),
   qualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit"),
+  visibleQualityAudit: () => apiFetch<any>("/api/v1/admin/quality/visible-audit"),
+  publicationQueue: () => apiFetch<any>("/api/v1/admin/quality/publication-queue"),
   catalogAudit: () => apiFetch<any>("/api/v1/admin/quality/catalog-audit"),
   sourceQualityReport: () => apiFetch<any>("/api/v1/admin/quality/source-report"),
   africaSources: () => apiFetch<any>("/api/v1/admin/africa-sources"),
   runQualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit/run", { method: "POST" }),
+  runVisibleQualityAudit: () => apiFetch<any>("/api/v1/admin/quality/visible-audit/run", { method: "POST" }),
+  runVisibleLinkCheck: (batchSize = 80) => apiFetch<any>(`/api/v1/admin/quality/link-check/run?batch_size=${batchSize}`, { method: "POST" }),
   runCatalogQualityControl: () => apiFetch<any>("/api/v1/admin/quality/catalog-audit/run", { method: "POST" }),
+  qualityDeviceAction: (deviceId: string, action: "publish" | "hide" | "rewrite" | "delete") =>
+    apiFetch<any>(`/api/v1/admin/quality/devices/${deviceId}/action?action=${action}`, { method: "POST" }),
   collectAll: () => apiFetch("/api/v1/admin/collect/all", { method: "POST" }),
   emailStatus: () => apiFetch<any>("/api/v1/admin/email/status"),
   testEmail: () => apiFetch<any>("/api/v1/admin/email/test", { method: "POST" }),

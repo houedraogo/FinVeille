@@ -529,7 +529,19 @@ async def onboarding_preview(
     }
 
     total_result = await service.search(DeviceSearchParams(**base_params))
-    subvention_types = ["subvention", "aap", "concours", "pret", "accompagnement", "garantie"]
+    subvention_types = [
+        "subvention",
+        "pret",
+        "avance_remboursable",
+        "garantie",
+        "credit_impot",
+        "exoneration",
+        "aap",
+        "appel_a_projets",
+        "ami",
+        "accompagnement",
+        "concours",
+    ]
     investor_types = ["investissement"]
 
     requested_types = set(device_types or [])
@@ -566,6 +578,30 @@ async def onboarding_preview(
             }
         )
     )
+    amount_result = await service.search(
+        DeviceSearchParams(
+            **{
+                **base_params,
+                "device_types": result_device_types or device_types,
+                "page_size": 500,
+            }
+        )
+    )
+    amount_known_count = 0
+    potential_amount_min = 0
+    potential_amount_max = 0
+    for device in amount_result["items"]:
+        min_amount = getattr(device, "amount_min", None)
+        max_amount = getattr(device, "amount_max", None)
+        if min_amount is None and max_amount is None:
+            continue
+        amount_known_count += 1
+        if min_amount is not None:
+            potential_amount_min += float(min_amount)
+        if max_amount is not None:
+            potential_amount_max += float(max_amount)
+        elif min_amount is not None:
+            potential_amount_max += float(min_amount)
 
     return {
         "total": total_result["total"],
@@ -577,6 +613,9 @@ async def onboarding_preview(
         "result_device_types": result_device_types,
         "result_status": status,
         "result_actionable_now": actionable_now,
+        "potential_amount_min": round(potential_amount_min, 2),
+        "potential_amount_max": round(potential_amount_max, 2),
+        "amount_known_count": amount_known_count,
         "has_real_count": True,
     }
 

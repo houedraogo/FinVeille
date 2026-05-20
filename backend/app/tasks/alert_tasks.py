@@ -31,6 +31,7 @@ async def _send_daily_alerts_async():
     from sqlalchemy import select
     from app.models.alert import Alert
     from app.models.user import User
+    from app.models.operations import EmailEvent
     from app.services.alert_service import AlertService
     from app.services.notification_service import NotificationService
     from datetime import datetime, timezone
@@ -59,10 +60,26 @@ async def _send_daily_alerts_async():
                         devices=devices,
                         alert_name=alert.name,
                     )
-                    NotificationService.send_email(
+                    subject = f"[Kafundo] {len(devices)} opportunite(s) - {alert.name}"
+                    ok = NotificationService.send_email(
                         to=user.email,
                         subject=f"[Kafundo] {len(devices)} opportunite(s) — {alert.name}",
                         html_body=html,
+                    )
+                    db.add(
+                        EmailEvent(
+                            user_id=user.id,
+                            email=user.email,
+                            template="daily_alert",
+                            subject=subject,
+                            status="sent" if ok else "failed",
+                            error_message=None if ok else "SMTP send failed",
+                            metadata_json={
+                                "alert_id": str(alert.id),
+                                "alert_name": alert.name,
+                                "matches": len(devices),
+                            },
+                        )
                     )
 
                 # MAJ last_triggered_at

@@ -1235,12 +1235,12 @@ TARGET_DEVICES = [
             "Financement et accompagnement de 60 initiatives via un fonds local d'aide a l'entreprise. Les montants "
             "et modalites definitives doivent etre verifies dans le dossier officiel."
         ),
-        "status": "open",
-        "open_date": date(2026, 5, 10),
-        "close_date": date(2026, 6, 30),
-        "source_url": "https://www.cci.bf/?q=fr%2Fdownload%2Ffile%2Ffid%2F1125",
+        "status": "expired",
+        "open_date": date(2023, 4, 14),
+        "close_date": date(2023, 4, 20),
+        "source_url": "https://www.cci.bf/?q=fr%2Factualites%2Fappel-%C3%A0-projets-pour-le-financement-de-60-initiatives-dentreprises",
         "source_name": "CCI-BF - Parcours du createur d'entreprise",
-        "keywords": ["Burkina Faso", "CCI-BF", "Hauts-Bassins", "TPE", "financement", "entrepreneuriat"],
+        "keywords": ["Burkina Faso", "CCI-BF", "Hauts-Bassins", "TPE", "financement", "entrepreneuriat", "archive"],
     },
     {
         "title": "ZAD Bobo - souscription pour projets productifs a Bobo-Dioulasso",

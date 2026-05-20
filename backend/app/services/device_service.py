@@ -1,18 +1,21 @@
 import math
 import re
 from datetime import date, timedelta, datetime, timezone
+from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select, func, and_, or_, update, delete as sql_delete, text, bindparam, String as SA_String, case
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from unidecode import unidecode
 
 from app.models.device import Device
 from app.models.device_history import DeviceHistory
 from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceSearchParams
 from app.utils.text_utils import normalize_title, generate_slug, compute_completeness, extract_keywords
 from app.utils.hash_utils import compute_content_hash, compute_fingerprint
+from app.services.user_quality import compute_user_quality
 
 
 WEST_AFRICA_COUNTRIES = {
@@ -50,28 +53,96 @@ class DeviceService:
         self.db = db
 
     @staticmethod
-    def _country_key(country: str) -> str:
-        replacements = {
-            "é": "e",
-            "è": "e",
-            "ê": "e",
-            "ë": "e",
-            "à": "a",
-            "â": "a",
-            "î": "i",
-            "ï": "i",
-            "ô": "o",
-            "ö": "o",
-            "ù": "u",
-            "û": "u",
-            "ü": "u",
-            "ç": "c",
-            "’": "'",
-        }
-        value = country.strip().lower()
-        for src, dst in replacements.items():
-            value = value.replace(src, dst)
+    def _json_safe(value):
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, UUID):
+            return str(value)
+        if isinstance(value, list):
+            return [DeviceService._json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {key: DeviceService._json_safe(item) for key, item in value.items()}
         return value
+
+    @staticmethod
+    def _section_payload(key: str, title: str, content: Optional[str]) -> Optional[dict]:
+        if not content or not str(content).strip():
+            return None
+        cleaned = re.sub(r"([A-Za-zÀ-ž0-9,;:])\n{1,2}(?=[a-zà-ž])", r"\1 ", str(content).strip())
+        return {
+            "key": key,
+            "title": title,
+            "content": cleaned,
+            "confidence": 95,
+            "source": "correction_manuelle_admin",
+        }
+
+    @staticmethod
+    def _extract_manual_markdown_section(text: Optional[str], headings: list[str]) -> str:
+        if not text:
+            return ""
+
+        cleaned = str(text).strip()
+        if "##" not in cleaned:
+            return cleaned
+
+        wanted = {unidecode(heading).strip().lower() for heading in headings}
+        blocks = re.split(r"\n(?=##\s+)", cleaned)
+        for block in blocks:
+            first_line = block.split("\n", 1)[0]
+            normalized_heading = unidecode(re.sub(r"^##\s*", "", first_line).strip()).lower()
+            if normalized_heading in wanted:
+                return re.sub(r"^##\s*[^\n]+\n?", "", block).strip()
+
+        return ""
+
+    @classmethod
+    def _build_manual_sections(cls, values: dict) -> list[dict]:
+        full_description = values.get("full_description")
+        presentation = (
+            values.get("short_description")
+            or cls._extract_manual_markdown_section(full_description, ["Presentation", "Présentation"])
+            or full_description
+        )
+        eligibility = values.get("eligibility_criteria") or cls._extract_manual_markdown_section(
+            full_description,
+            ["Criteres d'eligibilite", "Critères d'éligibilité", "Pour qui ?"],
+        )
+        funding = values.get("funding_details") or cls._extract_manual_markdown_section(
+            full_description,
+            ["Montant / avantages", "Montants & financement", "Recompenses", "Récompenses"],
+        )
+        application = values.get("required_documents") or cls._extract_manual_markdown_section(
+            full_description,
+            ["Demarche", "Démarche", "Comment candidater", "Procedure", "Procédure"],
+        )
+        availability = cls._extract_manual_markdown_section(
+            full_description,
+            ["Calendrier", "Date limite ou disponibilite", "Date limite ou disponibilité"],
+        )
+        checks = values.get("specific_conditions")
+
+        section_specs = [
+            ("why_this_opportunity", "Pourquoi regarder cette opportunite ?", values.get("short_description")),
+            ("presentation", "Presentation", presentation),
+            ("eligibility", "Pour qui ?", eligibility),
+            ("funding", "Montant / avantages", funding),
+            ("benefits", "Ce que vous pouvez obtenir", funding),
+            ("availability", "Date limite ou disponibilite", availability),
+            ("application", "Comment candidater", application),
+            ("checks", "Points a verifier", checks),
+        ]
+        return [
+            section
+            for section in (cls._section_payload(key, title, content) for key, title, content in section_specs)
+            if section
+        ]
+
+    @staticmethod
+    def _country_key(country: str) -> str:
+        return unidecode((country or "").strip().lower().replace("’", "'")).replace("-", " ")
 
     @classmethod
     def _expanded_country_filter(cls, countries: list[str]) -> list[str]:
@@ -83,17 +154,17 @@ class DeviceService:
         keys = {cls._country_key(country) for country in countries}
 
         aliases = {
-            "benin": "Bénin",
-            "cote d'ivoire": "Côte d'Ivoire",
-            "cote d ivoire": "Côte d'Ivoire",
-            "guinee": "Guinée",
-            "senegal": "Sénégal",
-            "ethiopie": "Éthiopie",
+            "benin": ["Bénin", "Benin", "BÃ©nin"],
+            "cote d'ivoire": ["Côte d'Ivoire", "Cote d'Ivoire", "CÃ´te d'Ivoire"],
+            "cote d ivoire": ["Côte d'Ivoire", "Cote d'Ivoire", "CÃ´te d'Ivoire"],
+            "guinee": ["Guinée", "Guinee", "GuinÃ©e"],
+            "senegal": ["Sénégal", "Senegal", "SÃ©nÃ©gal"],
+            "ethiopie": ["Éthiopie", "Ethiopie", "Ã‰thiopie"],
         }
         for key in keys:
-            alias = aliases.get(key)
-            if alias and alias not in expanded:
-                expanded.append(alias)
+            for alias in aliases.get(key, []):
+                if alias not in expanded:
+                    expanded.append(alias)
 
         if keys & WEST_AFRICA_COUNTRIES and "Afrique de l'Ouest" not in expanded:
             expanded.append("Afrique de l'Ouest")
@@ -106,12 +177,61 @@ class DeviceService:
         short_len = func.length(func.coalesce(Device.short_description, ""))
         full_len = func.length(func.coalesce(Device.full_description, ""))
         eligibility_len = func.length(func.coalesce(Device.eligibility_criteria, ""))
+        funding_len = func.length(func.coalesce(Device.funding_details, ""))
+        conditions_len = func.length(func.coalesce(Device.specific_conditions, ""))
+        documents_len = func.length(func.coalesce(Device.required_documents, ""))
+        source_url_len = func.length(func.coalesce(Device.source_url, ""))
+        country_len = func.length(func.coalesce(Device.country, ""))
+        title_len = func.length(func.coalesce(Device.title, ""))
 
-        # Masque les fiches quasi vides sans contenu enrichi exploitable.
-        return or_(
-            full_len >= 80,
-            eligibility_len >= 40,
-            short_len >= 140,
+        has_summary = or_(short_len >= 80, func.length(func.coalesce(Device.auto_summary, "")) >= 80)
+        has_presentation = full_len >= 120
+        has_target = func.coalesce(func.cardinality(Device.beneficiaries), 0) > 0
+        has_funding = or_(
+            funding_len >= 45,
+            Device.amount_min.is_not(None),
+            Device.amount_max.is_not(None),
+        )
+        has_calendar = or_(
+            Device.close_date.is_not(None),
+            Device.status.in_(["recurring", "standby"]),
+            Device.is_recurring.is_(True),
+        )
+        has_process = or_(
+            conditions_len >= 45,
+            documents_len >= 45,
+            eligibility_len >= 80,
+        )
+        useful_blocks_count = (
+            case((has_presentation, 1), else_=0)
+            + case((has_target, 1), else_=0)
+            + case((has_funding, 1), else_=0)
+            + case((has_calendar, 1), else_=0)
+            + case((has_process, 1), else_=0)
+        )
+        title_is_understandable = and_(
+            title_len >= 8,
+            ~Device.title.ilike("%call for applications%"),
+            ~Device.title.ilike("%funding opportunity%"),
+            ~Device.title.ilike("%applications open%"),
+            ~Device.title.ilike("%opens applications%"),
+        )
+
+        # Porte de publication utilisateur : une fiche visible doit être
+        # actionnable ou clairement qualifiée, pas seulement "non vide".
+        return and_(
+            or_(
+                Device.user_quality_decision.is_(None),
+                Device.user_quality_decision.in_(["publish", "publish_with_caution"]),
+            ),
+            title_is_understandable,
+            source_url_len >= 12,
+            country_len >= 2,
+            Device.status.in_(["open", "recurring", "standby"]),
+            Device.device_type.notin_(["autre", "institutional_project"]),
+            has_summary,
+            has_target,
+            useful_blocks_count >= 3,
         )
 
     @staticmethod
@@ -532,6 +652,10 @@ class DeviceService:
         # Calcul confidence basique (sans accès à la source ici)
         device_dict["confidence_score"] = min(device_dict["completeness_score"], 80)
         device_dict["relevance_score"] = device_dict["completeness_score"]
+        user_quality = compute_user_quality(device_dict)
+        device_dict["user_quality_score"] = user_quality.score
+        device_dict["user_quality_decision"] = user_quality.decision
+        device_dict["user_quality_reasons"] = user_quality.reasons
 
         device = Device(**{k: v for k, v in device_dict.items() if hasattr(Device, k)})
         self.db.add(device)
@@ -561,16 +685,50 @@ class DeviceService:
                 old_values[key] = getattr(device, key)
                 setattr(device, key, value)
 
+        manual_section_fields = {
+            "short_description",
+            "full_description",
+            "eligibility_criteria",
+            "funding_details",
+            "specific_conditions",
+            "required_documents",
+        }
+        if manual_section_fields & set(update_dict.keys()) and "ai_rewritten_sections_json" not in update_dict:
+            merged_values = {
+                "short_description": device.short_description,
+                "full_description": device.full_description,
+                "eligibility_criteria": device.eligibility_criteria,
+                "funding_details": device.funding_details,
+                "specific_conditions": device.specific_conditions,
+                "required_documents": device.required_documents,
+            }
+            manual_sections = self._build_manual_sections(merged_values)
+            if manual_sections:
+                old_values.setdefault("ai_rewritten_sections_json", device.ai_rewritten_sections_json)
+                old_values.setdefault("content_sections_json", device.content_sections_json)
+                device.ai_rewritten_sections_json = manual_sections
+                device.content_sections_json = manual_sections
+                device.ai_rewrite_status = "done"
+                device.ai_rewrite_model = "manual_admin_edit"
+                device.ai_rewrite_checked_at = datetime.now(timezone.utc)
+
         # Recalcul scores
         device_dict = {c.name: getattr(device, c.name) for c in Device.__table__.columns}
         device.completeness_score = compute_completeness(device_dict)
+        user_quality = compute_user_quality(device_dict)
+        device.user_quality_score = user_quality.score
+        device.user_quality_decision = user_quality.decision
+        device.user_quality_reasons = user_quality.reasons
         device.updated_at = datetime.now(timezone.utc)
 
         history = DeviceHistory(
             device_id=device.id,
             changed_by=updated_by,
             change_type="updated",
-            diff={"before": old_values, "after": update_dict},
+            diff={
+                "before": self._json_safe(old_values),
+                "after": self._json_safe(update_dict),
+            },
         )
         self.db.add(history)
         await self.db.commit()
@@ -597,6 +755,10 @@ class DeviceService:
 
         device_dict = {c.name: getattr(device, c.name) for c in Device.__table__.columns}
         device.completeness_score = compute_completeness(device_dict)
+        user_quality = compute_user_quality(device_dict)
+        device.user_quality_score = user_quality.score
+        device.user_quality_decision = user_quality.decision
+        device.user_quality_reasons = user_quality.reasons
         device.last_verified_at = datetime.now(timezone.utc)
 
         history = DeviceHistory(

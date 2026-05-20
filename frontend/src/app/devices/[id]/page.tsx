@@ -44,6 +44,7 @@ import {
   Loader2,
   MapPin,
   Paperclip,
+  Pencil,
   Percent,
   Plus,
   RefreshCw,
@@ -1090,8 +1091,12 @@ export default function DeviceDetailPage() {
   const [pipelineDocuments, setPipelineDocuments] = useState<PipelineDocument[]>([]);
   const [matchSnapshot, setMatchSnapshot] = useState<MatchWorkspaceSnapshot | null>(null);
   const sourceView = searchParams.get("from");
+  const updatedToken = searchParams.get("updated");
   const cameFromMatch = sourceView === "match";
   const cameFromRecommendations = sourceView === "recommendations";
+  const cameFromDevices = sourceView === "devices";
+  const cameFromPrivateDevices = sourceView === "private-devices";
+  const cameFromOpportunitiesNow = sourceView === "opportunities-now";
   const canModerate = canModerateDevices(role);
   const PIPELINE_LABELS: Record<DevicePipelineStatus, string> = {
     a_etudier: "A etudier",
@@ -1130,7 +1135,7 @@ export default function DeviceDetailPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, updatedToken]);
 
   useEffect(() => {
     setFavorite(isFavoriteDevice(id));
@@ -1328,6 +1333,12 @@ export default function DeviceDetailPage() {
   const structuredPresentation = getContentSection(device, "presentation");
   const structuredEligibility = getContentSection(device, "eligibility");
   const structuredFunding = getContentSection(device, "funding");
+  const decisionWhy = getContentSection(device, "why_this_opportunity");
+  const decisionAudience = getContentSection(device, "audience");
+  const decisionBenefits = getContentSection(device, "benefits");
+  const decisionAvailability = getContentSection(device, "availability");
+  const decisionApplication = getContentSection(device, "application");
+  const decisionChecks = getContentSection(device, "checks");
   const showShortDescription = !structuredPresentation && shouldDisplaySummary(device.short_description, device.full_description);
   const showEligibleExpenses = shouldDisplaySummary(device.eligible_expenses, device.full_description);
   const natureBannerTone =
@@ -1349,10 +1360,10 @@ export default function DeviceDetailPage() {
   );
   const fundingContent = sanitizeDisplayText((device as any).funding_details || "");
   const displayPresentationContent = sanitizeDisplayText(
-    structuredPresentation || extractMarkdownSection(device.full_description || "", ["Presentation"]) || presentationContent,
+    decisionWhy || structuredPresentation || extractMarkdownSection(device.full_description || "", ["Presentation"]) || presentationContent,
   );
-  const displayEligibilityContent = sanitizeDisplayText(structuredEligibility || eligibilityContent);
-  const displayFundingContent = sanitizeDisplayText(structuredFunding || fundingContent);
+  const displayEligibilityContent = sanitizeDisplayText(decisionAudience || structuredEligibility || eligibilityContent);
+  const displayFundingContent = sanitizeDisplayText(decisionBenefits || structuredFunding || fundingContent);
   const hasDistinctFundingText =
     displayFundingContent && normalizeForComparison(displayFundingContent) !== normalizeForComparison(displayPresentationContent);
   const isInstitutionalSignal = isInstitutionalProjectDevice(device);
@@ -1427,7 +1438,14 @@ export default function DeviceDetailPage() {
       <div className="max-w-5xl">
         <div className="mb-4 flex items-center justify-between">
           <button
-            onClick={() => (cameFromRecommendations ? router.push("/recommendations") : cameFromMatch ? router.push("/match") : router.back())}
+            onClick={() => (
+              cameFromRecommendations ? router.push("/recommendations")
+                : cameFromMatch ? router.push("/match")
+                  : cameFromPrivateDevices ? router.push("/devices/private")
+                    : cameFromOpportunitiesNow ? router.push("/opportunities/now")
+                      : cameFromDevices ? router.push("/devices")
+                        : router.back()
+            )}
             className="btn-secondary flex items-center gap-1.5 text-xs"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -1469,6 +1487,10 @@ export default function DeviceDetailPage() {
                   <History className="h-3 w-3" />
                   Historique
                 </button>
+                <Link href={`/devices/${id}/edit`} className="btn-primary text-xs">
+                  <Pencil className="h-3 w-3" />
+                  Modifier
+                </Link>
               </>
             )}
             <button onClick={handleCopyLink} className="btn-secondary flex items-center gap-1.5 text-xs">
@@ -1908,7 +1930,7 @@ export default function DeviceDetailPage() {
               </CollapsibleSection>
             )}
 
-            {(projectContent || device.specific_conditions || hasDistinctFundingText) && (
+            {(projectContent || device.specific_conditions || hasDistinctFundingText || decisionAvailability) && (
               <CollapsibleSection title="Projet, montant et avantages" icon={Tag}>
                 {showEligibleExpenses && projectContent && (
                   <SectionField
@@ -1917,12 +1939,25 @@ export default function DeviceDetailPage() {
                   />
                 )}
                 {hasDistinctFundingText && <SectionField title="Montant / avantages" content={displayFundingContent} />}
+                {decisionAvailability && <SectionField title="Date limite ou disponibilite" content={decisionAvailability} />}
                 {device.specific_conditions && <SectionField title="Quelles sont les particularités ?" content={device.specific_conditions} />}
               </CollapsibleSection>
             )}
 
-            {(device.required_documents || device.source_url || (device as any).recurrence_notes) && (
+            {(decisionApplication || decisionChecks || device.required_documents || device.source_url || (device as any).recurrence_notes) && (
               <CollapsibleSection title="Demarche et source officielle" icon={Info}>
+                {decisionApplication && (
+                  <SectionField
+                    title="Comment candidater"
+                    content={decisionApplication}
+                  />
+                )}
+                {decisionChecks && (
+                  <SectionField
+                    title="Points a verifier"
+                    content={decisionChecks}
+                  />
+                )}
                 {device.required_documents && (
                   <SectionField
                     title="Pièces et documents utiles"

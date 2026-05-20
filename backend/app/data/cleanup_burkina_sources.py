@@ -15,8 +15,8 @@ from app.models.source import Source
 
 URL_FIXES = {
     "CCI-BF Parcours du createur - financement de 60 initiatives d'entreprises": {
-        "source_url": "http://www.cci.bf/?q=fr%2Fdownload%2Ffile%2Ffid%2F1125",
-        "note": "Correction HTTPS -> HTTP : le certificat cci.bf est expire, mais le document reste accessible en HTTP.",
+        "source_url": "https://www.cci.bf/?q=fr%2Factualites%2Fappel-%C3%A0-projets-pour-le-financement-de-60-initiatives-dentreprises",
+        "note": "Page officielle conservee comme archive : appel ouvert du 14 au 20 avril 2023, donc non publiable utilisateur.",
     },
     "ZAD Bobo - souscription pour projets productifs a Bobo-Dioulasso": {
         "source_url": "https://primature.gov.bf/amenagement-de-la-zad-de-bobo-dioulasso-le-premier-ministre-lance-officiellement-les-souscriptions-aux-parcelles/",
@@ -37,6 +37,7 @@ ADMIN_ONLY_REASONS = {
 }
 
 EXPIRED_TITLES = {
+    "CCI-BF Parcours du createur - financement de 60 initiatives d'entreprises",
     "AECF IIW Burkina Faso - entrepreneuriat feminin et economie verte",
 }
 

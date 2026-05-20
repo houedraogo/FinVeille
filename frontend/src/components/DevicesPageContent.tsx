@@ -1,9 +1,9 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import AppLayout from "@/components/AppLayout";
-import LimitNotice from "@/components/LimitNotice";
+import PremiumFeatureNotice from "@/components/PremiumFeatureNotice";
 import { billing, devices, relevance } from "@/lib/api";
 import { canAccessAdmin, getCurrentRole } from "@/lib/auth";
 import { Device, DeviceListResponse, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
@@ -31,6 +31,13 @@ const AI_READINESS_LABELS: Record<string, string> = {
 };
 const STATUS_LABELS_DISPLAY: Record<string, string> = {
   open: "Ouvert", recurring: "Récurrent", standby: "Clôture non communiquée", closed: "Fermé", expired: "Expiré",
+};
+
+const USER_QUALITY_META: Record<string, { label: string; className: string }> = {
+  publish: { label: "PrÃªte utilisateur", className: "bg-emerald-100 text-emerald-700" },
+  publish_with_caution: { label: "Ã€ confirmer", className: "bg-amber-100 text-amber-700" },
+  admin_only: { label: "Admin uniquement", className: "bg-slate-100 text-slate-600" },
+  reject: { label: "Ã€ rejeter", className: "bg-red-100 text-red-700" },
 };
 
 const PIPELINE_LABELS: Record<DevicePipelineStatus, string> = {
@@ -82,10 +89,12 @@ function DevicePanel({
   device,
   onClose,
   buildRelevanceExplanation,
+  detailFromParam,
 }: {
   device: Device;
   onClose: () => void;
   buildRelevanceExplanation: (d: any) => string;
+  detailFromParam: string;
 }) {
   const daysLeft = device.close_date ? daysUntil(device.close_date) : null;
   const isClosingSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 14;
@@ -308,7 +317,7 @@ function DevicePanel({
       {/* Actions bas de volet */}
       <div className="shrink-0 border-t border-slate-100 px-5 py-4 space-y-2.5">
         <Link
-          href={`/devices/${device.id}`}
+          href={`/devices/${device.id}?from=${detailFromParam}`}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-700"
         >
           Voir la fiche complète
@@ -345,6 +354,13 @@ export default function DevicesPageContent({
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const shouldResetFilters = searchParams.get("reset") === "1";
+  const detailFromParam = pathname === "/devices/private"
+    ? "private-devices"
+    : pathname === "/opportunities/now"
+      ? "opportunities-now"
+      : "devices";
   const panelRef = useRef<HTMLDivElement>(null);
 
   const [result,          setResult]          = useState<DeviceListResponse | null>(null);
@@ -384,6 +400,16 @@ export default function DevicesPageContent({
   const [savedActionableNow, setSavedActionableNow] = useState<boolean | null>(null);
   const effectiveActionableNow = savedActionableNow ?? actionableNow;
   const adminCatalogEnabled = userIsStaff && adminFullCatalog;
+  const lockedDeviceTypeKey = lockedDeviceTypes.join("|");
+  const lockedDeviceTypeSet = useMemo(() => new Set(lockedDeviceTypes), [lockedDeviceTypeKey]);
+
+  const getScopedDeviceTypes = useCallback((types: string[] = filterTypes) => {
+    if (!lockedDeviceTypes.length) {
+      return types.length ? types : undefined;
+    }
+    const scopedTypes = types.filter((type) => lockedDeviceTypeSet.has(type));
+    return scopedTypes.length ? scopedTypes : lockedDeviceTypes;
+  }, [filterTypes, lockedDeviceTypes, lockedDeviceTypeSet]);
 
   const applyPersistedFilters = useCallback((filters: PersistedDeviceFilters) => {
     const restoredTypes = Array.isArray(filters.deviceTypes) ? filters.deviceTypes : [];
@@ -404,6 +430,13 @@ export default function DevicesPageContent({
   }, [defaultSort, lockedDeviceTypes]);
 
   useEffect(() => {
+    if (!lockedDeviceTypes.length) return;
+    setFilterTypes((previous) => previous.filter((type) => lockedDeviceTypeSet.has(type)));
+    setSelectedDevice(null);
+    setSelectedIds(new Set());
+  }, [pathname, lockedDeviceTypeKey, lockedDeviceTypeSet, lockedDeviceTypes.length]);
+
+  useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
     return () => clearTimeout(timer);
   }, [q]);
@@ -417,6 +450,10 @@ export default function DevicesPageContent({
   useEffect(() => {
     const preferredView = getSavedViewMode(pathname) || getUserPreferences().defaultViewMode;
     if (preferredView === "table") setViewMode("table");
+
+    const role = getCurrentRole();
+    const isStaff = canAccessAdmin(role);
+    setUserIsStaff(isStaff);
 
     const pendingSearch = consumePendingSavedSearch(pathname);
     if (pendingSearch) {
@@ -433,15 +470,27 @@ export default function DevicesPageContent({
         page: 1,
       });
       setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
-      setProfileReady(true);
+      setAdminFullCatalog(false);
+      if (!isStaff) {
+        relevance.getProfile().then((profile: any) => {
+          const hasProfile = profile && (profile.countries?.length || profile.sectors?.length);
+          setProfileActive(Boolean(hasProfile));
+          setProfileReady(true);
+        }).catch(() => setProfileReady(true));
+      } else {
+        setProfileReady(true);
+      }
       return;
     }
 
     const sessionKey = `${DEVICE_FILTERS_SESSION_PREFIX}${pathname}`;
     let restoredFromSession = false;
     try {
+      if (shouldResetFilters) {
+        window.sessionStorage.removeItem(sessionKey);
+      }
       const raw = window.sessionStorage.getItem(sessionKey);
-      if (raw) {
+      if (raw && !shouldResetFilters) {
         applyPersistedFilters(JSON.parse(raw));
         restoredFromSession = true;
       } else {
@@ -451,9 +500,6 @@ export default function DevicesPageContent({
       setSavedActionableNow(null);
     }
 
-    const role = getCurrentRole();
-    const isStaff = canAccessAdmin(role);
-    setUserIsStaff(isStaff);
     if (isStaff && !restoredFromSession) {
       setAdminFullCatalog(true);
     } else if (!isStaff) {
@@ -487,7 +533,7 @@ export default function DevicesPageContent({
     }
 
     setProfileReady(true);
-  }, [pathname, defaultSort, applyPersistedFilters, lockedDeviceTypes, actionableNow]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pathname, defaultSort, applyPersistedFilters, lockedDeviceTypes, actionableNow, shouldResetFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSavedViewMode(pathname, viewMode);
@@ -524,9 +570,7 @@ export default function DevicesPageContent({
     setLoading(true);
     setError(null);
     try {
-      const effectiveTypes = adminCatalogEnabled
-        ? (filterTypes.length > 0 ? filterTypes : undefined)
-        : filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
+      const effectiveTypes = getScopedDeviceTypes();
       const data = await devices.list({
         q: debouncedQ || undefined,
         countries:          filterCountries.length   ? filterCountries   : undefined,
@@ -552,7 +596,10 @@ export default function DevicesPageContent({
       setResult(data);
       // Sélectionner automatiquement le premier élément en vue split
       if (viewMode === "split" && data.items.length > 0) {
-        setSelectedDevice((prev) => prev ?? (data.items[0] as Device));
+        setSelectedDevice((prev) => {
+          if (prev && data.items.some((item: Device) => item.id === prev.id)) return prev;
+          return data.items[0] as Device;
+        });
       } else if (data.items.length === 0) {
         setSelectedDevice(null);
       }
@@ -561,7 +608,7 @@ export default function DevicesPageContent({
     } finally {
       setLoading(false);
     }
-  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, effectiveActionableNow, adminCatalogEnabled, sortBy, page, viewMode, lockedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, effectiveActionableNow, adminCatalogEnabled, sortBy, page, viewMode, lockedDeviceTypes, getScopedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (profileReady) fetchDevices(); }, [fetchDevices, profileReady]);
 
@@ -632,9 +679,7 @@ export default function DevicesPageContent({
     setEditingSavedSearchId(null);
   };
 
-  const effectiveTypesForExport = adminCatalogEnabled
-    ? (filterTypes.length > 0 ? filterTypes : undefined)
-    : filterTypes.length > 0 ? filterTypes : lockedDeviceTypes.length > 0 ? lockedDeviceTypes : undefined;
+  const effectiveTypesForExport = getScopedDeviceTypes();
   const exportParams = {
     q: debouncedQ || undefined, countries: filterCountries.length ? filterCountries : undefined,
     device_types: effectiveTypesForExport, sectors: filterSectors.length ? filterSectors : undefined,
@@ -695,6 +740,7 @@ export default function DevicesPageContent({
     const isSelected = selectedDevice?.id === device.id;
     const natureBanner = getDeviceNatureBanner(device);
     const typeMeta = getUserDeviceTypeMeta(device.device_type);
+    const userQuality = USER_QUALITY_META[device.user_quality_decision || ""] || null;
 
     return (
       <button
@@ -731,6 +777,11 @@ export default function DevicesPageContent({
               )}
               {isUrgent && daysLeft !== null && (
                 <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">J-{daysLeft}</span>
+              )}
+              {userIsStaff && userQuality && (
+                <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", userQuality.className)}>
+                  {userQuality.label} Â· {device.user_quality_score || 0}%
+                </span>
               )}
             </div>
             {/* Titre */}
@@ -810,7 +861,7 @@ export default function DevicesPageContent({
                 <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 w-72 overflow-hidden">
                   {!exportsAllowed ? (
-                    <div className="p-2"><LimitNotice compact title="Export réservé aux offres avancées" message="Les exports CSV/Excel sont disponibles avec Team, Expert ou Accompagnement Financement." /></div>
+                    <div className="p-2"><PremiumFeatureNotice compact title="Export premium" /></div>
                   ) : (
                     <>
                       <a href={exportCsvUrl} download onClick={() => setShowExportMenu(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-gray-700 hover:bg-gray-50">
@@ -1117,6 +1168,7 @@ export default function DevicesPageContent({
                       device={selectedDevice}
                       onClose={() => setSelectedDevice(null)}
                       buildRelevanceExplanation={buildRelevanceExplanation}
+                      detailFromParam={detailFromParam}
                     />
                   </div>
                 ) : (
@@ -1155,6 +1207,7 @@ export default function DevicesPageContent({
                         <th className="px-4 py-3">Montant</th>
                         <th className="px-4 py-3">Clôture</th>
                         <th className="px-4 py-3">Statut</th>
+                        {userIsStaff && <th className="px-4 py-3">QualitÃ©</th>}
                         <th className="px-4 py-3">Source</th>
                       </tr>
                     </thead>
@@ -1167,7 +1220,7 @@ export default function DevicesPageContent({
                             </td>
                           )}
                           <td className="min-w-[300px] px-4 py-4">
-                            <button type="button" onClick={() => router.push(`/devices/${device.id}`)} className="block text-left group">
+                            <button type="button" onClick={() => router.push(`/devices/${device.id}?from=${detailFromParam}`)} className="block text-left group">
                               <div className="font-semibold leading-6 text-slate-900 group-hover:text-primary-700">{device.title}</div>
                             </button>
                             <div className="mt-1 text-xs text-slate-500">{device.organism}</div>
@@ -1197,6 +1250,21 @@ export default function DevicesPageContent({
                               {STATUS_LABELS_DISPLAY[device.status] || device.status}
                             </span>
                           </td>
+                          {userIsStaff && (
+                            <td className="px-4 py-4">
+                              {(() => {
+                                const meta = USER_QUALITY_META[device.user_quality_decision || ""] || USER_QUALITY_META.admin_only;
+                                return (
+                                  <div>
+                                    <span className={clsx("rounded-full px-2.5 py-1 text-xs font-medium", meta.className)}>
+                                      {meta.label}
+                                    </span>
+                                    <p className="mt-1 text-xs text-slate-400">{device.user_quality_score || 0}%</p>
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                          )}
                           <td className="px-4 py-4">
                             <div className="flex items-center gap-2">
                               <span className="max-w-[140px] truncate text-xs text-slate-600">{device.organism}</span>

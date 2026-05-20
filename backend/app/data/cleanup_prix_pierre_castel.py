@@ -11,6 +11,9 @@ from app.utils.text_utils import build_structured_sections, clean_editorial_text
 
 SOURCE_NAME = "Prix Pierre Castel"
 
+TARGET_SECTORS = ["agriculture", "agroalimentaire", "entrepreneuriat", "impact"]
+TARGET_BENEFICIARIES = ["entrepreneur", "porteur projet", "pme", "startup", "entreprise"]
+
 
 def _build_summary(device: Device) -> str:
     parts = [
@@ -28,9 +31,10 @@ def _build_summary(device: Device) -> str:
 
 def _build_eligibility(device: Device) -> str:
     return (
-        "Le concours cible des entrepreneurs africains porteurs de solutions innovantes dans les systemes alimentaires, "
-        "avec une implantation dans les pays participants de l'edition 2026. Les criteres detailles, les pays exacts "
-        "et les conditions de recevabilite doivent etre verifies sur la page officielle."
+        "Le concours cible des entrepreneurs africains ages de 18 a 45 ans, fondateurs ou cofondateurs d'une entreprise "
+        "legalement constituee et active depuis au moins deux ans dans les systemes alimentaires. L'edition 2026 concerne "
+        "notamment l'Algerie, le Benin, le Burkina Faso, le Cameroun, la Cote d'Ivoire, Madagascar et la Republique "
+        "democratique du Congo. Les conditions finales doivent etre confirmees sur la page officielle."
     )
 
 
@@ -87,6 +91,12 @@ async def run() -> dict:
                 changed = True
             if device.recurrence_notes:
                 device.recurrence_notes = None
+                changed = True
+            if device.sectors != TARGET_SECTORS:
+                device.sectors = TARGET_SECTORS
+                changed = True
+            if device.beneficiaries != TARGET_BENEFICIARIES:
+                device.beneficiaries = TARGET_BENEFICIARIES
                 changed = True
 
             summary = _build_summary(device)

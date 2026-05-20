@@ -300,6 +300,21 @@ def daily_catalog_quality_control():
     asyncio.run(_daily_catalog_quality_control_async())
 
 
+@celery_app.task
+def daily_visible_quality_audit():
+    asyncio.run(_daily_visible_quality_audit_async())
+
+
+@celery_app.task
+def auto_rewrite_quality_queue(batch_size: int = 20):
+    asyncio.run(_auto_rewrite_quality_queue_async(batch_size=batch_size))
+
+
+@celery_app.task
+def check_visible_source_links(batch_size: int = 80):
+    asyncio.run(_check_visible_source_links_async(batch_size=batch_size))
+
+
 async def _update_expired_async():
     from sqlalchemy import update, and_
     from datetime import date, datetime, timezone
@@ -511,6 +526,152 @@ async def _daily_quality_audit_async():
 
 async def _daily_catalog_quality_control_async():
     await _log_catalog_quality_control("[Catalog Quality][daily]")
+
+
+async def _daily_visible_quality_audit_async():
+    await _log_visible_quality_audit("[Visible Quality][daily]")
+
+
+async def _auto_rewrite_quality_queue_async(batch_size: int = 20):
+    from app.services.ai_rewriter import AIRewriter, REWRITE_DONE, REWRITE_NEEDS_REVIEW
+    from app.services.visible_quality_service import build_visible_quality_audit
+
+    rewriter = AIRewriter()
+    if not rewriter.can_rewrite():
+        logger.warning("[Visible Quality][rewrite] OpenAI API key missing; skip auto rewrite")
+        return {"processed": 0, "succeeded": 0, "failed": 0, "message": "AI rewriter not configured"}
+
+    async with _fresh_db() as db:
+        audit = await build_visible_quality_audit(db, limit=batch_size * 3)
+        candidate_ids = [
+            item["id"]
+            for item in audit["items"]
+            if item["recommended_action"] == "reformuler"
+        ][:batch_size]
+        if not candidate_ids:
+            return {"processed": 0, "succeeded": 0, "failed": 0, "message": "No visible quality rewrite candidates"}
+
+        from sqlalchemy import select
+        from app.models.device import Device
+
+        devices = (
+            await db.execute(select(Device).where(Device.id.in_(candidate_ids)))
+        ).scalars().all()
+
+        processed = 0
+        succeeded = 0
+        failed = 0
+        for device in devices:
+            if not device.content_sections_json:
+                device.ai_rewrite_status = "needs_review"
+                failed += 1
+                continue
+            payload = {
+                "id": str(device.id),
+                "title": device.title or "",
+                "organism": device.organism or "",
+                "country": device.country or "",
+                "device_type": device.device_type or "",
+                "status": device.status or "",
+                "close_date": str(device.close_date or ""),
+                "amount_min": device.amount_min,
+                "amount_max": device.amount_max,
+                "currency": device.currency or "",
+                "content_sections_json": device.content_sections_json or [],
+            }
+            try:
+                result = await rewriter.rewrite_device(payload)
+                device.ai_rewritten_sections_json = result.sections
+                device.ai_rewrite_status = result.status
+                device.ai_rewrite_model = result.model
+                device.ai_rewrite_checked_at = result.checked_at
+                processed += 1
+                if result.status in (REWRITE_DONE, REWRITE_NEEDS_REVIEW):
+                    succeeded += 1
+                else:
+                    failed += 1
+            except Exception as exc:
+                logger.warning("[Visible Quality][rewrite] failed device=%s error=%s", device.id, type(exc).__name__)
+                device.ai_rewrite_status = "failed"
+                failed += 1
+
+        await db.commit()
+
+    logger.warning("[Visible Quality][rewrite] processed=%s succeeded=%s failed=%s", processed, succeeded, failed)
+    return {"processed": processed, "succeeded": succeeded, "failed": failed}
+
+
+async def _check_visible_source_links_async(batch_size: int = 80):
+    import httpx
+    from sqlalchemy import select
+    from app.models.device import Device
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; KafundoQualityBot/1.0; +https://kafundo.com)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+    }
+    visible_statuses = ["auto_published", "approved", "validated"]
+    dead_tags = {"quality:source_dead", "quality:source_401", "quality:source_403", "quality:source_404"}
+
+    async def check_url(client: httpx.AsyncClient, url: str) -> tuple[bool, str | None]:
+        if not url or not url.startswith(("http://", "https://")):
+            return False, "quality:source_dead"
+        try:
+            response = await client.head(url, follow_redirects=True)
+            if response.status_code in {405, 501}:
+                response = await client.get(url, follow_redirects=True)
+            if response.status_code == 404:
+                return False, "quality:source_404"
+            if response.status_code == 401:
+                return False, "quality:source_401"
+            if response.status_code == 403:
+                return False, "quality:source_403"
+            if response.status_code >= 500:
+                return False, "quality:source_dead"
+            return True, None
+        except Exception:
+            return False, "quality:source_dead"
+
+    async with _fresh_db() as db:
+        devices = (
+            await db.execute(
+                select(Device)
+                .where(
+                    Device.validation_status.in_(visible_statuses),
+                    Device.status.in_(["open", "recurring"]),
+                    Device.source_url.ilike("http%"),
+                )
+                .order_by(Device.last_verified_at.asc().nullslast())
+                .limit(batch_size)
+            )
+        ).scalars().all()
+
+        checked = 0
+        dead = 0
+        restored = 0
+        async with httpx.AsyncClient(timeout=12, verify=False, headers=headers) as client:
+            for device in devices:
+                checked += 1
+                ok, tag = await check_url(client, device.source_url or "")
+                tags = set(device.tags or [])
+                if ok:
+                    before = len(tags)
+                    tags.difference_update(dead_tags)
+                    if len(tags) != before:
+                        restored += 1
+                    device.tags = sorted(tags)
+                else:
+                    dead += 1
+                    if tag:
+                        tags.add(tag)
+                    device.tags = sorted(tags)
+                device.last_verified_at = datetime.utcnow()
+                device.updated_at = datetime.utcnow()
+        await db.commit()
+
+    logger.warning("[Visible Quality][links] checked=%s dead=%s restored=%s", checked, dead, restored)
+    return {"checked": checked, "dead": dead, "restored": restored}
 
 
 async def build_quality_audit(db, *, source_window_days: int = 14, recent_source_days: int = 30, sample_limit: int = 5):
@@ -1094,6 +1255,31 @@ async def _log_catalog_quality_control(prefix: str):
             ",".join(source["flags"]),
         )
 
+    return audit
+
+
+async def _log_visible_quality_audit(prefix: str):
+    from app.services.visible_quality_service import build_visible_quality_audit
+
+    async with _fresh_db() as db:
+        audit = await build_visible_quality_audit(db, limit=20)
+
+    logger.warning(
+        "%s visible=%s to_fix=%s actions=%s issues=%s",
+        prefix,
+        audit["visible_total"],
+        audit["to_fix_total"],
+        audit["action_counts"],
+        audit["issue_counts"],
+    )
+    for item in audit["items"][:10]:
+        logger.warning(
+            "[Visible Quality][device] action=%s issues=%s title=%s source=%s",
+            item["recommended_action"],
+            ",".join(item["issues"]),
+            item["title"],
+            item["source_name"],
+        )
     return audit
 
 

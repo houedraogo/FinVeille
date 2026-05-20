@@ -49,13 +49,23 @@ class DeviceCreate(BaseModel):
     ai_readiness_score: int = 0
     ai_readiness_label: Optional[str] = None
     ai_readiness_reasons: Optional[List[str]] = None
+    user_quality_score: int = 0
+    user_quality_decision: Optional[str] = None
+    user_quality_reasons: Optional[List[str]] = None
 
 
 class DeviceUpdate(BaseModel):
     title: Optional[str] = None
     organism: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    zone: Optional[str] = None
+    device_type: Optional[str] = None
+    aid_nature: Optional[str] = None
+    source_url: Optional[str] = None
     short_description: Optional[str] = None
     full_description: Optional[str] = None
+    content_sections_json: Optional[List[dict[str, Any]]] = None
     ai_rewritten_sections_json: Optional[List[dict[str, Any]]] = None
     ai_rewrite_status: Optional[Literal["pending", "done", "failed", "needs_review"]] = None
     ai_rewrite_model: Optional[str] = None
@@ -66,11 +76,16 @@ class DeviceUpdate(BaseModel):
     beneficiaries: Optional[List[str]] = None
     amount_min: Optional[Decimal] = None
     amount_max: Optional[Decimal] = None
+    currency: Optional[str] = None
     funding_rate: Optional[Decimal] = None
+    funding_details: Optional[str] = None
     open_date: Optional[date] = None
     close_date: Optional[date] = None
     status: Optional[str] = None
     is_recurring: Optional[bool] = None
+    recurrence_notes: Optional[str] = None
+    validation_status: Optional[str] = None
+    user_quality_decision: Optional[str] = None
     keywords: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     specific_conditions: Optional[str] = None
@@ -128,6 +143,9 @@ class DeviceResponse(BaseModel):
     ai_readiness_score: int = 0
     ai_readiness_label: Optional[str] = None
     ai_readiness_reasons: Optional[List[str]] = None
+    user_quality_score: int = 0
+    user_quality_decision: Optional[str] = None
+    user_quality_reasons: Optional[List[str]] = None
     match_reasons: Optional[List[str]] = None
     decision_analysis: Optional[dict[str, Any]] = None
     decision_analyzed_at: Optional[datetime] = None

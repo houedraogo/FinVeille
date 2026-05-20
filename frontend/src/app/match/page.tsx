@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
-import LimitNotice from "@/components/LimitNotice";
+import PremiumFeatureNotice, { PREMIUM_FEATURE_MESSAGE } from "@/components/PremiumFeatureNotice";
 import Link from "next/link";
 import {
   Upload, FileText, FileSearch, CheckCircle,
@@ -69,7 +69,7 @@ const isMatchResult = (value: unknown): value is MatchResult => {
   );
 };
 
-const PREMIUM_MATCH_MESSAGE = "L'analyse de document est disponible avec une offre supérieure. Choisissez un plan Pro, Team ou Expert pour en bénéficier.";
+const PREMIUM_MATCH_MESSAGE = PREMIUM_FEATURE_MESSAGE;
 
 interface MatchPageState {
   fileName: string | null;
@@ -248,9 +248,9 @@ export default function MatchPage() {
         {/* Zone d'upload */}
         {!matchingAllowed && (
           <div className="mb-6 space-y-4">
-            <LimitNotice
-              title="Changez d’offre pour analyser vos documents"
-              message="L’analyse de document n’est pas incluse dans votre plan actuel. Passez à une offre Pro, Team ou Expert pour importer un document projet et recevoir les financements les plus pertinents."
+            <PremiumFeatureNotice
+              title="Analyse de document premium"
+              message={PREMIUM_FEATURE_MESSAGE}
             />
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary-600">

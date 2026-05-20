@@ -14,6 +14,7 @@ from app.models.collection_log import CollectionLog
 from app.schemas.device import DeviceCreate
 from app.services.ai_readiness import compute_ai_readiness
 from app.services.device_quality import DeviceQualityGate
+from app.services.user_quality import compute_user_quality
 from app.services.device_service import DeviceService
 from app.utils.hash_utils import compute_content_hash
 from app.utils.text_utils import clean_editorial_text, looks_english_text
@@ -282,6 +283,10 @@ class CollectionPipeline:
         enriched["ai_readiness_score"] = ai_readiness.score
         enriched["ai_readiness_label"] = ai_readiness.label
         enriched["ai_readiness_reasons"] = ai_readiness.reasons
+        user_quality = compute_user_quality(enriched)
+        enriched["user_quality_score"] = user_quality.score
+        enriched["user_quality_decision"] = user_quality.decision
+        enriched["user_quality_reasons"] = user_quality.reasons
 
         create_data = {key: value for key, value in enriched.items() if key in DEVICE_CREATE_FIELDS}
         device_schema = DeviceCreate(**create_data)

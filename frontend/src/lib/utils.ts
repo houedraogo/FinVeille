@@ -121,6 +121,7 @@ export function sanitizeDisplayText(text: string | null | undefined): string {
     .split("\n")
     .map((line) => line.replace(/[ \t]+/g, " ").trim())
     .join("\n")
+    .replace(/([A-Za-zÀ-ž0-9,;:])\n{1,2}(?=[a-zà-ž])/g, "$1 ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

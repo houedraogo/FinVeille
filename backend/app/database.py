@@ -44,6 +44,7 @@ async def create_tables():
     await ensure_billing_columns()
     await ensure_billing_defaults()
     await ensure_device_content_columns()
+    await ensure_user_quality_columns()
     await ensure_pipeline_documents_column()
     await ensure_device_decision_columns()
     await ensure_search_vector_trigger()
@@ -202,6 +203,27 @@ async def ensure_device_content_columns():
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS ix_devices_ai_readiness_label
             ON devices (ai_readiness_label)
+        """))
+
+
+async def ensure_user_quality_columns():
+    """Ajoute le score qualite utilisateur pour les bases locales existantes."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS user_quality_score SMALLINT NOT NULL DEFAULT 0
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS user_quality_decision VARCHAR(50) NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE devices
+            ADD COLUMN IF NOT EXISTS user_quality_reasons TEXT[] NULL
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_devices_user_quality_decision
+            ON devices (user_quality_decision)
         """))
 
 

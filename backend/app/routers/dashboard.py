@@ -16,8 +16,73 @@ from app.services.opportunity_relevance_service import OpportunityRelevanceServi
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
-PUBLIC_TYPES  = ["subvention", "aap", "concours", "pret", "accompagnement", "garantie"]
+PUBLIC_TYPES  = [
+    "subvention",
+    "pret",
+    "avance_remboursable",
+    "garantie",
+    "credit_impot",
+    "exoneration",
+    "aap",
+    "appel_a_projets",
+    "ami",
+    "accompagnement",
+    "concours",
+]
 PRIVATE_TYPES = ["investissement"]
+
+PROFILE_BENEFICIARY_MAP = {
+    "entrepreneur": [
+        "entreprise",
+        "pme",
+        "tpe",
+        "mpme",
+        "startup",
+        "entrepreneur",
+        "porteur projet",
+        "porteur de projet",
+        "jeune entrepreneur",
+        "femme entrepreneure",
+        "cooperative",
+        "entreprise sociale",
+        "exploitant agricole",
+        "structure_accompagnement",
+    ],
+    "association": [
+        "association",
+        "ong",
+        "osc",
+        "organisation communautaire",
+        "organisation locale",
+        "cooperative",
+        "mutuelle",
+        "entreprise sociale",
+    ],
+    "collectivite": [
+        "collectivite",
+        "collectivite territoriale",
+        "mairie",
+        "commune",
+        "region",
+        "institution publique",
+        "etat",
+        "ministere",
+        "acteur territorial",
+    ],
+    "consultant": [
+        "entreprise",
+        "pme",
+        "tpe",
+        "mpme",
+        "startup",
+        "entrepreneur",
+        "association",
+        "ong",
+        "collectivite",
+        "institution publique",
+        "cooperative",
+    ],
+}
 
 
 def _scope_conds(scope: Optional[str]) -> list:
@@ -78,6 +143,10 @@ async def _profile_conds(db: AsyncSession, user: User) -> list:
         conds.append(Device.sectors.overlap(profile.sectors))
     if profile.target_funding_types:
         conds.append(Device.device_type.in_(profile.target_funding_types))
+    if profile.organization_type:
+        beneficiaries = PROFILE_BENEFICIARY_MAP.get(str(profile.organization_type).lower())
+        if beneficiaries:
+            conds.append(Device.beneficiaries.overlap(beneficiaries))
 
     return conds
 

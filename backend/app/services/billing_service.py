@@ -14,6 +14,8 @@ from app.models.user import User
 from app.models.workspace import DevicePipeline
 from app.config import settings
 
+PREMIUM_FEATURE_MESSAGE = "Cette fonctionnalité est disponible avec l’offre Pro, Team ou Expert."
+
 DEFAULT_PLANS: list[dict[str, Any]] = [
     {
         "slug": "free",
@@ -242,7 +244,7 @@ async def ensure_limit(db: AsyncSession, user: User, metric: str, increment: int
                 "metric": metric,
                 "plan": context.plan.slug,
                 "limit": (context.plan.limits or {}).get(metric),
-                "message": "Limite atteinte pour votre plan. Passez a une offre superieure pour continuer.",
+                "message": PREMIUM_FEATURE_MESSAGE,
             },
         )
     return context
@@ -257,7 +259,7 @@ async def ensure_feature(db: AsyncSession, user: User, feature: str) -> BillingC
                 "code": "feature_locked",
                 "feature": feature,
                 "plan": context.plan.slug,
-                "message": "Cette fonctionnalite est disponible dans une offre superieure.",
+                "message": PREMIUM_FEATURE_MESSAGE,
             },
         )
     return context

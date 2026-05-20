@@ -116,6 +116,9 @@ type OnboardingPreview = {
   investisseurs: number;
   institutionnels: number;
   urgentes: number;
+  potential_amount_min?: number;
+  potential_amount_max?: number;
+  amount_known_count?: number;
   result_device_types?: string[] | null;
   result_status?: string[] | null;
   result_actionable_now?: boolean | null;
@@ -148,6 +151,20 @@ const PROFILE_BENEFICIARIES: Record<string, string[]> = {
   consultant: ["entreprise", "pme", "tpe", "mpme", "startup", "entrepreneur", "association", "ong", "collectivite", "institution publique", "cooperative"],
 };
 
+const COUNTRY_ALIASES: Record<string, string> = {
+  "BÃ©nin": "Bénin",
+  "CÃ´te d'Ivoire": "Côte d'Ivoire",
+  "SÃ©nÃ©gal": "Sénégal",
+  "GuinÃ©e": "Guinée",
+  "Ã‰thiopie": "Éthiopie",
+};
+
+const DEVICE_FILTERS_SESSION_PREFIX = "kafundo_devices_filters:";
+
+function normalizeCountryLabel(label: string): string {
+  return COUNTRY_ALIASES[label] || label;
+}
+
 const FINANCING_SCOPES: { key: FinancingScope; label: string; sub: string; icon: typeof Building2; types: string[] }[] = [
   { key: "public",   label: "Financements publics",       sub: "Subventions, AAP, concours, prêts, accompagnement…",                icon: Building2,   types: PUBLIC_TYPES },
   { key: "private",  label: "Investisseurs privés",        sub: "Fonds d'investissement, business angels, capital-risque…",         icon: TrendingUp,  types: PRIVATE_TYPES },
@@ -171,6 +188,14 @@ const LOADING_CHECKS = [
 ] as const;
 
 // ── Composant principal ───────────────────────────────────────────────────────
+
+function formatPotentialAmount(value?: number | null): string {
+  if (!value || value <= 0) return "Montant à confirmer";
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(value >= 10_000_000_000 ? 0 : 1)} Md€`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)} M€`;
+  if (value >= 1_000) return `${Math.round(value / 1_000).toLocaleString("fr-FR")} k€`;
+  return `${Math.round(value).toLocaleString("fr-FR")} €`;
+}
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -236,6 +261,10 @@ export default function OnboardingPage() {
   }, [financingScope]);
 
   const selectedProfile = useMemo(() => PROFILES.find((p) => p.key === profile), [profile]);
+  const selectedCanonicalCountries = useMemo(
+    () => selectedCountries.map(normalizeCountryLabel),
+    [selectedCountries],
+  );
 
   const displayStep = step === 0 ? 0 : step === 1 ? 1 : step >= 3 ? 2 : 1;
 
@@ -267,7 +296,7 @@ export default function OnboardingPage() {
     const t = setTimeout(async () => {
       try {
         const data = await devices.onboardingPreview({
-          countries: selectedCountries,
+          countries: selectedCanonicalCountries,
           sectors,
           device_types: deviceTypes,
           beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : undefined,
@@ -283,6 +312,9 @@ export default function OnboardingPage() {
           investisseurs: Number(data?.investisseurs ?? 0),
           institutionnels: institutionalCount,
           urgentes: Number(data?.urgentes ?? 0),
+          potential_amount_min: Number(data?.potential_amount_min ?? 0),
+          potential_amount_max: Number(data?.potential_amount_max ?? 0),
+          amount_known_count: Number(data?.amount_known_count ?? 0),
           result_device_types: Array.isArray(data?.result_device_types) ? data.result_device_types : null,
           result_status: Array.isArray(data?.result_status) ? data.result_status : null,
           result_actionable_now: typeof data?.result_actionable_now === "boolean" ? data.result_actionable_now : null,
@@ -303,7 +335,7 @@ export default function OnboardingPage() {
       active = false;
       clearTimeout(t);
     };
-  }, [selectedCountries.join("|"), sectors.join("|"), deviceTypes.join("|"), financingScope, step]); // eslint-disable-line
+  }, [selectedCanonicalCountries.join("|"), sectors.join("|"), deviceTypes.join("|"), financingScope, step]); // eslint-disable-line
 
   // ── Écran de chargement (step 2) ────────────────────────────────────────────
 
@@ -357,52 +389,63 @@ export default function OnboardingPage() {
 
   // ── Sauvegardes & données ────────────────────────────────────────────────────
 
+  const getTargetPath = () => (financingScope === "private" ? "/devices/private" : "/devices");
+
+  const buildResultFilters = () => ({
+    q: "",
+    countries: selectedCanonicalCountries,
+    deviceTypes: preview?.result_device_types?.length ? preview.result_device_types : deviceTypes,
+    sectors,
+    statuses: preview?.result_status ?? (financingScope === "private" ? [] : ["open", "recurring"]),
+    closingSoon: "",
+    hasCloseDate: false,
+    actionableNow: preview?.result_actionable_now ?? true,
+    sortBy: "relevance",
+  });
+
+  const clearDeviceSessionForPath = (path: string) => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.removeItem(`${DEVICE_FILTERS_SESSION_PREFIX}${path}`);
+  };
+
   const buildSavedSearch = (): SavedSearch => ({
     id: crypto.randomUUID(),
     name: `Veille ${selectedProfile?.label || "personnalisée"}`,
     title: financingScope === "private" ? "Fonds & Investisseurs" : "Opportunités recommandées",
-    path: financingScope === "private" ? "/devices/private" : "/devices",
+    path: getTargetPath(),
     resultCount: null,
     savedAt: new Date().toISOString(),
-    filters: {
-      q: "",
-      countries: selectedCountries,
-      deviceTypes: preview?.result_device_types?.length ? preview.result_device_types : deviceTypes,
-      sectors,
-      statuses: preview?.result_status ?? (financingScope === "private" ? [] : ["open", "recurring"]),
-      closingSoon: "",
-      hasCloseDate: false,
-      actionableNow: preview?.result_actionable_now ?? true,
-      sortBy: "relevance",
-    },
+    filters: buildResultFilters(),
   });
 
-  const finishOnboarding = async () => {
+  const finishOnboarding = async (redirectToResults = true) => {
     setSaving(true);
     setError(null);
 
-    const alertName = `Veille ${selectedProfile?.label || "Kafundo"} — ${selectedCountries.slice(0, 2).join(", ")}`;
+    const targetPath = getTargetPath();
+    const resultFilters = buildResultFilters();
+    const alertName = `Veille ${selectedProfile?.label || "Kafundo"} — ${selectedCanonicalCountries.slice(0, 2).join(", ")}`;
     const savedSearch = buildSavedSearch();
 
     try {
-      const data = await devices.list({
-        countries: selectedCountries,
-        sectors,
-        device_types: preview?.result_device_types?.length ? preview.result_device_types : deviceTypes,
-        beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : undefined,
-        status: preview?.result_status ?? (financingScope === "private" ? undefined : ["open", "recurring"]),
-        actionable_now: preview?.result_actionable_now ?? true,
-        sort_by: "relevance",
-        page: 1,
-        page_size: 5,
-      });
-
       await relevance.saveProfile({
         organization_type: profile || null,
-        countries: selectedCountries,
+        countries: selectedCanonicalCountries,
         sectors,
         target_funding_types: deviceTypes,
         strategic_priorities: sectors.slice(0, 3),
+      });
+
+      const data = await devices.list({
+        countries: resultFilters.countries,
+        sectors: resultFilters.sectors,
+        device_types: resultFilters.deviceTypes,
+        beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : undefined,
+        status: resultFilters.statuses.length ? resultFilters.statuses : undefined,
+        actionable_now: resultFilters.actionableNow,
+        sort_by: "relevance",
+        page: 1,
+        page_size: 5,
       });
 
       const existingProjects = await relevance.listProjects().catch(() => []);
@@ -410,7 +453,7 @@ export default function OnboardingPage() {
         await relevance.createProject({
           name: `Projet ${selectedProfile?.label || "prioritaire"}`,
           summary: "Projet créé automatiquement depuis l'onboarding Kafundo.",
-          countries: selectedCountries,
+          countries: selectedCanonicalCountries,
           sectors,
           beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : [],
           target_funding_types: deviceTypes,
@@ -424,7 +467,7 @@ export default function OnboardingPage() {
         channels: ["email", "dashboard"],
         alert_types: ["new", "updated", "closing_soon"],
         criteria: {
-          countries: selectedCountries,
+          countries: selectedCanonicalCountries,
           sectors,
           device_types: deviceTypes,
           keywords: sectors,
@@ -437,14 +480,20 @@ export default function OnboardingPage() {
         ...getUserPreferences(),
         onboardingCompleted: true,
         onboardingProfile: profile,
-        onboardingCountries: selectedCountries,
+        onboardingCountries: selectedCanonicalCountries,
         onboardingSectors: sectors,
         onboardingDeviceTypes: deviceTypes,
       });
       localStorage.setItem("kafundo_onboarding_completed", "1");
       localStorage.setItem("kafundo_financing_scope", financingScope as string);
       setCreatedAlertName(alertName);
-      setStep(4);
+      clearDeviceSessionForPath(targetPath);
+      queueSavedSearch({ ...savedSearch, resultCount: data?.total ?? 0 });
+      if (redirectToResults) {
+        router.push(targetPath);
+      } else {
+        setStep(4);
+      }
     } catch (e: any) {
       setError(e.message || "Impossible de finaliser la configuration.");
     } finally {
@@ -453,13 +502,17 @@ export default function OnboardingPage() {
   };
 
   const openOpportunities = () => {
+    const targetPath = getTargetPath();
+    clearDeviceSessionForPath(targetPath);
     queueSavedSearch(buildSavedSearch());
-    router.push(financingScope === "private" ? "/devices/private" : "/devices");
+    router.push(targetPath);
   };
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
 
-  const breakdown = preview ?? { total: simCount, subventions: 0, investisseurs: 0, institutionnels: 0, urgentes: 0 };
+  const breakdown = preview ?? { total: simCount, subventions: 0, investisseurs: 0, institutionnels: 0, urgentes: 0, potential_amount_min: 0, potential_amount_max: 0, amount_known_count: 0 };
+  const potentialAmountLabel = formatPotentialAmount(breakdown.potential_amount_max);
+  const hasPotentialAmount = Boolean((breakdown.amount_known_count ?? 0) > 0 && (breakdown.potential_amount_max ?? 0) > 0);
   const hasInstitutionalSignals = Boolean(preview?.result_device_types?.includes("institutional_project"));
 
   return (
@@ -843,6 +896,11 @@ export default function OnboardingPage() {
                             {selectedCountries.length} pays · {sectors.length} secteur{sectors.length > 1 ? "s" : ""}
                           </p>
                         )}
+                        {hasPotentialAmount && (
+                          <p className="mt-1 text-xs font-semibold text-emerald-700">
+                            Potentiel identifié : {potentialAmountLabel} sur {breakdown.amount_known_count} opportunité{(breakdown.amount_known_count ?? 0) > 1 ? "s" : ""} avec montant connu.
+                          </p>
+                        )}
                       </div>
                       <CheckCircle2 className="h-8 w-8 text-emerald-500 shrink-0" />
                     </div>
@@ -949,7 +1007,7 @@ export default function OnboardingPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 mb-6">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6">
                       {financingScope !== "private" && breakdown.subventions > 0 && (
                         <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
                           <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
@@ -977,6 +1035,17 @@ export default function OnboardingPage() {
                           </div>
                         </div>
                       )}
+                      <div className="flex items-center gap-3 rounded-2xl border border-primary-200 bg-primary-50/80 px-4 py-3">
+                        <Landmark className="h-5 w-5 text-primary-600 shrink-0" />
+                        <div>
+                          <p className="text-xl font-bold text-primary-800">{potentialAmountLabel}</p>
+                          <p className="text-xs text-primary-600">
+                            {hasPotentialAmount
+                              ? `potentiel connu (${breakdown.amount_known_count})`
+                              : "montants à confirmer"}
+                          </p>
+                        </div>
+                      </div>
                       <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50/80 px-4 py-3">
                         <Clock className="h-5 w-5 text-orange-600 shrink-0" />
                         <div>
@@ -1007,7 +1076,7 @@ export default function OnboardingPage() {
 
                     <button
                       type="button"
-                      onClick={finishOnboarding}
+                      onClick={() => finishOnboarding(true)}
                       disabled={saving}
                       className="w-full flex items-center justify-center gap-2 rounded-2xl bg-primary-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-primary-500/30 transition-all hover:bg-primary-700 hover:shadow-xl disabled:opacity-60"
                     >

@@ -84,6 +84,9 @@ class Device(Base):
     ai_readiness_score = Column(SmallInteger, default=0)
     ai_readiness_label = Column(String(80))
     ai_readiness_reasons = Column(ARRAY(Text))
+    user_quality_score = Column(SmallInteger, default=0)
+    user_quality_decision = Column(String(50))
+    user_quality_reasons = Column(ARRAY(Text))
 
     # --- Workflow validation ---
     validation_status = Column(String(50), default="auto_published", index=True)

@@ -76,6 +76,20 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.quality_tasks.daily_catalog_quality_control",
         "schedule": crontab(minute=45, hour=6),
     },
+    "daily-visible-quality-audit": {
+        "task": "app.tasks.quality_tasks.daily_visible_quality_audit",
+        "schedule": crontab(minute=55, hour=6),
+    },
+    "daily-visible-link-check": {
+        "task": "app.tasks.quality_tasks.check_visible_source_links",
+        "schedule": crontab(minute=25, hour=5),
+        "kwargs": {"batch_size": 120},
+    },
+    "auto-rewrite-visible-quality-queue": {
+        "task": "app.tasks.quality_tasks.auto_rewrite_quality_queue",
+        "schedule": crontab(minute=15, hour=4),
+        "kwargs": {"batch_size": 20},
+    },
     "weekly-quality-report": {
         "task": "app.tasks.quality_tasks.weekly_quality_report",
         "schedule": crontab(minute=0, hour=9, day_of_week=1),

@@ -5,7 +5,7 @@ import { Check, CreditCard, ExternalLink, Loader2, Lock, Sparkles } from "lucide
 import clsx from "clsx";
 
 import AppLayout from "@/components/AppLayout";
-import LimitNotice from "@/components/LimitNotice";
+import PremiumFeatureNotice, { PREMIUM_FEATURE_MESSAGE } from "@/components/PremiumFeatureNotice";
 import { billing } from "@/lib/api";
 
 interface Plan {
@@ -161,9 +161,9 @@ export default function BillingPage() {
 
       {reachedLimits.length > 0 && (
         <div className="mb-6">
-          <LimitNotice
+          <PremiumFeatureNotice
             title="Une limite de votre plan est atteinte"
-            message={`Limite concernee : ${reachedLimits.map(([metric]) => LIMIT_LABELS[metric] || metric).join(", ")}.`}
+            message={`${PREMIUM_FEATURE_MESSAGE} Limite concernée : ${reachedLimits.map(([metric]) => LIMIT_LABELS[metric] || metric).join(", ")}.`}
           />
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CalendarOff, Database, FileWarning, Filter, RefreshCw, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { AlertTriangle, CalendarOff, CheckCircle2, Database, EyeOff, FileWarning, Filter, RefreshCw, ShieldCheck, Sparkles, Trash2, Zap } from "lucide-react";
 import clsx from "clsx";
 
 import AppLayout from "@/components/AppLayout";
@@ -27,6 +27,7 @@ export default function AdminDataQualityPage() {
   const [operations, setOperations] = useState<any>(null);
   const [catalogAudit, setCatalogAudit] = useState<any>(null);
   const [sourceReport, setSourceReport] = useState<any>(null);
+  const [visibleAudit, setVisibleAudit] = useState<any>(null);
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -41,13 +42,17 @@ export default function AdminDataQualityPage() {
         admin.operations(),
         admin.sourceQualityReport().catch(() => null),
       ]);
-      const catalogData = await admin.catalogAudit().catch(() => null);
+      const [catalogData, visibleData] = await Promise.all([
+        admin.catalogAudit().catch(() => null),
+        admin.visibleQualityAudit().catch(() => null),
+      ]);
       setQuality(qualityData);
       setAudit(auditData);
       setPending(pendingData);
       setOperations(operationsData);
       setCatalogAudit(catalogData);
       setSourceReport(sourceReportData);
+      setVisibleAudit(visibleData);
     } finally {
       setLoading(false);
     }
@@ -65,6 +70,22 @@ export default function AdminDataQualityPage() {
   const runCatalogControl = async () => {
     await admin.runCatalogQualityControl();
     setMessage("Controle qualite catalogue declenche en arriere-plan.");
+  };
+
+  const runVisibleAudit = async () => {
+    await admin.runVisibleQualityAudit();
+    setMessage("Audit des fiches visibles declenche en arriere-plan.");
+  };
+
+  const runLinkCheck = async () => {
+    const result = await admin.runVisibleLinkCheck(120) as any;
+    setMessage(result.message || "Verification des liens lancee.");
+  };
+
+  const applyQualityAction = async (deviceId: string, action: "publish" | "hide" | "rewrite" | "delete") => {
+    const result = await admin.qualityDeviceAction(deviceId, action) as any;
+    setMessage(result.message || "Action qualite appliquee.");
+    await load();
   };
 
   const fixExpired = async () => {
@@ -154,8 +175,96 @@ export default function AdminDataQualityPage() {
               <Kpi label="Open sans date" value={(catalogAudit?.risk_counts?.open_without_date ?? 0).toLocaleString("fr")} icon={CalendarOff} tone="border-red-200 bg-red-50 text-red-950" />
               <Kpi label="Texte anglais" value={(catalogAudit?.risk_counts?.english_text ?? 0).toLocaleString("fr")} icon={AlertTriangle} tone="border-slate-200 bg-slate-50 text-slate-950" />
               <Kpi label="Sources erreur" value={recentErrors.length.toLocaleString("fr")} icon={Database} tone="border-red-200 bg-red-50 text-red-950" />
+              <Kpi label="Visibles a corriger" value={(visibleAudit?.to_fix_total ?? 0).toLocaleString("fr")} icon={EyeOff} tone="border-violet-200 bg-violet-50 text-violet-950" />
               <Kpi label="Completion moy." value={`${quality?.avg_completeness || 0}%`} icon={Sparkles} tone="border-emerald-200 bg-emerald-50 text-emerald-950" />
             </div>
+
+            {visibleAudit && (
+              <section className="mb-6 rounded-[28px] border border-violet-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-950">Fiches visibles a corriger avant publication</h2>
+                    <p className="text-sm text-slate-500">
+                      {visibleAudit.visible_total?.toLocaleString("fr")} fiches visibles analysees · {visibleAudit.to_fix_total?.toLocaleString("fr")} point(s) a traiter.
+                    </p>
+                  </div>
+                  <button onClick={runVisibleAudit} className="btn-secondary text-xs">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Audit fiches visibles
+                  </button>
+                  <button onClick={runLinkCheck} className="btn-secondary text-xs">
+                    <Database className="h-3.5 w-3.5" />
+                    Verifier les liens
+                  </button>
+                </div>
+                <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+                  {Object.entries(visibleAudit.issue_counts || {}).slice(0, 12).map(([key, value]: any) => (
+                    <div key={key} className="rounded-2xl border border-violet-100 bg-violet-50 px-3 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-500">
+                        {(visibleAudit.issue_labels?.[key] || key).replaceAll("_", " ")}
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-violet-950">{Number(value || 0).toLocaleString("fr")}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="grid grid-cols-[1.2fr_0.55fr_1fr_0.85fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <span>Fiche</span>
+                    <span>Action conseillee</span>
+                    <span>Problemes</span>
+                    <span>Actions rapides</span>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {(visibleAudit.items || []).length === 0 ? (
+                      <p className="py-10 text-center text-sm text-emerald-600">Aucune fiche visible fragile detectee.</p>
+                    ) : (
+                      visibleAudit.items.slice(0, 60).map((item: any) => (
+                        <div key={item.id} className="grid grid-cols-[1.2fr_0.55fr_1fr_0.85fr] gap-3 px-4 py-4 text-sm">
+                          <div className="min-w-0">
+                            <Link href={`/devices/${item.id}`} className="line-clamp-2 font-semibold text-slate-950 hover:text-primary-700">
+                              {item.title}
+                            </Link>
+                            <p className="mt-1 truncate text-xs text-slate-400">{item.source_name} · {item.country} · {item.type}</p>
+                          </div>
+                          <div>
+                            <span className={clsx(
+                              "rounded-full px-2.5 py-1 text-xs font-medium",
+                              item.recommended_action === "masquer" ? "bg-red-50 text-red-700" : "bg-indigo-50 text-indigo-700",
+                            )}>
+                              {item.recommended_action === "masquer" ? "Masquer" : item.recommended_action === "reformuler" ? "Reformuler" : "Publier"}
+                            </span>
+                            <p className="mt-1 text-xs text-slate-400">Qualite {item.user_quality_score || 0}%</p>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {(item.issue_labels || item.issues || []).slice(0, 6).map((label: string) => (
+                              <span key={label} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{label}</span>
+                            ))}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <button onClick={() => applyQualityAction(item.id, "publish")} className="btn-secondary px-2 py-1 text-[11px]">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Publier
+                            </button>
+                            <button onClick={() => applyQualityAction(item.id, "hide")} className="btn-secondary px-2 py-1 text-[11px]">
+                              <EyeOff className="h-3 w-3" />
+                              Masquer
+                            </button>
+                            <button onClick={() => applyQualityAction(item.id, "rewrite")} className="btn-secondary px-2 py-1 text-[11px]">
+                              <Sparkles className="h-3 w-3" />
+                              Reformuler
+                            </button>
+                            <button onClick={() => applyQualityAction(item.id, "delete")} className="btn-secondary px-2 py-1 text-[11px] text-red-700">
+                              <Trash2 className="h-3 w-3" />
+                              Supprimer
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
 
             {catalogAudit && (
               <section className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5">

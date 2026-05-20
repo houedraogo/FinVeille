@@ -59,6 +59,9 @@ export interface Device {
   ai_readiness_score: number;
   ai_readiness_label: string | null;
   ai_readiness_reasons: string[] | null;
+  user_quality_score: number;
+  user_quality_decision: string | null;
+  user_quality_reasons: string[] | null;
   match_reasons?: string[] | null;
   decision_analysis?: {
     go_no_go: "go" | "no_go" | "a_verifier";

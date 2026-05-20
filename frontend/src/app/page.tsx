@@ -126,6 +126,8 @@ const SCOPE_CONFIG = {
 const getScopeConfig = (scope: FinancingScope) =>
   scope === "private" ? SCOPE_CONFIG.private : SCOPE_CONFIG.public;
 
+const freshCatalogHref = (href: string) => `${href}?reset=1`;
+
 // ── Composant ─────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -341,7 +343,7 @@ export default function DashboardPage() {
 
         <div className="relative mt-5 flex items-center justify-end">
           <Link
-            href={cfg.catalogHref}
+            href={freshCatalogHref(cfg.catalogHref)}
             className="inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-white/90"
           >
             {cfg.catalogLabel}
@@ -409,7 +411,7 @@ export default function DashboardPage() {
 
           {/* Lien catalogue */}
           <Link
-            href={cfg.catalogHref}
+            href={freshCatalogHref(cfg.catalogHref)}
             className={clsx(
               "mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border py-2.5 text-sm font-semibold transition-all hover:opacity-80",
               isPrivate ? "border-violet-300 bg-violet-600 text-white" : "border-primary-300 bg-primary-600 text-white",
@@ -654,7 +656,7 @@ export default function DashboardPage() {
               {/* "Opportunités à explorer" si peu de recs */}
               {recommendations.length < 3 && stats.total_active > recommendations.length && (
                 <Link
-                  href={cfg.catalogHref}
+                  href={freshCatalogHref(cfg.catalogHref)}
                   className="flex items-center justify-between rounded-2xl border border-dashed border-primary-300 bg-primary-50/60 px-4 py-3 transition-colors hover:bg-primary-50"
                 >
                   <div>
@@ -681,7 +683,7 @@ export default function DashboardPage() {
                 {isPrivate ? "Les fonds les plus récemment ajoutés dans vos zones cibles." : "Les dispositifs les plus récemment détectés dans vos pays."}
               </p>
             </div>
-            <Link href={cfg.catalogHref} className="text-xs text-primary-600 hover:underline">Tout voir</Link>
+            <Link href={freshCatalogHref(cfg.catalogHref)} className="text-xs text-primary-600 hover:underline">Tout voir</Link>
           </div>
 
           {stats.recent_devices.length === 0 ? (
@@ -756,7 +758,7 @@ export default function DashboardPage() {
               {isPrivate ? "Signaux clés pour orienter ta recherche d'investisseurs." : "Une lecture simple du marché pour décider plus vite."}
             </p>
           </div>
-          <Link href={cfg.catalogHref} className="text-xs text-primary-600 hover:underline">{cfg.catalogLabel}</Link>
+          <Link href={freshCatalogHref(cfg.catalogHref)} className="text-xs text-primary-600 hover:underline">{cfg.catalogLabel}</Link>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {marketSignals.map((signal) => (

@@ -9,9 +9,11 @@ interface LimitNoticeProps {
   compact?: boolean;
 }
 
+export const PREMIUM_FEATURE_MESSAGE = "Cette fonctionnalité est disponible avec l’offre Pro, Team ou Expert.";
+
 export default function LimitNotice({
-  title = "Limite atteinte",
-  message = "Passez a une offre superieure pour continuer a utiliser cette fonctionnalite.",
+  title = "Fonctionnalité premium",
+  message = PREMIUM_FEATURE_MESSAGE,
   compact = false,
 }: LimitNoticeProps) {
   return (
@@ -25,7 +27,7 @@ export default function LimitNotice({
           <p className="mt-1 text-sm leading-6 text-amber-800">{message}</p>
           <Link href="/billing" className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-amber-900 hover:text-amber-700">
             <Sparkles className="h-3.5 w-3.5" />
-            Voir les plans
+            Voir les offres
           </Link>
         </div>
       </div>
