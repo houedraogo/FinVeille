@@ -81,7 +81,7 @@ const NAV_GROUPS = [
       },
       {
         href: "/opportunities/now",
-        label: "A saisir maintenant",
+        label: "À saisir maintenant",
         icon: LineChart,
         activeFn: (pathname: string) => pathname === "/opportunities/now",
       },
@@ -118,13 +118,13 @@ const NAV_GROUPS = [
       },
       {
         href: "/settings/security",
-        label: "Securite",
+        label: "Sécurité",
         icon: KeyRound,
         activeFn: (pathname: string) => pathname === "/settings/security",
       },
       {
         href: "/settings/team",
-        label: "Equipe",
+        label: "Équipe",
         icon: UsersRound,
         activeFn: (pathname: string) => pathname === "/settings/team",
       },
@@ -163,7 +163,7 @@ const ADMIN_NAV_GROUPS = [
       },
       {
         href: "/admin/data-quality",
-        label: "Qualite donnees",
+        label: "Qualité données",
         icon: LineChart,
         activeFn: (pathname: string) => pathname === "/admin/data-quality" || pathname === "/admin",
       },

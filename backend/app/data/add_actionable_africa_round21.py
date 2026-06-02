@@ -1,0 +1,245 @@
+from __future__ import annotations
+
+import asyncio
+from datetime import date, datetime, timezone
+from typing import Any
+
+from app.data.add_actionable_africa_round3 import upsert_device, upsert_source
+from app.database import AsyncSessionLocal
+
+
+NOW = datetime.now(timezone.utc)
+
+
+SOURCES: list[dict[str, Any]] = [
+    {
+        "name": "FDCT Burkina Faso - financement culture et tourisme",
+        "organism": "Fonds de Développement Culturel et Touristique",
+        "country": "Burkina Faso",
+        "region": "Afrique de l'Ouest",
+        "source_type": "fonds_public",
+        "level": 1,
+        "url": "https://www.fdct-bf.org/Appel-a-projets-2025-du-FDCT-Une-opportunite-pour-les-promoteurs-culturels-et",
+        "collection_mode": "manual",
+        "check_frequency": "monthly",
+        "reliability": 4,
+        "category": "public",
+        "is_active": True,
+        "config": {"source_kind": "qualified_manual", "market": "burkina_culture_tourisme"},
+        "notes": "Fonds national burkinabè pour projets culturels et touristiques, avec prêts, subventions et appui aux initiatives.",
+    },
+    {
+        "name": "FONRID Burkina Faso - financement recherche et innovation",
+        "organism": "Fonds National de la Recherche et de l'Innovation pour le Développement",
+        "country": "Burkina Faso",
+        "region": "Afrique de l'Ouest",
+        "source_type": "fonds_public",
+        "level": 1,
+        "url": "https://fonrid.com/",
+        "collection_mode": "manual",
+        "check_frequency": "monthly",
+        "reliability": 4,
+        "category": "public",
+        "is_active": True,
+        "config": {"source_kind": "qualified_manual", "market": "burkina_recherche_innovation"},
+        "notes": "Fonds public burkinabè finançant des projets de recherche, d'innovation et d'invention.",
+    },
+    {
+        "name": "PAEB Benin - acceleration PME 2026",
+        "organism": "PAEB / Sèmè City / ADPME",
+        "country": "Bénin",
+        "region": "Afrique de l'Ouest",
+        "source_type": "programme_public",
+        "level": 1,
+        "url": "https://www.gouv.bj/article/3467/entrepreneuriat-benin-paeb-lance-cohorte-2026-soutenir-dans-leur-croissance/",
+        "collection_mode": "manual",
+        "check_frequency": "monthly",
+        "reliability": 5,
+        "category": "public",
+        "is_active": True,
+        "config": {"source_kind": "qualified_manual", "market": "benin_pme"},
+        "notes": "Programme d'appui à l'entrepreneuriat au Bénin pour soutenir des PME dans leur croissance.",
+    },
+    {
+        "name": "FONAME Cote d'Ivoire - appel transition energetique 2026",
+        "organism": "Fonds National de Maîtrise de l'Énergie",
+        "country": "Côte d'Ivoire",
+        "region": "Afrique de l'Ouest",
+        "source_type": "fonds_public",
+        "level": 1,
+        "url": "https://www.energie.gouv.ci/actualite/avis-dappel-a-projets-foname-2026-69c535a39f83a",
+        "collection_mode": "manual",
+        "check_frequency": "monthly",
+        "reliability": 4,
+        "category": "public",
+        "is_active": True,
+        "config": {"source_kind": "single_program_page", "market": "cote_ivoire_energie"},
+        "notes": "Appel à projets pour identifier des projets innovants de maîtrise de l'énergie en Côte d'Ivoire.",
+    },
+    {
+        "name": "FIN CULTURE Cote d'Ivoire - financement ICC 2026",
+        "organism": "Ministère de la Culture / Agence Emploi Jeunes",
+        "country": "Côte d'Ivoire",
+        "region": "Afrique de l'Ouest",
+        "source_type": "programme_public",
+        "level": 1,
+        "url": "https://culture.gouv.ci/projets/appel-a-candidature-guichet-de-financement-aux-acteurs-du-secteur-de-la-culture/",
+        "collection_mode": "manual",
+        "check_frequency": "monthly",
+        "reliability": 4,
+        "category": "public",
+        "is_active": True,
+        "config": {"source_kind": "single_program_page", "market": "cote_ivoire_culture"},
+        "notes": "Guichet de financement pour les acteurs ivoiriens des industries culturelles et créatives.",
+    },
+]
+
+
+DEVICES: list[dict[str, Any]] = [
+    {
+        "source_name": "FDCT Burkina Faso - financement culture et tourisme",
+        "title": "FDCT Burkina Faso - financement des projets culturels et touristiques",
+        "organism": "Fonds de Développement Culturel et Touristique",
+        "organism_type": "fonds public",
+        "country": "Burkina Faso",
+        "region": "Burkina Faso",
+        "zone": "Afrique de l'Ouest",
+        "geographic_scope": "national",
+        "device_type": "subvention",
+        "aid_nature": "subvention_pret_culture_tourisme",
+        "sectors": ["culture", "tourisme", "artisanat", "audiovisuel", "entrepreneuriat"],
+        "beneficiaries": ["entrepreneur", "pme", "association", "cooperative", "porteur projet"],
+        "status": "recurring",
+        "is_recurring": True,
+        "source_url": "https://www.fdct-bf.org/Appel-a-projets-2025-du-FDCT-Une-opportunite-pour-les-promoteurs-culturels-et",
+        "source_raw": "Le FDCT est un mécanisme public de financement des projets culturels et touristiques au Burkina Faso, avec des appels à projets et lignes de financement selon les programmes.",
+        "presentation": "Le FDCT accompagne les promoteurs culturels et touristiques au Burkina Faso à travers des appels à projets, des prêts, des subventions et des actions de renforcement de capacités.",
+        "eligibility": "La cible concerne les entreprises culturelles, associations, coopératives, initiatives touristiques, porteurs de projets culturels et opérateurs des industries créatives au Burkina Faso.",
+        "funding": "L'appui peut prendre la forme de subventions, prêts, garanties ou accompagnement selon l'appel actif. Les montants et taux doivent être confirmés dans les lignes directrices.",
+        "calendar": "Guichet à suivre régulièrement. Les appels sont publiés par le FDCT selon les programmes et partenaires mobilisés.",
+        "procedure": "Consulter l'appel actif sur le site du FDCT, télécharger les lignes directrices, puis préparer le dossier selon la filière et le type de soutien demandé.",
+        "checks": "Confirmer la fenêtre de dépôt, la filière éligible, le plafond et les pièces exigées avant candidature.",
+        "decision": "Bonne piste pour un entrepreneur burkinabè dans la culture, l'audiovisuel, l'artisanat ou le tourisme qui cherche un financement public spécialisé.",
+    },
+    {
+        "source_name": "FONRID Burkina Faso - financement recherche et innovation",
+        "title": "FONRID Burkina Faso - appels à projets recherche et innovation",
+        "organism": "Fonds National de la Recherche et de l'Innovation pour le Développement",
+        "organism_type": "fonds public",
+        "country": "Burkina Faso",
+        "region": "Burkina Faso",
+        "zone": "Afrique de l'Ouest",
+        "geographic_scope": "national",
+        "device_type": "appel à projets",
+        "aid_nature": "financement_recherche_innovation",
+        "sectors": ["innovation", "recherche", "sante", "agriculture", "technologie"],
+        "beneficiaries": ["chercheur", "startup", "entreprise", "pme", "porteur projet"],
+        "status": "recurring",
+        "is_recurring": True,
+        "source_url": "https://fonrid.com/",
+        "source_raw": "Le FONRID finance tout ou partie de programmes et projets de recherche, d'innovation et d'invention soumis par des structures publiques ou privées au Burkina Faso.",
+        "presentation": "Le FONRID soutient des projets de recherche appliquée, d'innovation et d'invention pouvant répondre à des priorités de développement au Burkina Faso.",
+        "eligibility": "La cible comprend des équipes de recherche, innovateurs, inventeurs, structures publiques ou privées, PME innovantes et porteurs de projets à fort contenu technique.",
+        "funding": "Le financement dépend de chaque appel. Le fonds peut couvrir une partie des coûts de recherche, expérimentation, innovation ou développement de solution.",
+        "calendar": "Appels récurrents selon les thématiques publiées par le FONRID.",
+        "procedure": "Surveiller les appels publiés, vérifier le thème, constituer une équipe ou structure porteuse, puis déposer le dossier selon le canevas demandé.",
+        "checks": "Confirmer le thème ouvert, le budget maximum, les partenaires exigés et les conditions de propriété intellectuelle.",
+        "decision": "Pertinent pour les projets burkinabè avec une vraie composante innovation, recherche appliquée ou solution technologique.",
+    },
+    {
+        "source_name": "PAEB Benin - acceleration PME 2026",
+        "title": "PAEB Bénin - accompagnement et croissance des PME",
+        "organism": "PAEB / Sèmè City / ADPME",
+        "organism_type": "programme public",
+        "country": "Bénin",
+        "region": "Bénin",
+        "zone": "Afrique de l'Ouest",
+        "geographic_scope": "national",
+        "device_type": "accompagnement",
+        "aid_nature": "acceleration_pme",
+        "sectors": ["pme", "agroindustrie", "numerique", "industrie", "entrepreneuriat"],
+        "beneficiaries": ["pme", "entreprise", "entrepreneur", "startup"],
+        "status": "recurring",
+        "is_recurring": True,
+        "source_url": "https://www.gouv.bj/article/3467/entrepreneuriat-benin-paeb-lance-cohorte-2026-soutenir-dans-leur-croissance/",
+        "source_raw": "Le PAEB soutient des PME béninoises dans leur croissance avec accompagnement, structuration, accès au financement et appui à la compétitivité.",
+        "presentation": "Le PAEB est un programme d'appui à l'entrepreneuriat au Bénin destiné à aider les PME à structurer leur croissance, améliorer leur gestion et renforcer leur accès au financement.",
+        "eligibility": "La cible concerne les PME béninoises à potentiel, notamment dans l'agro-industrie, le numérique, l'industrie légère, le transport et les industries culturelles.",
+        "funding": "Le programme combine accompagnement, coaching, appui à la structuration et accès facilité à des ressources ou partenaires financiers. Le montant dépend de la cohorte et du besoin de l'entreprise.",
+        "calendar": "Cohortes périodiques. La fenêtre exacte de candidature doit être confirmée auprès des porteurs du programme.",
+        "procedure": "Suivre les annonces officielles du Gouvernement, de Sèmè City ou de l'ADPME, puis préparer les informations de l'entreprise et son besoin de croissance.",
+        "checks": "Confirmer la cohorte ouverte, les secteurs admissibles, les critères de maturité et les documents financiers demandés.",
+        "decision": "Très utile pour une PME béninoise déjà active qui veut accélérer sa croissance et mieux préparer son financement.",
+    },
+    {
+        "source_name": "FONAME Cote d'Ivoire - appel transition energetique 2026",
+        "title": "FONAME Côte d'Ivoire - appel à projets maîtrise de l'énergie 2026",
+        "organism": "Fonds National de Maîtrise de l'Énergie",
+        "organism_type": "fonds public",
+        "country": "Côte d'Ivoire",
+        "region": "Côte d'Ivoire",
+        "zone": "Afrique de l'Ouest",
+        "geographic_scope": "national",
+        "device_type": "appel à projets",
+        "aid_nature": "transition_energetique",
+        "sectors": ["energie", "climat", "innovation", "industrie", "pme"],
+        "beneficiaries": ["entreprise", "pme", "startup", "collectivite", "porteur projet"],
+        "status": "open",
+        "is_recurring": False,
+        "close_date": date(2026, 12, 31),
+        "source_url": "https://www.energie.gouv.ci/actualite/avis-dappel-a-projets-foname-2026-69c535a39f83a",
+        "source_raw": "Le FONAME lance un appel à projets 2026 pour constituer un portefeuille de projets innovants et à fort impact dans la maîtrise de l'énergie en Côte d'Ivoire.",
+        "presentation": "L'appel FONAME 2026 identifie des projets capables d'accélérer la transition énergétique, générer des économies d'énergie et préparer la mobilisation de financements.",
+        "eligibility": "La cible peut inclure entreprises, PME, startups, collectivités ou porteurs de projets avec une solution liée à l'efficacité énergétique ou à la maîtrise de l'énergie.",
+        "funding": "Les projets sélectionnés peuvent être accompagnés dans une démarche de mobilisation de financements auprès de l'État et des partenaires techniques et financiers.",
+        "calendar": "Appel 2026. La date exacte de dépôt doit être confirmée dans les documents officiels joints à l'appel.",
+        "procedure": "Consulter l'avis officiel, télécharger la fiche projet FONAME, remplir le canevas et suivre les modalités de soumission indiquées.",
+        "checks": "Confirmer la date limite exacte, les critères techniques, les documents à joindre et la nature précise de l'appui financier.",
+        "decision": "Bonne opportunité pour un projet ivoirien d'efficacité énergétique ou de transition énergétique qui cherche à être identifié et financé.",
+    },
+    {
+        "source_name": "FIN CULTURE Cote d'Ivoire - financement ICC 2026",
+        "title": "FIN CULTURE Côte d'Ivoire - prêts pour acteurs culturels",
+        "organism": "Ministère de la Culture / Agence Emploi Jeunes",
+        "organism_type": "programme public",
+        "country": "Côte d'Ivoire",
+        "region": "Côte d'Ivoire",
+        "zone": "Afrique de l'Ouest",
+        "geographic_scope": "national",
+        "device_type": "pret",
+        "aid_nature": "pret_culture",
+        "sectors": ["culture", "audiovisuel", "mode", "design", "entrepreneuriat"],
+        "beneficiaries": ["jeune entrepreneur", "entreprise", "startup", "collectif", "porteur projet"],
+        "status": "open",
+        "is_recurring": False,
+        "close_date": date(2026, 6, 21),
+        "source_url": "https://culture.gouv.ci/projets/appel-a-candidature-guichet-de-financement-aux-acteurs-du-secteur-de-la-culture/",
+        "source_raw": "Le guichet de financement des acteurs du secteur de la culture cible les entreprises culturelles dirigées par des jeunes ou collectifs de jeunes en Côte d'Ivoire.",
+        "presentation": "FIN CULTURE est un guichet destiné aux acteurs ivoiriens des industries culturelles et créatives qui cherchent un financement pour développer leur activité.",
+        "eligibility": "La cible concerne les jeunes ivoiriens ou collectifs de jeunes dirigeant une entreprise ou un projet dans la mode, le design, les arts, le livre, le cinéma, l'audiovisuel ou les arts visuels.",
+        "funding": "Le dispositif propose un financement sous forme de prêt. Les modalités, montants et conditions doivent être confirmés sur la plateforme officielle de dépôt.",
+        "calendar": "Candidatures annoncées jusqu'au 21 juin 2026, à confirmer sur la source officielle avant dépôt.",
+        "procedure": "Se rendre sur la plateforme de projets de l'Agence Emploi Jeunes ou contacter le ministère de la Culture, puis déposer le dossier selon le formulaire indiqué.",
+        "checks": "Confirmer l'âge, la nationalité, le statut de l'entreprise, le montant demandé et les pièces justificatives.",
+        "decision": "À prioriser pour un jeune entrepreneur ivoirien des industries culturelles qui cherche un prêt dédié au secteur.",
+    },
+]
+
+
+async def main() -> None:
+    async with AsyncSessionLocal() as db:
+        sources = {}
+        for source_data in SOURCES:
+            sources[source_data["name"]] = await upsert_source(db, source_data)
+
+        counts = {"created": 0, "updated": 0}
+        for device_data in DEVICES:
+            status = await upsert_device(db, device_data, sources[device_data["source_name"]])
+            counts[status] += 1
+
+        await db.commit()
+        print({"sources": len(sources), **counts})
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

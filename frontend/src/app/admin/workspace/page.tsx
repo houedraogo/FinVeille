@@ -133,7 +133,7 @@ export default function SuperAdminWorkspacePage() {
   return (
     <RoleGate
       allow={["admin"]}
-      title="Espace super admin reserve"
+      title="Espace super admin réservé"
       message="Cet espace pilote l'exploitation, les clients, les limites SaaS et les traces d'audit."
       backHref="/workspace"
     >
@@ -143,13 +143,13 @@ export default function SuperAdminWorkspacePage() {
             <p className="text-sm font-medium text-primary-600">Espace super admin</p>
             <h1 className="mt-1 text-2xl font-bold text-slate-950">Cockpit exploitation SaaS</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              Suivi clients, abonnements, usages, limites atteintes, audit trail, emails, RGPD et erreurs recentes.
+              Suivi clients, abonnements, usages, limites atteintes, audit trail, emails, RGPD et erreurs récentes.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/admin/data-quality" className="btn-secondary text-xs">
               <Gauge className="h-3.5 w-3.5" />
-              Qualite donnees
+              Qualité données
             </Link>
             <Link href="/admin/billing" className="btn-primary text-xs">
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -173,9 +173,9 @@ export default function SuperAdminWorkspacePage() {
               <KpiCard label="Organisations" value={(totals.organizations || 0).toLocaleString("fr")} sub={`${paidOrganizations} client(s) payant(s)`} tone="blue" />
               <KpiCard label="Utilisateurs" value={(totals.users || 0).toLocaleString("fr")} sub="Comptes actifs ou invites" tone="slate" />
               <KpiCard label="Abonnes" value={(subscribers.length || 0).toLocaleString("fr")} sub="Organisations sur plan payant" tone="green" />
-              <KpiCard label="Limites atteintes" value={(totals.limits_reached || 0).toLocaleString("fr")} sub="Clients a surveiller" tone={totals.limits_reached ? "amber" : "green"} />
+              <KpiCard label="Limites atteintes" value={(totals.limits_reached || 0).toLocaleString("fr")} sub="Clients à surveiller" tone={totals.limits_reached ? "amber" : "green"} />
               <KpiCard label="Demandes RGPD" value={(totals.pending_deletions || 0).toLocaleString("fr")} sub="Suppressions en attente" tone={totals.pending_deletions ? "red" : "slate"} />
-              <KpiCard label="Erreurs recentes" value={(operations.recent_errors?.length || 0).toLocaleString("fr")} sub="Collectes failed/partial" tone={operations.recent_errors?.length ? "red" : "green"} />
+              <KpiCard label="Erreurs récentes" value={(operations.recent_errors?.length || 0).toLocaleString("fr")} sub="Collectes failed/partial" tone={operations.recent_errors?.length ? "red" : "green"} />
             </div>
 
             <div id="abonnes" className="mb-6">
@@ -315,25 +315,25 @@ export default function SuperAdminWorkspacePage() {
                       </div>
                     </div>
                   ))}
-                  {operations.email_events?.length === 0 && <p className="py-6 text-center text-sm text-slate-400">Aucun email transactionnel journalise.</p>}
+                  {operations.email_events?.length === 0 && <p className="py-6 text-center text-sm text-slate-400">Aucun email transactionnel journalisé.</p>}
                 </div>
               </Panel>
 
-              <Panel title="Demandes RGPD" description="Suppressions et exports de donnees utilisateur." icon={Trash2}>
+              <Panel title="Demandes RGPD" description="Suppressions et exports de données utilisateur." icon={Trash2}>
                 <div className="space-y-2">
                   {(operations.deletion_requests || []).slice(0, 6).map((item: any) => (
                     <div key={item.id} className="rounded-2xl border border-red-100 bg-red-50/60 px-4 py-3">
                       <p className="text-sm font-semibold text-red-950">Suppression · {item.status}</p>
                       <p className="mt-1 text-xs text-red-700">
-                        Creee {formatDateRelative(item.created_at)}
+                        Créée {formatDateRelative(item.created_at)}
                         {item.scheduled_for ? ` · prevue ${formatDateRelative(item.scheduled_for)}` : ""}
                       </p>
                     </div>
                   ))}
                   {(operations.data_exports || []).slice(0, 4).map((item: any) => (
                     <div key={item.id} className="rounded-2xl border border-blue-100 bg-blue-50/60 px-4 py-3">
-                      <p className="text-sm font-semibold text-blue-950">Export donnees · {item.status}</p>
-                      <p className="mt-1 text-xs text-blue-700">Cree {formatDateRelative(item.created_at)}</p>
+                      <p className="text-sm font-semibold text-blue-950">Export données · {item.status}</p>
+                      <p className="mt-1 text-xs text-blue-700">Créé {formatDateRelative(item.created_at)}</p>
                     </div>
                   ))}
                   {operations.deletion_requests?.length === 0 && operations.data_exports?.length === 0 && (
@@ -342,7 +342,7 @@ export default function SuperAdminWorkspacePage() {
                 </div>
               </Panel>
 
-              <Panel title="Erreurs recentes" description="Collectes echouees ou partielles a diagnostiquer." icon={Database}>
+              <Panel title="Erreurs récentes" description="Collectes échouées ou partielles à diagnostiquer." icon={Database}>
                 <div className="space-y-2">
                   {(operations.recent_errors || []).slice(0, 8).map((item: any) => (
                     <Link key={item.id} href={`/sources/${item.source_id}`} className="block rounded-2xl border border-red-100 bg-red-50/70 px-4 py-3 transition-colors hover:bg-red-50">

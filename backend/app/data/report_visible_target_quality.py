@@ -52,7 +52,28 @@ GENERIC_MARKERS = (
     "les beneficiaires eligibles et les conditions d'acces doivent etre confirmes",
     "le montant exact ou les avantages associes doivent etre confirmes",
     "opportunite de financement relayee",
+    "est un financement a suivre pour",
+    "est un financement à suivre pour",
+    "est un concours suivi par kafundo pour",
+    "est un accompagnement suivi par kafundo pour",
+    "cette opportunite concerne principalement",
+    "cette opportunité concerne principalement",
+    "l'objectif est d'aide",
+    "l'objectif est d'aid",
 )
+
+TRUNCATED_ENDINGS = (
+    " d'aide",
+    " d'aid",
+    " l'obje",
+    " l'objec",
+    " entr",
+    " for",
+    " vi",
+    " des for",
+)
+
+VALID_ENDINGS = (".", "!", "?", ")", "€", "%")
 
 
 def _text(device) -> str:
@@ -68,6 +89,10 @@ def _text(device) -> str:
 
 def _flags(device) -> list[str]:
     text = _text(device)
+    short = (device.short_description or "").strip()
+    full = (device.full_description or "").strip()
+    eligibility = (device.eligibility_criteria or "").strip()
+    funding = (device.funding_details or "").strip()
     flags: list[str] = []
     if device.status == "standby":
         flags.append("standby_visible")
@@ -79,11 +104,21 @@ def _flags(device) -> list[str]:
         flags.append("anglais_residuel")
     if any(marker in text for marker in GENERIC_MARKERS):
         flags.append("texte_trop_generique")
+    if short and (
+        not short.endswith(VALID_ENDINGS)
+        or any(short.lower().endswith(ending) for ending in TRUNCATED_ENDINGS)
+    ):
+        flags.append("resume_coupe")
+    if full and (
+        any(full.lower().endswith(ending) for ending in TRUNCATED_ENDINGS)
+        or "l'objectif est d'aide" in full.lower()
+    ):
+        flags.append("description_coupee")
     if not device.close_date and device.status != "recurring":
         flags.append("date_ambigue")
-    if not device.eligibility_criteria or len(device.eligibility_criteria.strip()) < 80:
+    if not eligibility or len(eligibility) < 80:
         flags.append("criteres_faibles")
-    if not device.funding_details or len(device.funding_details.strip()) < 60:
+    if not funding or len(funding) < 60:
         flags.append("montant_avantage_faible")
     return flags
 

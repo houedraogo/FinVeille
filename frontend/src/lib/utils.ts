@@ -26,6 +26,70 @@ export function daysUntil(dateStr: string): number {
   }
 }
 
+export function hasReliableCloseDate(
+  device: Pick<Device, "close_date" | "status" | "is_recurring" | "tags">,
+): boolean {
+  if (!device.close_date) return false;
+
+  const tags = new Set((device.tags || []).map((tag) => String(tag).toLowerCase()));
+  const nonClassicDeadline =
+    device.is_recurring ||
+    device.status === "recurring" ||
+    device.status === "standby" ||
+    tags.has("deadline:permanent") ||
+    tags.has("deadline:institutional_project") ||
+    tags.has("deadline:not_communicated");
+
+  if (nonClassicDeadline) return false;
+
+  return (
+    device.status === "open" ||
+    device.status === "expired" ||
+    device.status === "closed" ||
+    tags.has("deadline:verified_from_raw") ||
+    tags.has("deadline:known") ||
+    tags.has("deadline:expired")
+  );
+}
+
+export function getDeadlineDisplay(
+  device: Pick<Device, "title" | "organism" | "source_url" | "status" | "is_recurring" | "close_date" | "device_type" | "tags">,
+) {
+  const nature = getDeviceNatureBanner(device);
+  const hasDeadline = hasReliableCloseDate(device);
+  const daysLeft = hasDeadline && device.close_date ? daysUntil(device.close_date) : null;
+  const isClosingSoon = device.status === "open" && daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
+
+  if (hasDeadline && device.close_date) {
+    const label = formatDate(device.close_date);
+    return {
+      hasDeadline,
+      date: device.close_date,
+      label,
+      shortLabel: label,
+      daysLeft,
+      isClosingSoon,
+      accent: true,
+    };
+  }
+
+  const label =
+    nature?.label ||
+    (device.is_recurring || device.status === "recurring"
+      ? "Financement récurrent"
+      : "Date non communiquée");
+
+  return {
+    hasDeadline: false,
+    date: null,
+    label,
+    shortLabel: label,
+    daysLeft: null,
+    isClosingSoon: false,
+    accent: false,
+  };
+}
+
 export function formatAmount(amount: number | string | null | undefined, currency = "EUR"): string {
   if (amount === null || amount === undefined || amount === "") return "";
   const n = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -204,11 +268,11 @@ export function getDeviceNatureBanner(
     };
   }
 
-  if (device.status === "open" && device.close_date) {
+  if (device.status === "open" && hasReliableCloseDate(device)) {
     return {
       kind: "open_call",
       label: "Appel en cours",
-      detail: `La source indique une clôture au ${formatDate(device.close_date)}.`,
+      detail: `La source indique une clôture au ${formatDate(device.close_date as string)}.`,
     };
   }
 

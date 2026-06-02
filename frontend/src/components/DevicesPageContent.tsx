@@ -9,7 +9,7 @@ import { canAccessAdmin, getCurrentRole } from "@/lib/auth";
 import { Device, DeviceListResponse, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
 import { getUserDeviceTypeMeta } from "@/lib/deviceTypes";
 import { COUNTRIES, SECTORS } from "@/lib/constants";
-import { formatAmount, formatDate, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
+import { formatAmount, getDeadlineDisplay, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import { consumePendingSavedSearch, getSavedViewMode, getUserPreferences, saveSearch, saveUserPreferences, setSavedViewMode, isFavoriteDevice, toggleFavoriteDevice, getPipelineDevice, type DevicePipelineStatus } from "@/lib/workspace";
 import {
   Search, SlidersHorizontal, Download, Plus,
@@ -96,7 +96,8 @@ function DevicePanel({
   buildRelevanceExplanation: (d: any) => string;
   detailFromParam: string;
 }) {
-  const daysLeft = device.close_date ? daysUntil(device.close_date) : null;
+  const deadline = getDeadlineDisplay(device);
+  const daysLeft = deadline.daysLeft;
   const isClosingSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 14;
   const aiReadiness = getAiReadinessMeta(device);
   const [favorite, setFavorite] = useState(false);
@@ -239,11 +240,9 @@ function DevicePanel({
             <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Date limite</p>
             <p className={clsx(
               "mt-1 text-sm font-semibold",
-              isClosingSoon ? "text-orange-700" : device.close_date ? "text-slate-900" : "text-slate-400 italic",
+              isClosingSoon ? "text-orange-700" : deadline.hasDeadline ? "text-slate-900" : "text-slate-400 italic",
             )}>
-              {device.close_date
-                ? formatDate(device.close_date)
-                : natureBanner?.label || (device.status === "recurring" ? "Récurrent" : "Non communiquée")}
+              {deadline.label}
             </p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
@@ -264,7 +263,7 @@ function DevicePanel({
           {aiReadiness.detail && <p className="mt-0.5 text-xs leading-5 opacity-80">{aiReadiness.detail}</p>}
         </div>
 
-        {natureBanner && !device.close_date && (
+        {natureBanner && !deadline.hasDeadline && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
             <p className="text-[10px] font-semibold uppercase tracking-widest">{natureBanner.label}</p>
             <p className="mt-1 text-sm leading-6">{natureBanner.detail}</p>
@@ -590,7 +589,15 @@ export default function DevicesPageContent({
         page_size: viewMode === "table" ? 50 : 30,
       });
       if (data.total > 0 && data.items.length === 0 && page > 1) {
+        setResult(null);
         setPage(1);
+        return;
+      }
+      if (data.total > 0 && data.items.length === 0) {
+        // Garde-fou UX : ne jamais annoncer des resultats si la page
+        // effectivement affichable est vide.
+        setResult({ ...data, total: 0, pages: 1 });
+        setSelectedDevice(null);
         return;
       }
       setResult(data);
@@ -734,7 +741,8 @@ export default function DevicesPageContent({
 
   // ── Rendu d'une ligne de liste ───────────────────────────────────────────────
   const renderListRow = (device: Device) => {
-    const daysLeft = device.close_date ? daysUntil(device.close_date) : null;
+    const deadline = getDeadlineDisplay(device);
+    const daysLeft = deadline.daysLeft;
     const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7;
     const isSoon   = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
     const isSelected = selectedDevice?.id === device.id;
@@ -794,7 +802,7 @@ export default function DevicesPageContent({
           {/* Méta droite */}
           <div className="shrink-0 text-right pl-2">
             <p className={clsx("text-xs font-medium tabular-nums", isUrgent ? "text-orange-600 font-bold" : isSoon ? "text-amber-600" : "text-slate-500")}>
-              {device.close_date ? formatDate(device.close_date) : natureBanner?.label || (device.status === "recurring" ? "Récurrent" : "—")}
+              {deadline.hasDeadline ? deadline.label : natureBanner?.label || (device.status === "recurring" ? "Récurrent" : "—")}
             </p>
             <p className={clsx("mt-0.5 text-xs font-semibold", device.amount_max ? "text-slate-900" : "text-slate-300")}>
               {device.amount_max ? formatAmount(device.amount_max, device.currency) : "—"}
@@ -937,12 +945,12 @@ export default function DevicesPageContent({
         <div className="mb-4 rounded-[28px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-sky-50 px-5 py-4 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Selection prioritaire</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Sélection prioritaire</p>
               <h2 className="mt-1 text-base font-bold text-slate-950">{introTitle}</h2>
               {introText && <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{introText}</p>}
             </div>
             <div className="rounded-2xl border border-emerald-100 bg-white/80 px-4 py-2 text-xs font-medium text-emerald-800">
-              Ouvert / Recurrent / Date fiable
+              Ouvert / Récurrent / Date fiable
             </div>
           </div>
         </div>
@@ -1241,8 +1249,8 @@ export default function DevicesPageContent({
                           <td className="px-4 py-4 text-slate-700">{[device.country, device.region].filter(Boolean).join(" · ") || "—"}</td>
                           <td className="px-4 py-4 text-slate-700">{device.amount_max ? formatAmount(device.amount_max, device.currency) : "—"}</td>
                           <td className="px-4 py-4">
-                            {device.close_date
-                              ? <span className="font-medium text-slate-800">{formatDate(device.close_date)}</span>
+                            {getDeadlineDisplay(device).hasDeadline
+                              ? <span className="font-medium text-slate-800">{getDeadlineDisplay(device).label}</span>
                               : <span className="text-slate-400">{device.status === "recurring" ? "Récurrent" : "—"}</span>}
                           </td>
                           <td className="px-4 py-4">

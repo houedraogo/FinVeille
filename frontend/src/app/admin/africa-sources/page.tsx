@@ -20,10 +20,10 @@ import { admin } from "@/lib/api";
 
 const ACTION_LABELS: Record<string, string> = {
   a_configurer: "A configurer",
-  nettoyer_textes: "Textes a nettoyer",
-  corriger_collecte: "Collecte a corriger",
+  nettoyer_textes: "Textes à nettoyer",
+  corriger_collecte: "Collecte à corriger",
   a_requalifier: "A requalifier",
-  dates_a_completer: "Dates a completer",
+  dates_a_completer: "Dates à compléter",
   veille_manuelle: "Veille manuelle",
   ok: "OK",
 };
@@ -86,14 +86,14 @@ export default function AdminAfricaSourcesPage() {
   const actions = data?.action_counts || {};
 
   return (
-    <RoleGate allow={["admin"]} title="Sources Afrique reservees" message="Cette page est reservee au super admin." backHref="/admin/workspace">
+    <RoleGate allow={["admin"]} title="Sources Afrique réservées" message="Cette page est réservée au super admin." backHref="/admin/workspace">
       <AppLayout>
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-medium text-primary-600">Super admin</p>
             <h1 className="mt-1 text-2xl font-bold text-slate-950">Sources africaines actionnables</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Suivi des sources qui peuvent produire de vraies opportunites candidatables pour l'Afrique.
+              Suivi des sources qui peuvent produire de vraies opportunités candidatables pour l'Afrique.
             </p>
           </div>
           <button onClick={load} disabled={loading} className="btn-secondary text-xs">
@@ -111,18 +111,18 @@ export default function AdminAfricaSourcesPage() {
           <>
             <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
               <Kpi label="Sources suivies" value={(summary.total_sources || 0).toLocaleString("fr")} detail={`${summary.active_sources || 0} actives`} icon={Globe2} tone="border-blue-200 bg-blue-50 text-blue-950" />
-              <Kpi label="Opportunites publiques" value={(summary.public_devices || 0).toLocaleString("fr")} detail="visibles cote utilisateur" icon={CheckCircle2} tone="border-emerald-200 bg-emerald-50 text-emerald-950" />
-              <Kpi label="Admin only" value={(summary.admin_only_devices || 0).toLocaleString("fr")} detail="signaux ou fiches a verifier" icon={ShieldCheck} tone="border-slate-200 bg-slate-50 text-slate-950" />
-              <Kpi label="Sources manuelles" value={(summary.manual_sources || 0).toLocaleString("fr")} detail="curees plutot que scrappees" icon={Wrench} tone="border-violet-200 bg-violet-50 text-violet-950" />
-              <Kpi label="A traiter" value={(summary.sources_to_fix || 0).toLocaleString("fr")} detail="hors veille manuelle et OK" icon={AlertTriangle} tone="border-amber-200 bg-amber-50 text-amber-950" />
+              <Kpi label="Opportunités publiques" value={(summary.public_devices || 0).toLocaleString("fr")} detail="visibles côté utilisateur" icon={CheckCircle2} tone="border-emerald-200 bg-emerald-50 text-emerald-950" />
+              <Kpi label="Admin only" value={(summary.admin_only_devices || 0).toLocaleString("fr")} detail="signaux ou fiches à vérifier" icon={ShieldCheck} tone="border-slate-200 bg-slate-50 text-slate-950" />
+              <Kpi label="Sources manuelles" value={(summary.manual_sources || 0).toLocaleString("fr")} detail="curées plutôt que scrappées" icon={Wrench} tone="border-violet-200 bg-violet-50 text-violet-950" />
+              <Kpi label="À traiter" value={(summary.sources_to_fix || 0).toLocaleString("fr")} detail="hors veille manuelle et OK" icon={AlertTriangle} tone="border-amber-200 bg-amber-50 text-amber-950" />
             </div>
 
             <section className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5">
               <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-950">Priorites par source</h2>
+                  <h2 className="text-lg font-semibold text-slate-950">Priorités par source</h2>
                   <p className="text-sm text-slate-500">
-                    Le but n'est pas le volume : chaque source doit produire des opportunites lisibles, credibles et actionnables.
+                    Le but n'est pas le volume : chaque source doit produire des opportunités lisibles, crédibles et actionnables.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -149,7 +149,7 @@ export default function AdminAfricaSourcesPage() {
                   <span>Public</span>
                   <span>Admin</span>
                   <span>Sante</span>
-                  <span>Acces</span>
+                  <span>Accès</span>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {filteredRows.length === 0 ? (

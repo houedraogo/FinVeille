@@ -18,7 +18,7 @@ const PUBLIC_TYPES = [
 export default function PublicDevicesPage() {
   return (
     <DevicesPageContent
-      title="Opportunites publiques a prioriser"
+      title="Opportunités publiques à prioriser"
       lockedDeviceTypes={PUBLIC_TYPES}
       availableDeviceTypes={PUBLIC_TYPES}
       defaultSort="relevance"

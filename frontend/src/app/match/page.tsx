@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { billing } from "@/lib/api";
+import { formatDate, hasReliableCloseDate } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const MATCH_STORAGE_KEY = "kafundo_match_state";
@@ -28,15 +29,25 @@ interface Profile {
   sectors: string[];
   countries: string[];
   types: string[];
+  dominant_type?: string | null;
   amount_min: number | null;
   amount_max: number | null;
   keywords: string[];
   summary: string;
+  project_stage?: string | null;
+  business_model?: string | null;
+  target_customers?: string | null;
+  evidence?: string[];
+  missing_information?: string[];
+  confidence?: number | null;
+  analysis_provider?: string | null;
+  analysis_model?: string | null;
 }
 
 interface MatchDevice {
   id: string;
   title: string;
+  organism?: string | null;
   description_courte: string | null;
   device_type: string;
   country: string;
@@ -45,6 +56,9 @@ interface MatchDevice {
   amount_max: number | null;
   source_url: string;
   close_date: string | null;
+  is_recurring?: boolean | null;
+  status?: string | null;
+  tags?: string[] | null;
   match_score: number;
 }
 
@@ -407,6 +421,18 @@ export default function MatchPage() {
                     <p className="text-sm text-gray-600 line-clamp-2">{result.profile.summary}</p>
                   )}
                 </div>
+                <div className="flex flex-col items-end gap-1">
+                  {typeof result.profile.confidence === "number" && (
+                    <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                      Précision {result.profile.confidence}/100
+                    </span>
+                  )}
+                  {result.profile.analysis_provider && (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                      {result.profile.analysis_provider === "openai" ? "ChatGPT" : result.profile.analysis_provider}
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={resetMatch}
                   className="text-gray-400 hover:text-gray-600 flex-shrink-0"
@@ -435,6 +461,26 @@ export default function MatchPage() {
                   <span key={k} className="badge bg-gray-50 text-gray-400 border border-gray-200">{k}</span>
                 ))}
               </div>
+              {(result.profile.project_stage || result.profile.business_model || result.profile.target_customers) && (
+                <div className="mt-3 grid gap-2 text-xs text-gray-600 sm:grid-cols-3">
+                  {result.profile.project_stage && <p><span className="font-semibold text-gray-700">Stade :</span> {result.profile.project_stage}</p>}
+                  {result.profile.business_model && <p><span className="font-semibold text-gray-700">Modèle :</span> {result.profile.business_model}</p>}
+                  {result.profile.target_customers && <p><span className="font-semibold text-gray-700">Cibles :</span> {result.profile.target_customers}</p>}
+                </div>
+              )}
+              {Boolean(result.profile.evidence?.length) && (
+                <div className="mt-3 rounded-lg border border-primary-100 bg-white/70 p-3">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-primary-600">Indices utilisés</p>
+                  <ul className="space-y-1 text-xs text-gray-600">
+                    {result.profile.evidence!.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}
+                  </ul>
+                </div>
+              )}
+              {Boolean(result.profile.missing_information?.length) && (
+                <div className="mt-2 text-xs text-amber-700">
+                  À préciser : {result.profile.missing_information!.slice(0, 3).join(", ")}
+                </div>
+              )}
             </div>
 
             {/* Header résultats */}
@@ -460,7 +506,14 @@ export default function MatchPage() {
 
             {/* Liste */}
             <div className="space-y-3">
-              {result.matches.map((d) => (
+              {result.matches.map((d) => {
+                const hasDeadline = hasReliableCloseDate({
+                  close_date: d.close_date,
+                  status: d.status || "open",
+                  is_recurring: Boolean(d.is_recurring),
+                  tags: d.tags || [],
+                });
+                return (
                 <div key={d.id} className="card p-4 hover:shadow-md transition-shadow">
                   <div className="flex items-start gap-3">
                     {/* Score */}
@@ -497,9 +550,9 @@ export default function MatchPage() {
                             {[formatAmount(d.amount_min), formatAmount(d.amount_max)].filter(Boolean).join(" – ")}
                           </span>
                         )}
-                        {d.close_date && (
+                        {hasDeadline && d.close_date && (
                           <span className="badge bg-orange-50 text-orange-600">
-                            Clôture {new Date(d.close_date).toLocaleDateString("fr-FR")}
+                            Clôture {formatDate(d.close_date)}
                           </span>
                         )}
                         <Link href={`/devices/${d.id}?from=match`}
@@ -517,7 +570,8 @@ export default function MatchPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         )}

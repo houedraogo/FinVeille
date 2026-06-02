@@ -25,8 +25,8 @@ export default function TeamSettingsPage() {
   return (
     <AppLayout>
       <div className="mb-6">
-        <p className="text-sm font-medium text-primary-600">Parametres</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-950">Equipe</h1>
+        <p className="text-sm font-medium text-primary-600">Paramètres</p>
+        <h1 className="mt-1 text-2xl font-bold text-slate-950">Équipe</h1>
         <p className="mt-2 text-sm text-slate-500">Invite des membres dans ton organisation cliente.</p>
       </div>
 

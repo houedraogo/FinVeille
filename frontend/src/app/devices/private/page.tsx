@@ -3,7 +3,7 @@ import DevicesPageContent from "@/components/DevicesPageContent";
 export default function PrivateDevicesPage() {
   return (
     <DevicesPageContent
-      title="Fonds & investisseurs a prioriser"
+      title="Fonds & investisseurs à prioriser"
       lockedDeviceTypes={["investissement"]}
       availableDeviceTypes={[]}
       defaultSort="amount_max"

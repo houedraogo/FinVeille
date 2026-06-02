@@ -284,13 +284,13 @@ DEVICES: list[dict[str, Any]] = [
 
 def _sections(device: dict[str, Any]) -> list[dict[str, Any]]:
     items = [
-        ("why", "Pourquoi regarder cette opportunite ?", device["decision"]),
-        ("presentation", "Presentation", device["presentation"]),
+        ("why", "Pourquoi regarder cette opportunité ?", device["decision"]),
+        ("presentation", "Présentation", device["presentation"]),
         ("eligibility", "Pour qui ?", device["eligibility"]),
         ("funding", "Montant / avantages", device["funding"]),
         ("calendar", "Calendrier", device["calendar"]),
         ("procedure", "Comment candidater ?", device["procedure"]),
-        ("checks", "Points a verifier", device["checks"]),
+        ("checks", "Points à vérifier", device["checks"]),
     ]
     return [
         {"key": key, "title": title, "content": content, "confidence": 88, "source": MODEL}
@@ -301,13 +301,13 @@ def _sections(device: dict[str, Any]) -> list[dict[str, Any]]:
 def _full_description(device: dict[str, Any]) -> str:
     return "\n\n".join(
         [
-            f"## Pourquoi regarder cette opportunite ?\n{device['decision']}",
-            f"## Presentation\n{device['presentation']}",
+            f"## Pourquoi regarder cette opportunité ?\n{device['decision']}",
+            f"## Présentation\n{device['presentation']}",
             f"## Pour qui ?\n{device['eligibility']}",
             f"## Montant / avantages\n{device['funding']}",
             f"## Calendrier\n{device['calendar']}",
             f"## Comment candidater ?\n{device['procedure']}",
-            f"## Points a verifier\n{device['checks']}",
+            f"## Points à vérifier\n{device['checks']}",
         ]
     )
 
@@ -338,7 +338,7 @@ def _quality_payload(device: dict[str, Any], source: Source) -> dict[str, Any]:
         "ai_rewrite_checked_at": NOW,
         "eligibility_criteria": device["eligibility"],
         "specific_conditions": device["checks"],
-        "required_documents": "Les pieces exactes doivent etre confirmees sur la source officielle avant depot.",
+        "required_documents": "Les pièces exactes doivent être confirmées sur la source officielle avant dépôt.",
         "funding_details": device["funding"],
         "amount_min": device.get("amount_min"),
         "amount_max": device.get("amount_max"),
@@ -357,7 +357,7 @@ def _quality_payload(device: dict[str, Any], source: Source) -> dict[str, Any]:
         "relevance_score": 82,
         "ai_readiness_score": 90,
         "ai_readiness_label": "pret_pour_recommandation_ia",
-        "ai_readiness_reasons": ["source officielle", "contenu structure", "public cible clair"],
+        "ai_readiness_reasons": ["source officielle", "contenu structuré", "public cible clair"],
         "validation_status": "auto_published",
         "decision_analysis": {
             "go_no_go": "go" if device["status"] == "open" else "a_verifier",
@@ -365,7 +365,7 @@ def _quality_payload(device: dict[str, Any], source: Source) -> dict[str, Any]:
             "why_interesting": device["decision"],
             "why_cautious": device["checks"],
             "points_to_confirm": device["checks"],
-            "recommended_action": "Verifier les conditions sur la source officielle puis ajouter cette opportunite a votre suivi si elle correspond a votre projet.",
+            "recommended_action": "Vérifier les conditions sur la source officielle puis ajouter cette opportunité à votre suivi si elle correspond à votre projet.",
             "urgency_level": "haute" if device.get("close_date") else "moyenne",
             "difficulty_level": "moyenne",
             "effort_level": "moyenne",

@@ -27,7 +27,7 @@ function SecurityContent() {
   const resetPassword = async () => {
     if (!resetToken || password.length < 8) return setFeedback("Token manquant ou mot de passe trop court.");
     const response = await security.resetPassword(resetToken, password);
-    setFeedback(response.message || "Mot de passe mis a jour.");
+    setFeedback(response.message || "Mot de passe mis à jour.");
   };
 
   const exportData = async () => {
@@ -44,8 +44,8 @@ function SecurityContent() {
   return (
     <>
       <div className="mb-6">
-        <p className="text-sm font-medium text-primary-600">Parametres</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-950">Securite et donnees</h1>
+        <p className="text-sm font-medium text-primary-600">Paramètres</p>
+        <h1 className="mt-1 text-2xl font-bold text-slate-950">Sécurité et données</h1>
         <p className="mt-2 text-sm text-slate-500">Mot de passe, export RGPD et demande de suppression.</p>
       </div>
 
@@ -65,20 +65,20 @@ function SecurityContent() {
           <h2 className="text-lg font-semibold text-slate-950">Nouveau mot de passe</h2>
           <p className="mt-1 text-sm text-slate-500">Utilise cette zone apres ouverture d'un lien de reset.</p>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8 caracteres minimum" className="input mt-4" />
-          <button type="button" onClick={resetPassword} className="btn-secondary mt-3 text-xs">Mettre a jour</button>
+          <button type="button" onClick={resetPassword} className="btn-secondary mt-3 text-xs">Mettre à jour</button>
         </section>
 
         <section className="rounded-[28px] border border-slate-200 bg-white p-6">
           <Download className="mb-3 h-6 w-6 text-blue-600" />
           <h2 className="text-lg font-semibold text-slate-950">Export RGPD</h2>
-          <p className="mt-1 text-sm text-slate-500">Prepare un export des donnees rattachees a ton compte.</p>
-          <button type="button" onClick={exportData} className="btn-secondary mt-4 text-xs">Generer mon export</button>
+          <p className="mt-1 text-sm text-slate-500">Prépare un export des données rattachées à ton compte.</p>
+          <button type="button" onClick={exportData} className="btn-secondary mt-4 text-xs">Générer mon export</button>
         </section>
 
         <section className="rounded-[28px] border border-red-100 bg-red-50/70 p-6 xl:col-span-3">
           <Trash2 className="mb-3 h-6 w-6 text-red-600" />
           <h2 className="text-lg font-semibold text-red-950">Suppression du compte</h2>
-          <p className="mt-1 text-sm text-red-700">Cree une demande de suppression avec delai de securite.</p>
+          <p className="mt-1 text-sm text-red-700">Crée une demande de suppression avec délai de sécurité.</p>
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Raison facultative" className="input mt-4 min-h-[100px]" />
           <button type="button" onClick={deleteAccount} className="btn-secondary mt-3 border-red-200 text-xs text-red-700">Demander la suppression</button>
         </section>

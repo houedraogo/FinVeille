@@ -69,14 +69,14 @@ def test_rewrite_prompt_contains_strict_no_invention_instruction():
 def test_rewritten_sections_need_review_when_deadline_disappears():
     rewritten = [
         {
-            "key": "presentation",
-            "title": "Presentation",
+            "key": "why_this_opportunity",
+            "title": "Pourquoi regarder cette opportunite ?",
             "content": "Ce concours accompagne les jeunes chercheurs dans leur projet entrepreneurial deeptech.",
         },
-        {"key": "eligibility", "title": "Criteres d'eligibilite", "content": "Jeunes chercheurs eligibles."},
-        {"key": "funding", "title": "Montant / avantages", "content": "Montant a confirmer."},
-        {"key": "calendar", "title": "Calendrier", "content": "Date limite a confirmer."},
-        {"key": "procedure", "title": "Demarche", "content": "Consulter la source officielle."},
+        {"key": "audience", "title": "Pour qui ?", "content": "Jeunes chercheurs eligibles."},
+        {"key": "benefits", "title": "Ce que vous pouvez obtenir", "content": "Montant a confirmer."},
+        {"key": "availability", "title": "Date limite ou disponibilite", "content": "Date limite a confirmer."},
+        {"key": "application", "title": "Comment candidater", "content": "Consulter la source officielle."},
         {"key": "checks", "title": "Points a verifier", "content": "Verifier les conditions."},
     ]
 
@@ -88,22 +88,22 @@ def test_rewritten_sections_need_review_when_deadline_disappears():
 def test_rewritten_sections_pass_when_expected_sections_and_deadline_are_present():
     rewritten = [
         {
-            "key": "presentation",
-            "title": "Presentation",
+            "key": "why_this_opportunity",
+            "title": "Pourquoi regarder cette opportunite ?",
             "content": "Le concours i-PhD accompagne les jeunes chercheurs qui souhaitent creer une startup deeptech a partir de leurs travaux de recherche.",
         },
         {
-            "key": "eligibility",
-            "title": "Criteres d'eligibilite",
+            "key": "audience",
+            "title": "Pour qui ?",
             "content": "Il s'adresse aux doctorants a partir de la deuxieme annee et aux docteurs ayant soutenu depuis moins de cinq ans.",
         },
         {
-            "key": "funding",
-            "title": "Montant / avantages",
+            "key": "benefits",
+            "title": "Ce que vous pouvez obtenir",
             "content": "Le dispositif apporte un accompagnement. Le montant financier reste a confirmer sur la source officielle.",
         },
-        {"key": "calendar", "title": "Calendrier", "content": "La cloture est indiquee au 30/04/2026."},
-        {"key": "procedure", "title": "Demarche", "content": "La candidature doit etre deposee depuis la source officielle."},
+        {"key": "availability", "title": "Date limite ou disponibilite", "content": "La cloture est indiquee au 30/04/2026."},
+        {"key": "application", "title": "Comment candidater", "content": "La candidature doit etre deposee depuis la source officielle."},
         {
             "key": "checks",
             "title": "Points a verifier",

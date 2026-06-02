@@ -44,17 +44,17 @@ const BENEFICIARY_LABELS: Record<string, string> = {
 
 const STATUSES = [
   { value: "open", label: "Ouvert" },
-  { value: "recurring", label: "Permanent / recurrent" },
-  { value: "standby", label: "Date non communiquee" },
-  { value: "closed", label: "Ferme" },
-  { value: "expired", label: "Expire" },
+  { value: "recurring", label: "Permanent / récurrent" },
+  { value: "standby", label: "Date non communiquée" },
+  { value: "closed", label: "Fermé" },
+  { value: "expired", label: "Expiré" },
 ];
 
 const VALIDATION_STATUSES = [
   { value: "auto_published", label: "Publie automatiquement" },
   { value: "approved", label: "Approuve" },
   { value: "validated", label: "Valide" },
-  { value: "pending_review", label: "A verifier" },
+  { value: "pending_review", label: "À vérifier" },
   { value: "rejected", label: "Masque / rejete" },
 ];
 

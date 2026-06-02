@@ -60,7 +60,9 @@ class Settings(BaseSettings):
     MISTRAL_API_KEY: Optional[str] = None
     AI_REWRITE_PROVIDER: str = "openai"
     AI_REWRITE_MODEL: str = "gpt-4o-mini"
+    AI_MATCH_MODEL: str = "gpt-4.1"
     AI_REWRITE_TIMEOUT_SECONDS: int = 45
+    AI_MATCH_TIMEOUT_SECONDS: int = 60
 
     # CORS
     FRONTEND_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000"

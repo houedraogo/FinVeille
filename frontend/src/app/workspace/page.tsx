@@ -354,7 +354,7 @@ export default function WorkspacePage() {
           <div>
             <p className="text-sm font-medium text-primary-600">Tableau de bord personnel</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-              Bonjour {firstName}, voici les opportunites a traiter.
+              Bonjour {firstName}, voici les opportunités à traiter.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
               Ton espace rassemble les opportunités suivies, les prochaines échéances, ta veille et les recommandations issues de tes recherches.
@@ -363,7 +363,7 @@ export default function WorkspacePage() {
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/devices?closing_soon=30" className="btn-secondary text-xs">
               <CalendarDays className="h-3.5 w-3.5" />
-              Voir les echeances
+              Voir les échéances
             </Link>
             <Link href="/devices" className="btn-secondary text-xs">
               <FolderSearch className="h-3.5 w-3.5" />
@@ -688,7 +688,7 @@ export default function WorkspacePage() {
               <CalendarDays className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-lg font-semibold text-slate-950">Mes prochaines echeances</h2>
+              <h2 className="text-lg font-semibold text-slate-950">Mes prochaines échéances</h2>
               <p className="text-sm text-slate-500">Favoris et fiches suivies avec une date limite proche.</p>
             </div>
           </div>
@@ -696,7 +696,7 @@ export default function WorkspacePage() {
           {upcomingDeadlines.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-7 text-center">
               <CheckCircle2 className="mx-auto h-8 w-8 text-slate-300" />
-              <p className="mt-3 text-sm font-medium text-slate-700">Aucune echeance suivie</p>
+              <p className="mt-3 text-sm font-medium text-slate-700">Aucune échéance suivie</p>
               <p className="mt-1 text-sm text-slate-500">Ajoute une opportunité en favori ou dans ton suivi pour la voir ici.</p>
             </div>
           ) : (
@@ -724,7 +724,7 @@ export default function WorkspacePage() {
               <Target className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-lg font-semibold text-slate-950">Recommandes pour moi</h2>
+              <h2 className="text-lg font-semibold text-slate-950">Recommandés pour moi</h2>
               <p className="text-sm text-slate-500">Les meilleures pistes recommandées et pas encore suivies.</p>
             </div>
           </div>

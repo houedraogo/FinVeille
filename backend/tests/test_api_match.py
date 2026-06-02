@@ -1,3 +1,14 @@
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def bypass_feature_gate(monkeypatch):
+    async def allow_feature(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.routers.match.ensure_feature", allow_feature)
+
+
 def test_match_rejects_unsupported_extension(client):
     response = client.post(
         "/api/v1/match/",

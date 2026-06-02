@@ -12,7 +12,7 @@ import {
 import AppLayout from "@/components/AppLayout";
 import { dashboard, relevance } from "@/lib/api";
 import { DEVICE_TYPE_LABELS, RecommendationItem } from "@/lib/types";
-import { formatDateRelative } from "@/lib/utils";
+import { formatDateRelative, getDeadlineDisplay } from "@/lib/utils";
 import {
   listPipelineDevices, syncWorkspace,
   type DevicePipelineEntry, type DevicePipelineStatus,
@@ -176,8 +176,10 @@ export default function DashboardPage() {
   // Devices avec deadline urgente (stats peut être null → optional chaining)
   const urgentDevices = useMemo(() => {
     return (stats?.recent_devices ?? []).filter((d: any) => {
-      if (!d.close_date || d.status !== "open") return false;
-      const days = Math.ceil((new Date(d.close_date).getTime() - Date.now()) / 86_400_000);
+      const deadline = getDeadlineDisplay(d);
+      if (!deadline.hasDeadline || d.status !== "open") return false;
+      const days = deadline.daysLeft;
+      if (days === null) return false;
       return days >= 0 && days <= 14;
     });
   }, [stats]);
@@ -197,7 +199,7 @@ export default function DashboardPage() {
     // 1. Deadline urgente
     if (urgentDevices.length > 0) {
       const d = urgentDevices[0];
-      const daysLeft = Math.ceil((new Date(d.close_date).getTime() - Date.now()) / 86_400_000);
+      const daysLeft = getDeadlineDisplay(d).daysLeft ?? 0;
       actions.push({
         id: `deadline-${d.id}`,
         icon: Flame,
@@ -699,6 +701,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               {stats.recent_devices.slice(0, 5).map((device: any) => {
                 const hasAmt = device.amount_max && device.amount_max > 0;
+                const deadline = getDeadlineDisplay(device);
                 return (
                   <Link
                     key={device.id}
@@ -715,14 +718,14 @@ export default function DashboardPage() {
                             <span className="font-medium text-green-700">{formatEuro(device.amount_max)}</span>
                           </>
                         )}
-                        {device.close_date && (
+                        {deadline.hasDeadline && deadline.date && (
                           <>
                             <span className="text-slate-300">·</span>
                             <span className={clsx(
                               "font-medium",
-                              new Date(device.close_date) <= new Date(Date.now() + 7 * 86400000) ? "text-orange-600" : "text-slate-400",
+                              deadline.daysLeft !== null && deadline.daysLeft >= 0 && deadline.daysLeft <= 7 ? "text-orange-600" : "text-slate-400",
                             )}>
-                              {new Date(device.close_date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                              {new Date(deadline.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
                             </span>
                           </>
                         )}

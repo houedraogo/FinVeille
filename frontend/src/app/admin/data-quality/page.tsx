@@ -64,17 +64,17 @@ export default function AdminDataQualityPage() {
 
   const runAudit = async () => {
     await admin.runQualityAudit();
-    setMessage("Audit qualite declenche en arriere-plan.");
+    setMessage("Audit qualité déclenché en arrière-plan.");
   };
 
   const runCatalogControl = async () => {
     await admin.runCatalogQualityControl();
-    setMessage("Controle qualite catalogue declenche en arriere-plan.");
+    setMessage("Contrôle qualité catalogue déclenché en arrière-plan.");
   };
 
   const runVisibleAudit = async () => {
     await admin.runVisibleQualityAudit();
-    setMessage("Audit des fiches visibles declenche en arriere-plan.");
+    setMessage("Audit des fiches visibles déclenché en arrière-plan.");
   };
 
   const runLinkCheck = async () => {
@@ -84,7 +84,7 @@ export default function AdminDataQualityPage() {
 
   const applyQualityAction = async (deviceId: string, action: "publish" | "hide" | "rewrite" | "delete") => {
     const result = await admin.qualityDeviceAction(deviceId, action) as any;
-    setMessage(result.message || "Action qualite appliquee.");
+    setMessage(result.message || "Action qualité appliquée.");
     await load();
   };
 
@@ -101,7 +101,7 @@ export default function AdminDataQualityPage() {
 
   const collectAll = async () => {
     await admin.collectAll();
-    setMessage("Collecte globale declenchee.");
+    setMessage("Collecte globale déclenchée.");
   };
 
   const recentErrors = operations?.recent_errors || [];
@@ -115,8 +115,8 @@ export default function AdminDataQualityPage() {
   const actionLabels = catalogAudit?.action_labels || {
     a_enrichir: "A enrichir",
     a_purger: "A purger",
-    a_verifier: "A verifier",
-    source_a_revoir: "Source a revoir",
+    a_verifier: "À vérifier",
+    source_a_revoir: "Source à revoir",
     ok: "OK",
   };
   const actionColors: Record<string, string> = {
@@ -128,12 +128,12 @@ export default function AdminDataQualityPage() {
   };
 
   return (
-    <RoleGate allow={["admin"]} title="Qualite reservee" message="Cette page est reservee au super admin." backHref="/admin/workspace">
+    <RoleGate allow={["admin"]} title="Qualité réservée" message="Cette page est réservée au super admin." backHref="/admin/workspace">
       <AppLayout>
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-medium text-primary-600">Super admin</p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-950">Qualite donnees</h1>
+            <h1 className="mt-1 text-2xl font-bold text-slate-950">Qualité données</h1>
             <p className="mt-2 text-sm text-slate-500">Sources en erreur, fiches pending, sans date et textes faibles.</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -165,7 +165,7 @@ export default function AdminDataQualityPage() {
         {loading ? (
           <div className="flex items-center justify-center rounded-[28px] border border-slate-200 bg-white py-16 text-sm text-slate-400">
             <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-            Chargement qualite...
+            Chargement qualité...
           </div>
         ) : (
           <>
@@ -175,7 +175,7 @@ export default function AdminDataQualityPage() {
               <Kpi label="Open sans date" value={(catalogAudit?.risk_counts?.open_without_date ?? 0).toLocaleString("fr")} icon={CalendarOff} tone="border-red-200 bg-red-50 text-red-950" />
               <Kpi label="Texte anglais" value={(catalogAudit?.risk_counts?.english_text ?? 0).toLocaleString("fr")} icon={AlertTriangle} tone="border-slate-200 bg-slate-50 text-slate-950" />
               <Kpi label="Sources erreur" value={recentErrors.length.toLocaleString("fr")} icon={Database} tone="border-red-200 bg-red-50 text-red-950" />
-              <Kpi label="Visibles a corriger" value={(visibleAudit?.to_fix_total ?? 0).toLocaleString("fr")} icon={EyeOff} tone="border-violet-200 bg-violet-50 text-violet-950" />
+              <Kpi label="Visibles à corriger" value={(visibleAudit?.to_fix_total ?? 0).toLocaleString("fr")} icon={EyeOff} tone="border-violet-200 bg-violet-50 text-violet-950" />
               <Kpi label="Completion moy." value={`${quality?.avg_completeness || 0}%`} icon={Sparkles} tone="border-emerald-200 bg-emerald-50 text-emerald-950" />
             </div>
 
@@ -183,9 +183,9 @@ export default function AdminDataQualityPage() {
               <section className="mb-6 rounded-[28px] border border-violet-100 bg-white p-5 shadow-sm">
                 <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold text-slate-950">Fiches visibles a corriger avant publication</h2>
+                    <h2 className="text-lg font-semibold text-slate-950">Fiches visibles à corriger avant publication</h2>
                     <p className="text-sm text-slate-500">
-                      {visibleAudit.visible_total?.toLocaleString("fr")} fiches visibles analysees · {visibleAudit.to_fix_total?.toLocaleString("fr")} point(s) a traiter.
+                      {visibleAudit.visible_total?.toLocaleString("fr")} fiches visibles analysées · {visibleAudit.to_fix_total?.toLocaleString("fr")} point(s) à traiter.
                     </p>
                   </div>
                   <button onClick={runVisibleAudit} className="btn-secondary text-xs">
@@ -194,7 +194,7 @@ export default function AdminDataQualityPage() {
                   </button>
                   <button onClick={runLinkCheck} className="btn-secondary text-xs">
                     <Database className="h-3.5 w-3.5" />
-                    Verifier les liens
+                    Vérifier les liens
                   </button>
                 </div>
                 <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
@@ -211,7 +211,7 @@ export default function AdminDataQualityPage() {
                   <div className="grid grid-cols-[1.2fr_0.55fr_1fr_0.85fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                     <span>Fiche</span>
                     <span>Action conseillee</span>
-                    <span>Problemes</span>
+                    <span>Problèmes</span>
                     <span>Actions rapides</span>
                   </div>
                   <div className="divide-y divide-slate-100">
@@ -233,7 +233,7 @@ export default function AdminDataQualityPage() {
                             )}>
                               {item.recommended_action === "masquer" ? "Masquer" : item.recommended_action === "reformuler" ? "Reformuler" : "Publier"}
                             </span>
-                            <p className="mt-1 text-xs text-slate-400">Qualite {item.user_quality_score || 0}%</p>
+                            <p className="mt-1 text-xs text-slate-400">Qualité {item.user_quality_score || 0}%</p>
                           </div>
                           <div className="flex flex-wrap gap-1">
                             {(item.issue_labels || item.issues || []).slice(0, 6).map((label: string) => (
@@ -270,9 +270,9 @@ export default function AdminDataQualityPage() {
               <section className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5">
                 <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold text-slate-950">Audit catalogue priorise</h2>
+                    <h2 className="text-lg font-semibold text-slate-950">Audit catalogue priorisé</h2>
                     <p className="text-sm text-slate-500">
-                      {catalogAudit.totals.devices.toLocaleString("fr")} fiches · {catalogAudit.totals.sources.toLocaleString("fr")} sources · generation {new Date(catalogAudit.generated_at).toLocaleString("fr")}
+                      {catalogAudit.totals.devices.toLocaleString("fr")} fiches · {catalogAudit.totals.sources.toLocaleString("fr")} sources · génération {new Date(catalogAudit.generated_at).toLocaleString("fr")}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -306,9 +306,9 @@ export default function AdminDataQualityPage() {
                   <div className="grid grid-cols-[1.2fr_0.55fr_1.4fr_0.7fr_0.7fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                     <span>Source</span>
                     <span>Action</span>
-                    <span>Problemes</span>
-                    <span>Qualite</span>
-                    <span>Acces</span>
+                    <span>Problèmes</span>
+                    <span>Qualité</span>
+                    <span>Accès</span>
                   </div>
                   <div className="divide-y divide-slate-100">
                     {sourcePriorities.length === 0 ? (
@@ -345,8 +345,8 @@ export default function AdminDataQualityPage() {
                           </div>
                           <div className="text-xs text-slate-500">
                             <p>{source.is_active ? "Active" : "Inactive"}</p>
-                            <p>Dates {source.date_rate ?? 0}% Â· Erreurs {source.error_rate_30d ?? 0}%</p>
-                            <p>{source.last_success_at ? `Succes ${new Date(source.last_success_at).toLocaleDateString("fr")}` : "Jamais collectee"}</p>
+                            <p>Dates {source.date_rate ?? 0}% · Erreurs {source.error_rate_30d ?? 0}%</p>
+                            <p>{source.last_success_at ? `Succès ${new Date(source.last_success_at).toLocaleDateString("fr")}` : "Jamais collectée"}</p>
                           </div>
                         </div>
                       ))
@@ -361,7 +361,7 @@ export default function AdminDataQualityPage() {
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-semibold text-slate-950">Sources en erreur</h2>
-                    <p className="text-sm text-slate-500">Actions rapides: voir logs, relancer, desactiver depuis la source.</p>
+                    <p className="text-sm text-slate-500">Actions rapides: voir logs, relancer, désactiver depuis la source.</p>
                   </div>
                   <Link href="/sources" className="btn-secondary text-xs">Toutes les sources</Link>
                 </div>
@@ -390,7 +390,7 @@ export default function AdminDataQualityPage() {
                 <div className="mt-4 grid gap-2">
                   <button onClick={fixExpired} className="btn-secondary justify-start text-xs">
                     <CalendarOff className="h-3.5 w-3.5" />
-                    Corriger open avec date passee
+                    Corriger open avec date passée
                   </button>
                   <button onClick={enrich} className="btn-secondary justify-start text-xs">
                     <Sparkles className="h-3.5 w-3.5" />
@@ -402,7 +402,7 @@ export default function AdminDataQualityPage() {
                   </Link>
                   <Link href="/sources" className="btn-secondary justify-start text-xs">
                     <Database className="h-3.5 w-3.5" />
-                    Desactiver / relancer une source
+                    Désactiver / relancer une source
                   </Link>
                 </div>
               </section>
@@ -413,11 +413,11 @@ export default function AdminDataQualityPage() {
                 <div>
                   <h2 className="text-lg font-semibold text-slate-950">Rapport source par source</h2>
                   <p className="text-sm text-slate-500">
-                    Volume, taux publiable, taux de dates, erreurs recentes et qualite moyenne.
+                    Volume, taux publiable, taux de dates, erreurs récentes et qualité moyenne.
                   </p>
                 </div>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
-                  {(reportRows.length || 0).toLocaleString("fr")} sources analysees
+                  {(reportRows.length || 0).toLocaleString("fr")} sources analysées
                 </span>
               </div>
               <div className="overflow-hidden rounded-2xl border border-slate-200">
@@ -460,7 +460,7 @@ export default function AdminDataQualityPage() {
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
               <section className="rounded-[28px] border border-slate-200 bg-white p-5">
                 <h2 className="text-lg font-semibold text-slate-950">Fiches pending</h2>
-                <p className="mt-1 text-sm text-slate-500">{(pending?.total || 0).toLocaleString("fr")} fiches a valider.</p>
+                <p className="mt-1 text-sm text-slate-500">{(pending?.total || 0).toLocaleString("fr")} fiches à valider.</p>
                 <div className="mt-4 space-y-2">
                   {(pending?.items || []).slice(0, 5).map((device: any) => (
                     <Link key={device.id} href={`/devices/${device.id}`} className="block rounded-2xl border border-slate-100 px-4 py-3 hover:bg-slate-50">
@@ -478,7 +478,7 @@ export default function AdminDataQualityPage() {
                     <div key={item.id || index} className="rounded-2xl border border-slate-100 px-4 py-3 text-sm text-slate-700">
                       {item.title || item.source_name || JSON.stringify(item).slice(0, 80)}
                     </div>
-                  )) : <p className="rounded-2xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">Audit detaille non disponible.</p>}
+                  )) : <p className="rounded-2xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">Audit détaillé non disponible.</p>}
                 </div>
               </section>
               <section className="rounded-[28px] border border-slate-200 bg-white p-5">
@@ -489,14 +489,14 @@ export default function AdminDataQualityPage() {
                     <div key={item.id || index} className="rounded-2xl border border-slate-100 px-4 py-3 text-sm text-slate-700">
                       {item.title || item.source_name || JSON.stringify(item).slice(0, 80)}
                     </div>
-                  )) : <p className="rounded-2xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">Audit detaille non disponible.</p>}
+                  )) : <p className="rounded-2xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">Audit détaillé non disponible.</p>}
                 </div>
               </section>
             </div>
 
             {Array.isArray(auditSources) && auditSources.length > 0 && (
               <section className="mt-6 rounded-[28px] border border-slate-200 bg-white p-5">
-                <h2 className="text-lg font-semibold text-slate-950">Sources bruitees ou fragiles</h2>
+                <h2 className="text-lg font-semibold text-slate-950">Sources bruitées ou fragiles</h2>
                 <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
                   {auditSources.slice(0, 10).map((source: any, index: number) => (
                     <div key={source.source_id || source.id || index} className="rounded-2xl border border-slate-100 px-4 py-3">

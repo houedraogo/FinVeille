@@ -49,16 +49,17 @@ async def forgot_password(
         await db.commit()
 
         reset_url = f"{settings.PUBLIC_APP_URL}/settings/security?reset_token={token}"
+        subject = "Réinitialisation de votre mot de passe Kafundo"
         sent = NotificationService.send_email(
             user.email,
-            "Reinitialisation de votre mot de passe Kafundo",
-            f"<p>Bonjour,</p><p>Pour reinitialiser votre mot de passe, ouvrez ce lien :</p><p><a href='{reset_url}'>{reset_url}</a></p>",
+            subject,
+            NotificationService.build_password_reset_email(user.full_name or user.email, reset_url),
         )
         await record_email_event(
             db,
             email=user.email,
             template="password_reset",
-            subject="Reinitialisation de votre mot de passe Kafundo",
+            subject=subject,
             status="sent" if sent else "skipped",
             user_id=user.id,
         )
@@ -69,7 +70,7 @@ async def forgot_password(
             ip_address=request.client.host if request.client else None,
         )
 
-    return {"message": "Si ce compte existe, un email de reinitialisation a ete envoye."}
+    return {"message": "Si ce compte existe, un email de réinitialisation a été envoyé."}
 
 
 @router.post("/password/reset")

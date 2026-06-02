@@ -259,6 +259,11 @@ export default function OnboardingPage() {
     const scope = FINANCING_SCOPES.find((s) => s.key === financingScope);
     return scope?.types ?? [];
   }, [financingScope]);
+  const resultDeviceTypes = useMemo(() => {
+    if (financingScope === "private") return PRIVATE_TYPES;
+    if (financingScope === "public" || financingScope === "both") return PUBLIC_TYPES;
+    return [];
+  }, [financingScope]);
 
   const selectedProfile = useMemo(() => PROFILES.find((p) => p.key === profile), [profile]);
   const selectedCanonicalCountries = useMemo(
@@ -298,7 +303,7 @@ export default function OnboardingPage() {
         const data = await devices.onboardingPreview({
           countries: selectedCanonicalCountries,
           sectors,
-          device_types: deviceTypes,
+          device_types: resultDeviceTypes,
           beneficiaries: profile ? PROFILE_BENEFICIARIES[profile] : undefined,
           status: financingScope === "private" ? undefined : ["open", "recurring"],
           actionable_now: true,
@@ -335,7 +340,7 @@ export default function OnboardingPage() {
       active = false;
       clearTimeout(t);
     };
-  }, [selectedCanonicalCountries.join("|"), sectors.join("|"), deviceTypes.join("|"), financingScope, step]); // eslint-disable-line
+  }, [selectedCanonicalCountries.join("|"), sectors.join("|"), resultDeviceTypes.join("|"), financingScope, step]); // eslint-disable-line
 
   // ── Écran de chargement (step 2) ────────────────────────────────────────────
 
@@ -394,7 +399,7 @@ export default function OnboardingPage() {
   const buildResultFilters = () => ({
     q: "",
     countries: selectedCanonicalCountries,
-    deviceTypes: preview?.result_device_types?.length ? preview.result_device_types : deviceTypes,
+    deviceTypes: preview?.result_device_types?.length ? preview.result_device_types : resultDeviceTypes,
     sectors,
     statuses: preview?.result_status ?? (financingScope === "private" ? [] : ["open", "recurring"]),
     closingSoon: "",

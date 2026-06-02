@@ -47,7 +47,7 @@ export default function AdminBillingPage() {
   }, [subscribers]);
 
   return (
-    <RoleGate allow={["admin"]} title="Abonnements reserve" message="Cette page est reservee au super admin." backHref="/admin/workspace">
+    <RoleGate allow={["admin"]} title="Abonnements réservé" message="Cette page est réservée au super admin." backHref="/admin/workspace">
       <AppLayout>
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>

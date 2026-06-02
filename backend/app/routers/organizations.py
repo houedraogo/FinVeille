@@ -175,17 +175,28 @@ async def invite_to_organization(
     await db.commit()
     await db.refresh(invitation)
 
+    invited_org = current_org
+    if not invited_org or invited_org.id != organization_id:
+        org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
+        invited_org = org_result.scalar_one_or_none()
+
     invite_url = f"{settings.PUBLIC_APP_URL}/settings/team?invitation_token={invitation.token}"
+    subject = f"Invitation à rejoindre {invited_org.name if invited_org else 'Kafundo'}"
     sent = NotificationService.send_email(
         invitation.email,
-        "Invitation a rejoindre Kafundo",
-        f"<p>Bonjour,</p><p>Vous avez ete invite a rejoindre une organisation Kafundo.</p><p><a href='{invite_url}'>{invite_url}</a></p>",
+        subject,
+        NotificationService.build_organization_invitation_email(
+            invite_url=invite_url,
+            organization_name=invited_org.name if invited_org else "Kafundo",
+            inviter_name=current_user.full_name or current_user.email,
+            role=invitation.role,
+        ),
     )
     await record_email_event(
         db,
         email=invitation.email,
         template="organization_invitation",
-        subject="Invitation a rejoindre Kafundo",
+        subject=subject,
         status="sent" if sent else "skipped",
         user_id=current_user.id,
         metadata={"invitation_id": str(invitation.id)},

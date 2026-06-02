@@ -9,7 +9,7 @@ import { devices } from "@/lib/api";
 import { canModerateDevices, getCurrentRole, type AppRole } from "@/lib/auth";
 import { Device, STATUS_LABELS } from "@/lib/types";
 import { getUserDeviceTypeMeta } from "@/lib/deviceTypes";
-import { formatAmount, formatDate, formatDateRelative, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
+import { formatAmount, formatDate, formatDateRelative, daysUntil, getDeadlineDisplay, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import {
   addPipelineDocument,
   getPipelineDevice,
@@ -372,7 +372,7 @@ function CollapsibleSection({
           </span>
           <span className="min-w-0">
             <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 group-open:text-primary-500">
-              Details
+              Détails
             </span>
             <span className="block truncate text-base font-semibold text-slate-900">{title}</span>
           </span>
@@ -382,6 +382,28 @@ function CollapsibleSection({
       <div className="space-y-5 border-t border-slate-100 px-5 py-5">{children}</div>
     </details>
   );
+}
+
+function formatTaxonomyLabel(value?: string | null): string {
+  const cleaned = sanitizeDisplayText(value).replace(/_/g, " ").trim();
+  const normalized = cleaned.toLowerCase();
+  const replacements: Record<string, string> = {
+    handicapee: "handicapée",
+    handicapees: "handicapées",
+    "personne handicapee": "personne handicapée",
+    "personnes handicapees": "personnes handicapées",
+    collectivite: "collectivité",
+    collectivites: "collectivités",
+    cooperative: "coopérative",
+    cooperatives: "coopératives",
+    createur: "créateur",
+    createurs: "créateurs",
+    etudiant: "étudiant",
+    etudiants: "étudiants",
+    universite: "université",
+  };
+
+  return replacements[normalized] || cleaned;
 }
 
 function SectionField({
@@ -517,8 +539,8 @@ function getDecisionBanner(device: Device, daysLeft: number | null) {
   const nature = getDeviceNatureBanner(device);
   if (device.validation_status === "pending_review") {
     return {
-      label: "A verifier",
-      detail: "Cette fiche contient des informations utiles, mais certaines donnees doivent encore etre confirmees.",
+      label: "À vérifier",
+      detail: "Cette fiche contient des informations utiles, mais certaines données doivent encore être confirmées.",
       className: "border-amber-200 bg-amber-50 text-amber-800",
     };
   }
@@ -559,7 +581,7 @@ function getDecisionBanner(device: Device, daysLeft: number | null) {
   }
   if (!device.close_date) {
     return {
-      label: nature?.label || "Date limite non communiquee",
+      label: nature?.label || "Date limite non communiquée",
       detail: nature?.detail || "La source ne fournit pas encore de date limite exploitable. Verifie la page officielle avant de candidater.",
       className: "border-orange-200 bg-orange-50 text-orange-800",
     };
@@ -567,7 +589,7 @@ function getDecisionBanner(device: Device, daysLeft: number | null) {
   if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 30) {
     return {
       label: "Appel en cours",
-      detail: `La cloture approche : ${daysLeft} jour${daysLeft > 1 ? "s" : ""} restant${daysLeft > 1 ? "s" : ""}.`,
+      detail: `La clôture approche : ${daysLeft} jour${daysLeft > 1 ? "s" : ""} restant${daysLeft > 1 ? "s" : ""}.`,
       className: daysLeft <= 7 ? "border-red-200 bg-red-50 text-red-700" : "border-orange-200 bg-orange-50 text-orange-800",
     };
   }
@@ -610,12 +632,12 @@ function buildUserDecisionSummary(device: Device, presentationContent: string, f
   }
 
   const parts = [
-    `Cette fiche correspond a un projet institutionnel porte par ${device.organism}.`,
+    `Cette fiche correspond à un projet institutionnel porté par ${device.organism}.`,
     "Elle sert de signal de veille pour comprendre les priorites financees dans ce pays ou ce secteur.",
   ];
 
   if (device.close_date && daysLeft !== null && daysLeft >= 0) {
-    parts.push(`La date indiquee dans la source est le ${formatDate(device.close_date)} : elle correspond au calendrier du projet, pas a une date limite de candidature.`);
+    parts.push(`La date indiquée dans la source est le ${formatDate(device.close_date)} : elle correspond au calendrier du projet, pas à une date limite de candidature.`);
   } else {
     parts.push("Aucune date de candidature directe n'est publiee pour cette fiche.");
   }
@@ -633,15 +655,15 @@ function getDecisionPriority(device: Device, daysLeft: number | null): { label: 
     return { label: "Non prioritaire", className: "border-slate-200 bg-slate-100 text-slate-700" };
   }
   if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 7) {
-    return { label: "Priorite haute", className: "border-red-200 bg-red-50 text-red-700" };
+    return { label: "Priorité haute", className: "border-red-200 bg-red-50 text-red-700" };
   }
   if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 30) {
-    return { label: "A traiter bientot", className: "border-orange-200 bg-orange-50 text-orange-800" };
+    return { label: "À traiter bientôt", className: "border-orange-200 bg-orange-50 text-orange-800" };
   }
   if (device.relevance_label || device.amount_max || device.is_recurring) {
-    return { label: "A etudier", className: "border-emerald-200 bg-emerald-50 text-emerald-800" };
+    return { label: "À étudier", className: "border-emerald-200 bg-emerald-50 text-emerald-800" };
   }
-  return { label: "A confirmer", className: "border-amber-200 bg-amber-50 text-amber-800" };
+  return { label: "À confirmer", className: "border-amber-200 bg-amber-50 text-amber-800" };
 }
 
 function getEffortLabel(device: Device): string {
@@ -660,7 +682,7 @@ function getEffortLabel(device: Device): string {
     return "Effort moyen";
   }
   if (device.status === "recurring" || device.is_recurring) {
-    return "Effort a confirmer";
+    return "Effort à confirmer";
   }
   return "Effort leger";
 }
@@ -1099,11 +1121,11 @@ export default function DeviceDetailPage() {
   const cameFromOpportunitiesNow = sourceView === "opportunities-now";
   const canModerate = canModerateDevices(role);
   const PIPELINE_LABELS: Record<DevicePipelineStatus, string> = {
-    a_etudier: "A etudier",
-    interessant: "Interessant",
+    a_etudier: "À étudier",
+    interessant: "Intéressant",
     candidature_en_cours: "Candidature en cours",
     soumis: "Soumis",
-    refuse: "Refuse",
+    refuse: "Refusé",
     non_pertinent: "Non pertinent",
   };
 
@@ -1320,15 +1342,17 @@ export default function DeviceDetailPage() {
     );
   }
 
-  const daysLeft = device.close_date ? daysUntil(device.close_date) : null;
-  const isClosingSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
+  const deadline = getDeadlineDisplay(device);
+  const effectiveCloseDate = deadline.date;
+  const daysLeft = deadline.daysLeft;
+  const isClosingSoon = deadline.isClosingSoon;
   const hasRichContent = !!(device.full_description || device.eligibility_criteria || device.eligible_expenses);
   const hasEnrichedContent = !!(device.auto_summary || device.full_description || device.eligibility_criteria || device.eligible_expenses);
   const hero = TYPE_HERO[device.device_type] || TYPE_HERO.autre;
   const typeMeta = getUserDeviceTypeMeta(device.device_type);
   const natureBanner = getDeviceNatureBanner(device);
   const beneficiarySummary = device.beneficiaries?.length
-    ? device.beneficiaries.map((item) => item.replace(/_/g, " ")).join(", ")
+    ? device.beneficiaries.map((item) => formatTaxonomyLabel(item)).join(", ")
     : null;
   const structuredPresentation = getContentSection(device, "presentation");
   const structuredEligibility = getContentSection(device, "eligibility");
@@ -1367,24 +1391,25 @@ export default function DeviceDetailPage() {
   const hasDistinctFundingText =
     displayFundingContent && normalizeForComparison(displayFundingContent) !== normalizeForComparison(displayPresentationContent);
   const isInstitutionalSignal = isInstitutionalProjectDevice(device);
-  const decisionBanner = getDecisionBanner(device, daysLeft);
-  const decisionSummary = buildUserDecisionSummary(device, displayPresentationContent, displayFundingContent, daysLeft);
+  const displayDevice = { ...device, close_date: effectiveCloseDate };
+  const decisionBanner = getDecisionBanner(displayDevice, daysLeft);
+  const decisionSummary = buildUserDecisionSummary(displayDevice, displayPresentationContent, displayFundingContent, daysLeft);
   const decisionPriority = getDecisionPriority(device, daysLeft);
   const effortLabel = getEffortLabel(device);
   const quickEligibility = isInstitutionalSignal
     ? "Non candidatable directement"
-    : beneficiarySummary || getShortPreview(displayEligibilityContent, "Profil a confirmer sur la source officielle");
+    : beneficiarySummary || getShortPreview(displayEligibilityContent, "Profil à confirmer sur la source officielle");
   const quickFunding = device.amount_max
     ? formatAmount(device.amount_max, device.currency)
     : isInstitutionalSignal
       ? "Financement institutionnel"
-      : getShortPreview(displayFundingContent, "Montant a confirmer");
-  const quickDeadline = device.close_date
-    ? `${formatDate(device.close_date)}${daysLeft !== null && daysLeft >= 0 && !isInstitutionalSignal ? `, J-${daysLeft}` : ""}`
-    : natureBanner?.label || (device.is_recurring || device.status === "recurring" ? "Permanent" : "Date non communiquee");
+      : getShortPreview(displayFundingContent, "Montant à confirmer");
+  const quickDeadline = deadline.hasDeadline
+    ? `${deadline.label}${daysLeft !== null && daysLeft >= 0 && !isInstitutionalSignal ? `, J-${daysLeft}` : ""}`
+    : deadline.label;
   const quickReason =
     device.relevance_label ||
-    getShortPreview(displayPresentationContent || device.short_description || "", "Opportunite a examiner selon votre profil et votre calendrier.");
+    getShortPreview(displayPresentationContent || device.short_description || "", "Opportunité à examiner selon votre profil et votre calendrier.");
   const aiReadiness = getAiReadinessMeta(device);
   const smartActionHint =
     isInstitutionalSignal
@@ -1396,15 +1421,15 @@ export default function DeviceDetailPage() {
         : device.amount_max
           ? "Conseil : le montant est indiqué. Compare-le à ton besoin réel avant de candidater."
           : "Astuce : ajoute cette opportunité à ton suivi pour la comparer avec d'autres financements.";
-  const sourceActionLabel = isInstitutionalSignal ? "Consulter la fiche projet" : "Verifier la source";
+  const sourceActionLabel = isInstitutionalSignal ? "Consulter la fiche projet" : "Vérifier la source";
   const sourceDetailActionLabel = isInstitutionalSignal ? "Ouvrir la fiche projet officielle" : "Ouvrir la source officielle";
   const sourceContextText = isInstitutionalSignal
     ? "Cette source presente le projet institutionnel. Elle ne contient pas forcement de formulaire de candidature."
-    : "La demande ou la consultation detaillee se fait aupres de l'organisme source.";
+    : "La demande ou la consultation détaillée se fait auprès de l'organisme source.";
   const primaryActionLabel = device.source_url
     ? "Consulter la source officielle"
     : pipelineStatus
-      ? "Mettre a jour mon suivi"
+      ? "Mettre à jour mon suivi"
       : "Ajouter à mon suivi";
   const recommendationNarrative = device.relevance_label || aiReadiness.detail;
   const showOperationalSidebar = canModerate || Boolean(pipelineStatus);
@@ -1635,7 +1660,7 @@ export default function DeviceDetailPage() {
             )}
           </div>
 
-          <DateTimeline openDate={device.open_date} closeDate={device.close_date} />
+          <DateTimeline openDate={device.open_date} closeDate={effectiveCloseDate} />
         </div>
 
         {isClosingSoon && daysLeft !== null && (
@@ -1647,7 +1672,7 @@ export default function DeviceDetailPage() {
           >
             <Clock className="h-4 w-4 flex-shrink-0" />
             Clôture dans <strong>{daysLeft} jour{daysLeft > 1 ? "s" : ""}</strong>
-            {device.close_date && ` - ${formatDate(device.close_date)}`}
+            {effectiveCloseDate && ` - ${formatDate(effectiveCloseDate)}`}
           </div>
         )}
 
@@ -1662,7 +1687,7 @@ export default function DeviceDetailPage() {
                   {decisionBanner.label}
                 </span>
               </div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-500">Decision rapide</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-500">Décision rapide</p>
               <p className="mt-2 max-w-3xl text-base font-semibold leading-7 text-slate-900">{quickReason}</p>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{decisionBanner.detail}</p>
             </div>
@@ -1697,7 +1722,7 @@ export default function DeviceDetailPage() {
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Eligibilite</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Éligibilité</p>
               <p className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{quickEligibility}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -1705,7 +1730,7 @@ export default function DeviceDetailPage() {
               <p className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{quickFunding}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Echeance</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Échéance</p>
               <p className="mt-1 text-sm font-semibold text-slate-900">{quickDeadline}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -1776,12 +1801,12 @@ export default function DeviceDetailPage() {
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Date limite</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {device.close_date ? formatDate(device.close_date) : natureBanner?.label || (device.is_recurring ? "Permanent" : "Date non communiquee")}
+                    {deadline.label}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Montant</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{device.amount_max ? formatAmount(device.amount_max, device.currency) : "A confirmer"}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{device.amount_max ? formatAmount(device.amount_max, device.currency) : "À confirmer"}</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Pays</p>
@@ -1866,9 +1891,9 @@ export default function DeviceDetailPage() {
         <div className="hidden">
           <InsightCard
             label="Date limite"
-            value={device.close_date ? formatDate(device.close_date) : natureBanner?.label || (device.status === "recurring" ? "Financement recurrent" : "Date non communiquee")}
+            value={deadline.label}
             icon={Calendar}
-            accent={!!device.close_date}
+            accent={deadline.accent}
           />
           <InsightCard
             label="Montant"
@@ -1906,7 +1931,7 @@ export default function DeviceDetailPage() {
             <FundingCard device={device} />
 
             {(device.short_description || displayPresentationContent) && (
-              <CollapsibleSection title="Presentation" icon={FileText} defaultOpen>
+              <CollapsibleSection title="Présentation" icon={FileText} defaultOpen>
                 {showShortDescription && device.short_description && <SectionField content={device.short_description} />}
                 {displayPresentationContent && <SectionField content={displayPresentationContent} />}
               </CollapsibleSection>
@@ -1945,7 +1970,7 @@ export default function DeviceDetailPage() {
             )}
 
             {(decisionApplication || decisionChecks || device.required_documents || device.source_url || (device as any).recurrence_notes) && (
-              <CollapsibleSection title="Demarche et source officielle" icon={Info}>
+              <CollapsibleSection title="Démarche et source officielle" icon={Info}>
                 {decisionApplication && (
                   <SectionField
                     title="Comment candidater"
@@ -1954,7 +1979,7 @@ export default function DeviceDetailPage() {
                 )}
                 {decisionChecks && (
                   <SectionField
-                    title="Points a verifier"
+                    title="Points à vérifier"
                     content={decisionChecks}
                   />
                 )}
@@ -2039,7 +2064,7 @@ export default function DeviceDetailPage() {
                     <div className="flex flex-wrap gap-1">
                       {device.beneficiaries.map((beneficiary) => (
                         <span key={beneficiary} className="badge bg-purple-50 text-xs capitalize text-purple-700">
-                          {beneficiary}
+                          {formatTaxonomyLabel(beneficiary)}
                         </span>
                       ))}
                     </div>
@@ -2276,13 +2301,13 @@ export default function DeviceDetailPage() {
                     Ouverture : {formatDate(device.open_date)}
                   </div>
                 )}
-                {!device.close_date && (
+                {!effectiveCloseDate && (
                   <div className="flex items-center gap-1.5 italic text-gray-400">
                     <Calendar className="h-3 w-3 text-gray-300" />
                     Clôture non renseignée
                   </div>
                 )}
-                {device.close_date && (
+                {effectiveCloseDate && (
                   <div
                     className={clsx(
                       "flex items-center gap-1.5 font-medium",
@@ -2290,7 +2315,7 @@ export default function DeviceDetailPage() {
                     )}
                   >
                     <Calendar className="h-3 w-3" />
-                    Clôture : {formatDate(device.close_date)}
+                    Clôture : {formatDate(effectiveCloseDate)}
                     {daysLeft !== null && daysLeft >= 0 && ` (J-${daysLeft})`}
                   </div>
                 )}

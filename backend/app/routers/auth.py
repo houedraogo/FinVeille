@@ -13,6 +13,7 @@ from app.schemas.user import UserCreate, UserResponse, TokenResponse, LoginReque
 from app.utils.auth_utils import hash_password, verify_password, create_access_token
 from app.utils.google_auth import verify_google_credential
 from app.dependencies import get_current_user
+from app.services.audit_service import record_email_event
 from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -132,6 +133,24 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
+    try:
+        welcome_sent = NotificationService.send_welcome_email(
+            user_email=user.email,
+            user_name=user.full_name or "",
+            method="email",
+        )
+        await record_email_event(
+            db,
+            email=user.email,
+            template="welcome_account_created",
+            subject="Bienvenue sur Kafundo — votre compte est prêt",
+            status="sent" if welcome_sent else "skipped",
+            user_id=user.id,
+            metadata={"signup_method": "email"},
+        )
+    except Exception:
+        pass
+
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
@@ -181,6 +200,25 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession = Depends(get_db
         if not has_org:
             await _create_personal_org(db, user)
             await db.refresh(user)
+
+    if is_new:
+        try:
+            welcome_sent = NotificationService.send_welcome_email(
+                user_email=user.email,
+                user_name=user.full_name or "",
+                method="google",
+            )
+            await record_email_event(
+                db,
+                email=user.email,
+                template="welcome_account_created",
+                subject="Bienvenue sur Kafundo — votre compte est prêt",
+                status="sent" if welcome_sent else "skipped",
+                user_id=user.id,
+                metadata={"signup_method": "google"},
+            )
+        except Exception:
+            pass
 
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))

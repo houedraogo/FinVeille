@@ -12,7 +12,7 @@ const ACTIONABLE_TYPES = [
 export default function OpportunitiesNowPage() {
   return (
     <DevicesPageContent
-      title="Opportunites a saisir maintenant"
+      title="Opportunités à saisir maintenant"
       lockedDeviceTypes={ACTIONABLE_TYPES}
       availableDeviceTypes={ACTIONABLE_TYPES}
       defaultSort="close_date"

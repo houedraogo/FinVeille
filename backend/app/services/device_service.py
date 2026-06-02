@@ -173,6 +173,67 @@ class DeviceService:
         return expanded
 
     @staticmethod
+    def _country_title_specificity_filter(countries: list[str]):
+        """
+        Evite qu'une fiche regionale avec un titre pays-specifique apparaisse
+        pour un autre pays du profil.
+
+        Exemple: une fiche "Benin et Burkina Faso" rangee en "Afrique de
+        l'Ouest" ne doit pas sortir pour un utilisateur Cote d'Ivoire. Les
+        vraies fiches regionales restent visibles si elles ne ciblent pas un
+        autre pays precis, ou si elles mentionnent aussi le pays selectionne.
+        """
+        country_patterns = {
+            "burkina": ["%burkina%", "%faso%"],
+            "benin": ["%bénin%", "%benin%"],
+            "cote_ivoire": ["%côte d'ivoire%", "%cote d'ivoire%", "%ivoire%"],
+        }
+
+        selected_keys: set[str] = set()
+        for country in countries:
+            key = DeviceService._country_key(country)
+            if "burkina" in key or "faso" in key:
+                selected_keys.add("burkina")
+            if "benin" in key:
+                selected_keys.add("benin")
+            if "ivoire" in key:
+                selected_keys.add("cote_ivoire")
+
+        if not selected_keys:
+            return None
+
+        searchable_fields = [
+            Device.title,
+            Device.short_description,
+            Device.full_description,
+            Device.eligibility_criteria,
+            Device.funding_details,
+        ]
+        broad_country = Device.country.in_(["Afrique", "Afrique de l'Ouest"])
+        mentions_selected = or_(
+            *(
+                field.ilike(pattern)
+                for selected_key in selected_keys
+                for pattern in country_patterns[selected_key]
+                for field in searchable_fields
+            )
+        )
+        conditions = []
+        for other_key, patterns in country_patterns.items():
+            if other_key in selected_keys:
+                continue
+            mentions_other = or_(
+                *(
+                    field.ilike(pattern)
+                    for pattern in patterns
+                    for field in searchable_fields
+                )
+            )
+            conditions.append(~and_(broad_country, mentions_other, ~mentions_selected))
+
+        return and_(*conditions) if conditions else None
+
+    @staticmethod
     def _visible_quality_filter():
         short_len = func.length(func.coalesce(Device.short_description, ""))
         full_len = func.length(func.coalesce(Device.full_description, ""))
@@ -292,6 +353,9 @@ class DeviceService:
 
         if params.countries:
             query = query.where(Device.country.in_(self._expanded_country_filter(params.countries)))
+            specificity_filter = self._country_title_specificity_filter(params.countries)
+            if specificity_filter is not None:
+                query = query.where(specificity_filter)
         if params.device_types:
             query = query.where(Device.device_type.in_(params.device_types))
         if params.sectors:
@@ -363,11 +427,40 @@ class DeviceService:
         )
 
     def _relevance_expression(self, params: DeviceSearchParams):
+        candidate_language = or_(
+            Device.title.ilike("%candid%"),
+            Device.short_description.ilike("%candid%"),
+            Device.eligibility_criteria.ilike("%candid%"),
+            Device.specific_conditions.ilike("%candid%"),
+            Device.required_documents.ilike("%candid%"),
+            Device.funding_details.ilike("%candid%"),
+            Device.source_url.ilike("%apply%"),
+            Device.source_url.ilike("%candidat%"),
+            Device.source_url.ilike("%opportunity%"),
+            Device.source_url.ilike("%opportunities%"),
+        )
+        actionable_source = or_(
+            Device.tags.overlap(["source_actionnable", "actionnable", "candidatable"]),
+            Device.close_date.is_not(None),
+        )
+        watch_signal = or_(
+            Device.tags.overlap([
+                "signal_veille",
+                "institutional_signal",
+                "source:world_bank",
+                "source:afd_institutional",
+                "quality:institutional_project",
+            ]),
+            Device.device_type == "institutional_project",
+        )
         score = (
             (func.coalesce(Device.confidence_score, 0) / 100.0) * 0.18
             + (func.coalesce(Device.completeness_score, 0) / 100.0) * 0.14
             + self._deadline_score_expression()
             + self._status_score_expression(params)
+            + case((actionable_source, 0.12), else_=0.0)
+            + case((candidate_language, 0.08), else_=0.0)
+            + case((watch_signal, -0.20), else_=0.0)
         )
 
         if params.q:

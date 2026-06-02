@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Kafundo - Trouve et securise tes financements",
+  title: "Kafundo - Trouve et sécurise tes financements",
   description:
-    "Kafundo aide a reperer, prioriser et securiser les meilleures opportunites de financement en France et en Afrique.",
+    "Kafundo aide à repérer, prioriser et sécuriser les meilleures opportunités de financement en France et en Afrique.",
   icons: {
     icon: "/brand/kafundo-picto.png",
     apple: "/brand/kafundo-picto.png",

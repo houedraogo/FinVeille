@@ -20,7 +20,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   running: "En cours",
-  success: "Succes",
+  success: "Succès",
   partial: "Partiel",
   failed: "Echec",
 };
@@ -101,7 +101,7 @@ export default function SourceDetailPage() {
     setBusyAction("collect");
     try {
       await sources.collect(source.id);
-      alert("Collecte declenchee.");
+      alert("Collecte déclenchée.");
       await reload();
     } catch (e: any) {
       alert(`Erreur : ${e.message}`);
@@ -269,7 +269,7 @@ export default function SourceDetailPage() {
         <StatCard
           label="Frequence"
           value={SOURCE_FREQ_LABELS[source.check_frequency] || source.check_frequency}
-          sub={`Fiabilite ${source.reliability}/5`}
+          sub={`Fiabilité ${source.reliability}/5`}
         />
       </div>
 
@@ -299,7 +299,7 @@ export default function SourceDetailPage() {
               <dd className="text-gray-900 mt-1">{source.level}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Creee le</dt>
+              <dt className="text-gray-400">Créée le</dt>
               <dd className="text-gray-900 mt-1">{formatDate(source.created_at)}</dd>
             </div>
             <div className="md:col-span-2">
@@ -379,7 +379,7 @@ export default function SourceDetailPage() {
               <div className="text-sm text-gray-700 space-y-1">
                 <div>{formatDateRelative(latestSuccess.started_at)}</div>
                 <div className="text-xs text-gray-400">
-                  {latestSuccess.items_new} nouveaux · {latestSuccess.items_updated} mis a jour · {latestSuccess.items_skipped} ignores
+                  {latestSuccess.items_new} nouveaux · {latestSuccess.items_updated} mis à jour · {latestSuccess.items_skipped} ignorés
                 </div>
               </div>
             ) : (
@@ -420,7 +420,7 @@ export default function SourceDetailPage() {
                   <td className="px-4 py-3 text-gray-600">
                     <div>{log.items_found} trouves</div>
                     <div className="text-xs text-gray-400">
-                      {log.items_new} nouveaux · {log.items_updated} maj · {log.items_skipped} ignores · {log.items_error} erreurs
+                      {log.items_new} nouveaux · {log.items_updated} maj · {log.items_skipped} ignorés · {log.items_error} erreurs
                     </div>
                   </td>
                   <td className="px-4 py-3 text-red-600 max-w-xl">

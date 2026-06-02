@@ -7,7 +7,7 @@ import clsx from "clsx";
 
 import { Device, DEVICE_TYPE_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
 import { getUserDeviceTypeMeta } from "@/lib/deviceTypes";
-import { formatAmount, formatDate, daysUntil, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
+import { formatAmount, getDeadlineDisplay, getAiReadinessMeta, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
 import { getPipelineDevice, isFavoriteDevice, toggleFavoriteDevice, type DevicePipelineStatus } from "@/lib/workspace";
 
 interface Props {
@@ -64,8 +64,9 @@ const GO_NO_GO_CONFIG = {
 export default function DeviceCard({ device, selected = false, onSelect, fromParam }: Props) {
   const [favorite, setFavorite] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState<DevicePipelineStatus | null>(null);
-  const daysLeft = device.close_date ? daysUntil(device.close_date) : null;
-  const isClosingSoon = daysLeft !== null && daysLeft <= 30 && daysLeft >= 0;
+  const deadline = getDeadlineDisplay(device);
+  const daysLeft = deadline.daysLeft;
+  const isClosingSoon = deadline.isClosingSoon;
   const natureBanner = getDeviceNatureBanner(device);
   const aiReadiness = getAiReadinessMeta(device);
   const typeMeta = getUserDeviceTypeMeta(device.device_type);
@@ -103,8 +104,8 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
     { label: "Montant", content: device.funding_details },
     {
       label: "Calendrier",
-      content: device.close_date
-        ? `Date limite : ${formatDate(device.close_date)}.`
+      content: deadline.hasDeadline
+        ? `Date limite : ${deadline.label}.`
         : device.is_recurring
           ? "Financement récurrent sans date limite unique."
           : null,
@@ -218,9 +219,9 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
                   <MapPin className="h-3.5 w-3.5" />
                   {[device.country, device.region].filter(Boolean).join(" · ") || "Portée non renseignée"}
                 </span>
-                <span className={clsx("flex items-center gap-1.5", device.close_date ? isClosingSoon && "font-medium text-orange-600" : "italic text-slate-400")}>
+                <span className={clsx("flex items-center gap-1.5", deadline.hasDeadline ? isClosingSoon && "font-medium text-orange-600" : "italic text-slate-400")}>
                   <Calendar className="h-3.5 w-3.5" />
-                  {device.close_date ? formatDate(device.close_date) : natureBanner?.label || "Date non communiquée"}
+                  {deadline.label}
                 </span>
               </div>
             </div>
@@ -249,7 +250,7 @@ export default function DeviceCard({ device, selected = false, onSelect, fromPar
               <p className="mt-1 break-words text-sm font-semibold leading-5 text-slate-900">{typeMeta.label}</p>
               <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{typeMeta.short}</p>
             </div>
-            <MetaLine label="Clôture" value={device.close_date ? formatDate(device.close_date) : natureBanner?.label || "Date non communiquée"} emphasized={Boolean(device.close_date)} />
+            <MetaLine label="Clôture" value={deadline.label} emphasized={deadline.accent} />
             <MetaLine label="Portée" value={[device.country, device.region].filter(Boolean).join(" · ") || "Non renseignée"} />
             <MetaLine label="Montant" value={device.amount_max ? formatAmount(device.amount_max, device.currency) : "À confirmer"} emphasized={Boolean(device.amount_max)} />
           </div>

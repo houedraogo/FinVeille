@@ -37,9 +37,9 @@ const LIMIT_LABELS: Record<string, string> = {
 const FEATURE_LABELS: Record<string, string> = {
   matching_ai: "Recommandations",
   smart_scoring: "Scoring intelligent",
-  custom_alerts: "Alertes personnalisees",
-  collaboration: "Collaboration d'equipe",
-  advanced_analysis: "Analyse avancee",
+  custom_alerts: "Alertes personnalisées",
+  collaboration: "Collaboration d'équipe",
+  advanced_analysis: "Analyse avancée",
   exports: "Exports CSV/Excel",
   api_access: "API",
   strategic_watch: "Veille strategique",

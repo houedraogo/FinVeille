@@ -52,7 +52,7 @@ export default function AdminClientDetailPage() {
   const org = detail?.organization;
 
   return (
-    <RoleGate allow={["admin"]} title="Client reserve" message="Cette page est reservee au super admin." backHref="/admin/clients">
+    <RoleGate allow={["admin"]} title="Client réservé" message="Cette page est réservée au super admin." backHref="/admin/clients">
       <AppLayout>
         <div className="mb-6">
           <Link href="/admin/clients" className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-primary-700">
@@ -82,7 +82,7 @@ export default function AdminClientDetailPage() {
                     </Link>
                     <Link href="/admin/data-quality" className="btn-secondary text-xs">
                       <ShieldCheck className="h-3.5 w-3.5" />
-                      Logs / qualite
+                      Logs / qualité
                     </Link>
                   </div>
                 </div>

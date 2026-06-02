@@ -122,7 +122,7 @@ export default function ProfilePage() {
     [user],
   );
 
-  const roleLabel = role === "admin" ? "Super admin" : role === "editor" ? "Equipe" : "Utilisateur standard";
+  const roleLabel = role === "admin" ? "Super admin" : role === "editor" ? "Équipe" : "Utilisateur standard";
 
   const updatePreferences = (patch: Partial<UserPreferences>) => {
     const next = { ...preferences, ...patch };

@@ -3,6 +3,7 @@ import logging
 from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape
 from typing import Any
 from app.config import settings
 
@@ -17,6 +18,37 @@ _COLOR_SURFACE   = "#f8fafc"
 _COLOR_BORDER    = "#e2e8f0"
 _COLOR_TEXT      = "#1e293b"
 _COLOR_MUTED     = "#64748b"
+
+
+def _app_url(path: str = "") -> str:
+    base = (settings.PUBLIC_APP_URL or "https://app.kafundo.com").rstrip("/")
+    if not path:
+        return base
+    return f"{base}/{path.lstrip('/')}"
+
+
+def _safe(value: Any) -> str:
+    return escape(str(value or ""), quote=True)
+
+
+def _button(label: str, href: str, color: str = _COLOR_PRIMARY) -> str:
+    return f"""<a href="{_safe(href)}" style="display:inline-block;background:{color};color:white;text-decoration:none;font-weight:700;font-size:14px;padding:13px 24px;border-radius:10px;">
+      {_safe(label)}
+    </a>"""
+
+
+def _key_value_rows(items: list[tuple[str, str]]) -> str:
+    rows = []
+    for index, (label, value) in enumerate(items):
+        border = "" if index == len(items) - 1 else f"border-bottom:1px solid {_COLOR_BORDER};"
+        rows.append(f"""
+          <tr>
+            <td style="padding:14px 18px;{border}">
+              <span style="font-size:12px;color:{_COLOR_MUTED};text-transform:uppercase;letter-spacing:0.05em;">{_safe(label)}</span><br>
+              <strong style="font-size:15px;color:{_COLOR_TEXT};">{_safe(value) or "—"}</strong>
+            </td>
+          </tr>""")
+    return "".join(rows)
 
 def _email_wrapper(content: str, preheader: str = "") -> str:
     """Enveloppe HTML commune pour tous les emails Kafundo."""
@@ -158,6 +190,55 @@ class NotificationService:
     # ─── Notifications admin ────────────────────────────────────────────────────
 
     @staticmethod
+    def send_welcome_email(
+        user_email: str,
+        user_name: str,
+        method: str = "email",
+    ) -> bool:
+        """Email d'accueil envoyé au nouvel utilisateur après création du compte."""
+        first_name = (user_name or "").strip().split(" ")[0] or "bienvenue"
+        method_label = "Google" if method == "google" else "email et mot de passe"
+        content = f"""
+      <tr><td style="padding:32px 32px 22px;background:linear-gradient(135deg,{_COLOR_PRIMARY},{_COLOR_ACCENT});">
+        <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.78);">Bienvenue sur Kafundo</p>
+        <h1 style="margin:0;color:white;font-size:24px;font-weight:800;line-height:1.25;">Votre espace de veille financement est prêt</h1>
+        <p style="margin:12px 0 0;color:rgba(255,255,255,0.88);font-size:14px;line-height:1.6;">
+          Bonjour {_safe(first_name)}, votre compte a bien été créé.
+        </p>
+      </td></tr>
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 16px;font-size:15px;color:{_COLOR_TEXT};line-height:1.7;">
+          Kafundo vous aide à repérer les appels, subventions, programmes d'accompagnement et financements utiles pour vos projets en France et en Afrique.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:{_COLOR_SURFACE};border:1px solid {_COLOR_BORDER};border-radius:12px;">
+          {_key_value_rows([
+              ("Connexion", user_email),
+              ("Méthode utilisée", method_label),
+              ("Première étape", "Compléter votre profil pour recevoir des recommandations plus pertinentes"),
+          ])}
+        </table>
+      </td></tr>
+      <tr><td style="padding:20px 32px 8px;">
+        <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:12px;padding:16px 18px;">
+          <p style="margin:0;font-size:14px;color:#1e40af;line-height:1.65;">
+            Conseil de démarrage : indiquez vos pays, secteurs et types de financement recherchés. Le catalogue sera ensuite filtré pour prioriser les opportunités les plus actionnables.
+          </p>
+        </div>
+      </td></tr>
+      <tr><td style="padding:22px 32px 30px;text-align:center;">
+        {_button("Configurer ma veille", _app_url("/onboarding"))}
+        <p style="margin:14px 0 0;font-size:12px;color:{_COLOR_MUTED};">
+          Vous pourrez modifier ces préférences à tout moment depuis votre profil.
+        </p>
+      </td></tr>
+        """
+        return NotificationService.send_email(
+            to=user_email,
+            subject="Bienvenue sur Kafundo — votre compte est prêt",
+            html_body=_email_wrapper(content, preheader="Votre compte Kafundo est prêt à être configuré."),
+        )
+
+    @staticmethod
     def notify_admin_new_user(
         user_email: str,
         user_name: str,
@@ -168,41 +249,24 @@ class NotificationService:
         now = datetime.now().strftime("%d/%m/%Y à %H:%M")
         method_label = "Google OAuth" if method == "google" else "Email / mot de passe"
         html = _email_wrapper(f"""
-      <tr><td style="padding:28px 32px 12px;background:linear-gradient(135deg,#0b1f59,#1646c8);text-align:center;">
+      <tr><td style="padding:28px 32px 16px;background:linear-gradient(135deg,#0b1f59,#1646c8);text-align:center;">
         <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.7);">Kafundo · Admin</p>
-        <h1 style="margin:8px 0 0;font-size:22px;font-weight:800;color:white;">🎉 Nouvel utilisateur</h1>
+        <h1 style="margin:8px 0 0;font-size:22px;font-weight:800;color:white;">Nouveau compte créé</h1>
       </td></tr>
       <tr><td style="padding:28px 32px;">
+        <p style="margin:0 0 16px;font-size:14px;color:{_COLOR_MUTED};line-height:1.65;">
+          Un utilisateur vient de créer un compte. Pensez à vérifier le profil si c'est un prospect important ou une organisation cliente.
+        </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
-          <tr>
-            <td style="padding:14px 20px;border-bottom:1px solid #e2e8f0;">
-              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Nom</span><br>
-              <strong style="font-size:15px;color:#1e293b;">{user_name or "—"}</strong>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:14px 20px;border-bottom:1px solid #e2e8f0;">
-              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Email</span><br>
-              <strong style="font-size:15px;color:#1e293b;">{user_email}</strong>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:14px 20px;border-bottom:1px solid #e2e8f0;">
-              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Méthode d'inscription</span><br>
-              <strong style="font-size:15px;color:#1e293b;">{method_label}</strong>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:14px 20px;">
-              <span style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Date</span><br>
-              <strong style="font-size:15px;color:#1e293b;">{now}</strong>
-            </td>
-          </tr>
+          {_key_value_rows([
+              ("Nom", user_name or "—"),
+              ("Email", user_email),
+              ("Méthode d'inscription", method_label),
+              ("Date", now),
+          ])}
         </table>
         <div style="margin-top:24px;text-align:center;">
-          <a href="https://app.kafundo.com/admin" style="display:inline-block;background:#2563eb;color:white;text-decoration:none;font-weight:700;font-size:14px;padding:12px 28px;border-radius:12px;">
-            Voir dans l'admin →
-          </a>
+          {_button("Voir dans l'admin", _app_url("/admin"))}
         </div>
       </td></tr>
         """, preheader=f"Nouvel utilisateur : {user_email}")
@@ -267,6 +331,69 @@ class NotificationService:
             subject=f"[Kafundo] 💳 Abonnement {plan} — {user_name or user_email}",
             html_body=html,
         )
+
+    @staticmethod
+    def build_password_reset_email(user_name: str, reset_url: str) -> str:
+        first_name = (user_name or "").strip().split(" ")[0] or "bonjour"
+        content = f"""
+      <tr><td style="padding:30px 32px 20px;background:linear-gradient(135deg,#0f172a,{_COLOR_PRIMARY});">
+        <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.72);">Sécurité Kafundo</p>
+        <h1 style="margin:0;color:white;font-size:22px;font-weight:800;">Réinitialisation du mot de passe</h1>
+      </td></tr>
+      <tr><td style="padding:28px 32px 10px;">
+        <p style="margin:0 0 14px;font-size:15px;color:{_COLOR_TEXT};line-height:1.7;">
+          Bonjour {_safe(first_name)},
+        </p>
+        <p style="margin:0 0 18px;font-size:14px;color:{_COLOR_MUTED};line-height:1.7;">
+          Nous avons reçu une demande de réinitialisation pour votre compte Kafundo. Le lien ci-dessous est valable pendant 2 heures.
+        </p>
+        <div style="text-align:center;margin:26px 0;">
+          {_button("Choisir un nouveau mot de passe", reset_url)}
+        </div>
+        <p style="margin:0;font-size:13px;color:{_COLOR_MUTED};line-height:1.65;">
+          Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email. Votre mot de passe actuel restera inchangé.
+        </p>
+      </td></tr>
+        """
+        return _email_wrapper(content, preheader="Lien de réinitialisation valable 2 heures.")
+
+    @staticmethod
+    def build_organization_invitation_email(
+        invite_url: str,
+        organization_name: str,
+        inviter_name: str,
+        role: str,
+    ) -> str:
+        role_label = {
+            "org_admin": "Administrateur",
+            "member": "Membre",
+            "viewer": "Lecteur",
+        }.get(role, role)
+        content = f"""
+      <tr><td style="padding:30px 32px 20px;background:linear-gradient(135deg,{_COLOR_ACCENT},{_COLOR_PRIMARY});">
+        <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.76);">Invitation équipe</p>
+        <h1 style="margin:0;color:white;font-size:22px;font-weight:800;">Rejoignez {_safe(organization_name)} sur Kafundo</h1>
+      </td></tr>
+      <tr><td style="padding:28px 32px 8px;">
+        <p style="margin:0 0 18px;font-size:15px;color:{_COLOR_TEXT};line-height:1.7;">
+          {_safe(inviter_name or "Un administrateur")} vous invite à collaborer sur Kafundo pour suivre les opportunités de financement de votre organisation.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:{_COLOR_SURFACE};border:1px solid {_COLOR_BORDER};border-radius:12px;">
+          {_key_value_rows([
+              ("Organisation", organization_name),
+              ("Rôle proposé", role_label),
+              ("Validité", "Invitation valable 14 jours"),
+          ])}
+        </table>
+        <div style="text-align:center;margin:26px 0 12px;">
+          {_button("Accepter l'invitation", invite_url)}
+        </div>
+        <p style="margin:0;font-size:12px;color:{_COLOR_MUTED};line-height:1.6;text-align:center;">
+          Connectez-vous avec cette adresse email avant d'accepter l'invitation.
+        </p>
+      </td></tr>
+        """
+        return _email_wrapper(content, preheader=f"Invitation à rejoindre {organization_name} sur Kafundo.")
 
     @staticmethod
     def smtp_status() -> dict:

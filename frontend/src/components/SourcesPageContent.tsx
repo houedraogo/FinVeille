@@ -170,7 +170,7 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
     setCollecting(id);
     try {
       await sources.collect(id);
-      alert("Collecte declenchee.");
+      alert("Collecte déclenchée.");
     } catch (e: any) {
       if (handleAuthError(e.message || "")) return;
       alert(`Erreur : ${e.message}`);
@@ -521,12 +521,12 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
           </div>
           {newSource.collection_mode === "html" && homepageLikeUrl && newSource.source_kind === "listing" && (
             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              Cette URL ressemble a une page d'accueil. Pour creer une source HTML valide, ajoute une config minimale cote API
+              Cette URL ressemble à une page d'accueil. Pour créer une source HTML valide, ajoute une config minimale côté API
               ou choisis plutot <span className="font-semibold">Page unique programme</span>.
             </div>
           )}
           <div className="flex gap-2 mt-3">
-            <button onClick={handleAddSource} className="btn-primary text-xs">Creer</button>
+            <button onClick={handleAddSource} className="btn-primary text-xs">Créer</button>
             <button onClick={handleTestSource} disabled={testing} className="btn-secondary text-xs disabled:opacity-50">
               {testing ? <Database className="w-4 h-4 animate-pulse" /> : <FlaskConical className="w-4 h-4" />} Tester
             </button>
@@ -614,7 +614,7 @@ export default function SourcesPageContent({ category, title, subtitle, defaultS
             <span className="ml-2 font-normal normal-case">({manualPrivateSources.length})</span>
           </h2>
           <p className="text-xs text-gray-400 mb-3">
-            Sources de reference a qualifier manuellement avant toute automatisation.
+            Sources de référence à qualifier manuellement avant toute automatisation.
           </p>
           {renderSourceTable(manualPrivateSources)}
         </div>
