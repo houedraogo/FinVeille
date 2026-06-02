@@ -482,13 +482,35 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
     current_admin=Depends(require_role(["admin"])),
 ):
-    """Supprime définitivement un utilisateur. Interdit de se supprimer soi-même."""
+    """Supprime définitivement un utilisateur et son organisation personnelle si elle est vide."""
     if str(current_admin.id) == str(user_id):
         raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte.")
     result = await db.execute(select(UserModel).where(UserModel.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    # Récupérer les orgs dont cet utilisateur est le seul membre actif → les supprimer aussi
+    member_orgs = await db.execute(
+        select(OrganizationMember.organization_id)
+        .where(OrganizationMember.user_id == user_id, OrganizationMember.is_active == True)
+    )
+    org_ids = [row[0] for row in member_orgs.all()]
+
+    for org_id in org_ids:
+        other_members = await db.execute(
+            select(func.count(OrganizationMember.id)).where(
+                OrganizationMember.organization_id == org_id,
+                OrganizationMember.user_id != user_id,
+                OrganizationMember.is_active == True,
+            )
+        )
+        if other_members.scalar() == 0:
+            # Seul membre : supprimer l'organisation et ses données liées
+            org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
+            if org:
+                await db.delete(org)
+
     await db.delete(user)
     await db.commit()
 
@@ -632,6 +654,9 @@ async def operations_cockpit(
             .order_by(OrganizationMember.role, UserModel.created_at)
         )
         members = member_rows.all()
+        # Ignorer les orgs sans membres actifs (utilisateur supprimé)
+        if not members:
+            continue
         owners = [
             {
                 "id": str(user.id),
