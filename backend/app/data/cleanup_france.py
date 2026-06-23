@@ -31,7 +31,8 @@ async def main():
             DELETE FROM sources
             WHERE name LIKE '%aide carburant%'
               AND id NOT IN (
-                SELECT MIN(id) FROM sources WHERE name LIKE '%aide carburant%'
+                SELECT id FROM sources WHERE name LIKE '%aide carburant%'
+                ORDER BY created_at ASC LIMIT 1
               )
             RETURNING id
         """))
