@@ -25,6 +25,7 @@ export default function AdminDataQualityPage() {
   const [audit, setAudit] = useState<any>(null);
   const [pending, setPending] = useState<any>(null);
   const [operations, setOperations] = useState<any>(null);
+  const [collectionReport, setCollectionReport] = useState<any>(null);
   const [catalogAudit, setCatalogAudit] = useState<any>(null);
   const [sourceReport, setSourceReport] = useState<any>(null);
   const [visibleAudit, setVisibleAudit] = useState<any>(null);
@@ -35,12 +36,13 @@ export default function AdminDataQualityPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [qualityData, auditData, pendingData, operationsData, sourceReportData] = await Promise.all([
+      const [qualityData, auditData, pendingData, operationsData, sourceReportData, collectionData] = await Promise.all([
         admin.quality(),
         admin.qualityAudit().catch(() => null),
         admin.pending(),
         admin.operations(),
         admin.sourceQualityReport().catch(() => null),
+        admin.collectionReport(7).catch(() => null),
       ]);
       const [catalogData, visibleData] = await Promise.all([
         admin.catalogAudit().catch(() => null),
@@ -50,6 +52,7 @@ export default function AdminDataQualityPage() {
       setAudit(auditData);
       setPending(pendingData);
       setOperations(operationsData);
+      setCollectionReport(collectionData);
       setCatalogAudit(catalogData);
       setSourceReport(sourceReportData);
       setVisibleAudit(visibleData);
@@ -178,6 +181,72 @@ export default function AdminDataQualityPage() {
               <Kpi label="Visibles à corriger" value={(visibleAudit?.to_fix_total ?? 0).toLocaleString("fr")} icon={EyeOff} tone="border-violet-200 bg-violet-50 text-violet-950" />
               <Kpi label="Completion moy." value={`${quality?.avg_completeness || 0}%`} icon={Sparkles} tone="border-emerald-200 bg-emerald-50 text-emerald-950" />
             </div>
+
+            {collectionReport && (
+              <section className="mb-6 rounded-[28px] border border-blue-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-950">Collecte automatique</h2>
+                    <p className="text-sm text-slate-500">
+                      Fenêtre {collectionReport.window_days || 7} jours · dernier passage {collectionReport.logs?.last_ended_at ? formatDateRelative(collectionReport.logs.last_ended_at) : "non disponible"}.
+                    </p>
+                  </div>
+                  <button onClick={collectAll} className="btn-secondary text-xs">
+                    <Zap className="h-3.5 w-3.5" />
+                    Relancer maintenant
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+                  <Kpi label="Passages" value={(collectionReport.logs?.runs || 0).toLocaleString("fr")} icon={RefreshCw} tone="border-blue-100 bg-blue-50 text-blue-950" />
+                  <Kpi label="Items trouvés" value={(collectionReport.logs?.items_found || 0).toLocaleString("fr")} icon={Database} tone="border-blue-100 bg-blue-50 text-blue-950" />
+                  <Kpi label="Nouveaux bruts" value={(collectionReport.devices?.created || 0).toLocaleString("fr")} icon={Sparkles} tone="border-emerald-100 bg-emerald-50 text-emerald-950" />
+                  <Kpi label="Nouveaux 24h" value={(collectionReport.devices?.created_24h || 0).toLocaleString("fr")} icon={Zap} tone="border-emerald-100 bg-emerald-50 text-emerald-950" />
+                  <Kpi label="Publiables" value={(collectionReport.devices?.public_actionable || 0).toLocaleString("fr")} icon={CheckCircle2} tone="border-emerald-100 bg-emerald-50 text-emerald-950" />
+                  <Kpi label="Admin only" value={(collectionReport.devices?.admin_only || 0).toLocaleString("fr")} icon={EyeOff} tone="border-slate-200 bg-slate-50 text-slate-950" />
+                  <Kpi label="Signaux" value={(collectionReport.devices?.institutional_project || 0).toLocaleString("fr")} icon={FileWarning} tone="border-amber-100 bg-amber-50 text-amber-950" />
+                </div>
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Dernières fiches collectées
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {(collectionReport.recent_devices || []).slice(0, 6).map((item: any) => (
+                        <div key={item.id} className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3 text-sm">
+                          <div className="min-w-0">
+                            <Link href={`/devices/${item.id}`} className="line-clamp-1 font-semibold text-slate-950 hover:text-primary-700">
+                              {item.title}
+                            </Link>
+                            <p className="mt-1 text-xs text-slate-400">{item.country} · {item.device_type} · {formatDateRelative(item.created_at)}</p>
+                          </div>
+                          <span className="h-fit rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                            {item.validation_status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <div className="bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Derniers passages sources
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {(collectionReport.recent_logs || []).slice(0, 6).map((item: any, index: number) => (
+                        <div key={`${item.source_name}-${index}`} className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3 text-sm">
+                          <div className="min-w-0">
+                            <p className="line-clamp-1 font-semibold text-slate-950">{item.source_name}</p>
+                            <p className="mt-1 text-xs text-slate-400">{item.collection_mode} · {formatDateRelative(item.ended_at)}</p>
+                          </div>
+                          <span className="h-fit rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
+                            +{item.items_new || 0} / {item.items_found || 0}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
 
             {visibleAudit && (
               <section className="mb-6 rounded-[28px] border border-violet-100 bg-white p-5 shadow-sm">

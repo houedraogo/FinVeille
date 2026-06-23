@@ -311,6 +311,11 @@ def auto_rewrite_quality_queue(batch_size: int = 20):
 
 
 @celery_app.task
+def requalify_editorial_auto_sources(batch_size: int = 80):
+    asyncio.run(_requalify_editorial_auto_sources_async(batch_size=batch_size))
+
+
+@celery_app.task
 def check_visible_source_links(batch_size: int = 80):
     asyncio.run(_check_visible_source_links_async(batch_size=batch_size))
 
@@ -331,6 +336,18 @@ async def _update_expired_async():
         updated = result.fetchall()
         await db.commit()
         logger.info(f"[Quality] {len(updated)} dispositifs passés en 'expired'")
+
+
+async def _requalify_editorial_auto_sources_async(batch_size: int = 80):
+    from app.services.editorial_requalifier import requalify_editorial_auto_sources as run_requalification
+
+    result = await run_requalification(batch_size=batch_size)
+    logger.info(
+        "[Quality] Qualification flux editoriaux: %s publiees, %s masquees, %s ignorees",
+        result.get("published", 0),
+        result.get("hidden", 0),
+        result.get("skipped", 0),
+    )
 
 
 @celery_app.task(bind=True, max_retries=0)

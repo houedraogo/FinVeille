@@ -134,6 +134,181 @@ async def quality_report(db: AsyncSession = Depends(get_db),
     }
 
 
+@router.get("/collection-report")
+async def collection_report(
+    days: int = Query(7, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_role(["admin", "editor"])),
+):
+    """Etat lisible de la collecte automatique et de ce qu'elle produit vraiment."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+    public_statuses = ("auto_published", "approved", "validated")
+    public_types = (
+        "subvention",
+        "pret",
+        "avance_remboursable",
+        "garantie",
+        "credit_impot",
+        "exoneration",
+        "aap",
+        "appel_a_projets",
+        "ami",
+        "accompagnement",
+        "concours",
+        "investissement",
+    )
+
+    log_summary = (
+        await db.execute(
+            select(
+                func.count(CollectionLog.id),
+                func.coalesce(func.sum(CollectionLog.items_found), 0),
+                func.coalesce(func.sum(CollectionLog.items_new), 0),
+                func.coalesce(func.sum(CollectionLog.items_updated), 0),
+                func.coalesce(func.sum(CollectionLog.items_skipped), 0),
+                func.coalesce(func.sum(CollectionLog.items_error), 0),
+                func.max(CollectionLog.ended_at),
+            ).where(CollectionLog.started_at >= since)
+        )
+    ).one()
+
+    source_summary = (
+        await db.execute(
+            select(
+                Source.collection_mode,
+                func.count(Source.id),
+                func.sum(cast(Source.is_active, Integer)),
+                func.sum(cast(Source.last_success_at >= since, Integer)),
+                func.sum(cast(Source.consecutive_errors > 0, Integer)),
+            ).group_by(Source.collection_mode)
+        )
+    ).all()
+
+    device_summary = (
+        await db.execute(
+            select(
+                func.count(Device.id),
+                func.sum(cast(Device.created_at >= day_ago, Integer)),
+                func.sum(cast(Device.validation_status.in_(public_statuses), Integer)),
+                func.sum(cast(Device.validation_status == "admin_only", Integer)),
+                func.sum(cast(Device.status == "standby", Integer)),
+                func.sum(cast(Device.device_type == "autre", Integer)),
+                func.sum(cast(Device.device_type == "institutional_project", Integer)),
+                func.sum(
+                    cast(
+                        and_(
+                            Device.validation_status.in_(public_statuses),
+                            Device.status.in_(("open", "recurring")),
+                            Device.device_type.in_(public_types),
+                        ),
+                        Integer,
+                    )
+                ),
+            ).where(Device.created_at >= since)
+        )
+    ).one()
+
+    recent_devices = (
+        await db.execute(
+            select(
+                Device.id,
+                Device.title,
+                Device.country,
+                Device.device_type,
+                Device.status,
+                Device.validation_status,
+                Device.created_at,
+            )
+            .where(Device.created_at >= since)
+            .order_by(Device.created_at.desc())
+            .limit(12)
+        )
+    ).all()
+
+    recent_logs = (
+        await db.execute(
+            select(
+                Source.name,
+                Source.collection_mode,
+                CollectionLog.status,
+                CollectionLog.items_found,
+                CollectionLog.items_new,
+                CollectionLog.items_updated,
+                CollectionLog.items_skipped,
+                CollectionLog.items_error,
+                CollectionLog.ended_at,
+            )
+            .join(Source, Source.id == CollectionLog.source_id)
+            .where(CollectionLog.started_at >= since)
+            .order_by(CollectionLog.started_at.desc())
+            .limit(12)
+        )
+    ).all()
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "window_days": days,
+        "logs": {
+            "runs": int(log_summary[0] or 0),
+            "items_found": int(log_summary[1] or 0),
+            "items_new": int(log_summary[2] or 0),
+            "items_updated": int(log_summary[3] or 0),
+            "items_skipped": int(log_summary[4] or 0),
+            "items_error": int(log_summary[5] or 0),
+            "last_ended_at": log_summary[6].isoformat() if log_summary[6] else None,
+        },
+        "sources": {
+            "by_mode": [
+                {
+                    "collection_mode": mode,
+                    "total": int(total or 0),
+                    "active": int(active or 0),
+                    "success_in_window": int(success or 0),
+                    "with_errors": int(errors or 0),
+                }
+                for mode, total, active, success, errors in source_summary
+            ],
+        },
+        "devices": {
+            "created": int(device_summary[0] or 0),
+            "created_24h": int(device_summary[1] or 0),
+            "public": int(device_summary[2] or 0),
+            "admin_only": int(device_summary[3] or 0),
+            "standby": int(device_summary[4] or 0),
+            "other_type": int(device_summary[5] or 0),
+            "institutional_project": int(device_summary[6] or 0),
+            "public_actionable": int(device_summary[7] or 0),
+        },
+        "recent_devices": [
+            {
+                "id": str(device_id),
+                "title": title,
+                "country": country,
+                "device_type": device_type,
+                "status": status,
+                "validation_status": validation_status,
+                "created_at": created_at.isoformat() if created_at else None,
+            }
+            for device_id, title, country, device_type, status, validation_status, created_at in recent_devices
+        ],
+        "recent_logs": [
+            {
+                "source_name": name,
+                "collection_mode": mode,
+                "status": status,
+                "items_found": int(items_found or 0),
+                "items_new": int(items_new or 0),
+                "items_updated": int(items_updated or 0),
+                "items_skipped": int(items_skipped or 0),
+                "items_error": int(items_error or 0),
+                "ended_at": ended_at.isoformat() if ended_at else None,
+            }
+            for name, mode, status, items_found, items_new, items_updated, items_skipped, items_error, ended_at in recent_logs
+        ],
+    }
+
+
 @router.post("/quality/fix-expired")
 async def fix_expired_devices(db: AsyncSession = Depends(get_db),
                                _=Depends(require_role(["admin"]))):

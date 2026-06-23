@@ -1463,8 +1463,19 @@ class Normalizer:
         procedure_source = sections.get("procedure")
 
         opportunity_type = self._detect_device_type((normalized_title + " " + body).lower())
+        title_key = unidecode(normalized_title.lower())
+        if "brics" in title_key and ("sti" in title_key or "flagship" in title_key):
+            opportunity_type = "aap"
+        elif "global innovation fund" in title_key or "fuze portfolio" in title_key or "developpp ventures" in title_key:
+            opportunity_type = "investissement"
+        elif "gcsp prize" in title_key:
+            opportunity_type = "concours"
         country = self._detect_country((normalized_title + " " + body).lower()) or "International"
         amount_label = self._extract_amount_label(body)
+        amount_value, amount_currency = self._extract_amount_value_and_currency(f"{normalized_title} {body}")
+        if amount_value:
+            amount_label = self._format_amount_label(amount_value, amount_currency)
+        localized_title = self._localize_global_south_title(normalized_title, opportunity_type, country, amount_label)
 
         close_sentence = (
             f"La date limite reperee est le {close_date.strftime('%d/%m/%Y')}."
@@ -1478,7 +1489,7 @@ class Normalizer:
         )
 
         short_description = (
-            f"Opportunite de financement relayee par Global South Opportunities. "
+            f"Opportunité relayée par Global South Opportunities, reformulée pour vérification rapide. "
             f"Elle concerne principalement {country}. {close_sentence}"
         )
 
@@ -1486,7 +1497,7 @@ class Normalizer:
             presentation_source,
             fallback=(
                 f"Global South Opportunities relaie cette opportunite sous le titre "
-                f"\"{normalized_title}\". La fiche doit etre verifiee sur la source officielle "
+                f"\"{localized_title}\". La fiche doit etre verifiee sur la source officielle "
                 "avant toute candidature."
             ),
         )
@@ -1518,17 +1529,110 @@ class Normalizer:
             procedure=procedure,
         )
 
-        return {
+        result = {
+            "title": localized_title,
             "short_description": short_description,
             "full_description": full_description,
             "eligibility_criteria": eligibility,
             "funding_details": funding,
             "device_type": opportunity_type,
             "aid_nature": "subvention" if opportunity_type in {"subvention", "concours", "aap"} else "a_confirmer",
+            "device_type": opportunity_type,
             "country": country,
             "geographic_scope": "international" if country == "International" else "national",
-            "keywords": extract_keywords(normalized_title),
+            "keywords": extract_keywords(localized_title),
         }
+        if amount_value:
+            result["amount_max"] = amount_value
+            result["currency"] = amount_currency or self._detect_currency(f"{normalized_title} {body}".lower())
+        return result
+
+    def _localize_global_south_title(
+        self,
+        title: str,
+        opportunity_type: str,
+        country: str,
+        amount_label: Optional[str],
+    ) -> str:
+        cleaned = clean_editorial_text(title)
+        normalized = unidecode(cleaned.lower())
+        for existing_prefix in (
+            "Subvention - ",
+            "Concours - ",
+            "Investissement - ",
+            "Appel à projets - ",
+            "Appel a projets - ",
+            "Programme d'accompagnement - ",
+            "Opportunite - ",
+            "Opportunité - ",
+        ):
+            if cleaned.lower().startswith(existing_prefix.lower()):
+                cleaned = cleaned[len(existing_prefix):].strip()
+                normalized = unidecode(cleaned.lower())
+                break
+        country_suffix = "" if country == "International" else f" - {country}"
+        amount_suffix = f" - jusqu'à {amount_label}" if amount_label else ""
+
+        if "fuze portfolio" in normalized or "fuzé portfolio" in normalized:
+            return f"Fuzé Portfolio - investissement early-stage pour startups africaines{amount_suffix}"
+        if "erc" in normalized and "advanced grants" in normalized:
+            return "ERC Advanced Grants 2026 - subventions recherche avancée - jusqu'à 2 500 000 EUR"
+        if "travel elevates" in normalized:
+            return f"Travel Elevates 2027 - subventions impact éducation, technologie et développement{amount_suffix}"
+        if "cambridge-africa alborada" in normalized:
+            return "Cambridge-Africa Alborada Research Fund - subventions collaboratives"
+        if "sky is not the limit" in normalized:
+            return f"The Sky Is Not The Limit - subvention impact social{amount_suffix}"
+        if "women photograph" in normalized and "project grants" in normalized:
+            return f"Women Photograph / Leica - subventions projets documentaires{amount_suffix}"
+        if "together women rise" in normalized:
+            return f"Together Women Rise - subventions femmes et filles Global South{amount_suffix}"
+        if "just energy for all" in normalized or "united women in faith" in normalized:
+            return "United Women in Faith - seed grants climat et justice énergétique"
+        if "tie women" in normalized:
+            return f"TiE Women Program 2026 - concours international pour startups fondées par des femmes{amount_suffix}"
+        if "art on climate" in normalized:
+            return f"Art on Climate 2026 - concours illustration et vidéo climat{amount_suffix}"
+        if "a2d facility" in normalized or "ungm" in normalized:
+            return "UNGM A2D Facility - appels à propositions démonstration pays en développement"
+        if "global innovation fund" in normalized:
+            return "Global Innovation Fund - financement startups et entreprises sociales"
+        if "future generation art prize" in normalized:
+            return f"Future Generation Art Prize 2027 - prix jeunes artistes{amount_suffix}"
+        if "digital minds" in normalized:
+            return "Digital Minds Fellowships 2026 - bourses développement de carrière IA"
+        if "brics" in normalized and ("sti" in normalized or "flagship" in normalized):
+            return f"BRICS STI 2026 - appel à projets recherche et innovation{country_suffix}"
+        if "developpp ventures" in normalized:
+            return f"develoPPP Ventures 2026 - financement startups africaines en croissance{amount_suffix}"
+        if "gcsp prize" in normalized or "innovation in global security" in normalized:
+            return f"GCSP Prize 2026 - concours innovation sécurité mondiale{amount_suffix}"
+
+        prefixes = (
+            "call for applications:",
+            "apply for the",
+            "apply now for the",
+            "paid opportunity alert!",
+            "register now for",
+        )
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                cleaned = cleaned[len(prefix):].strip(" :-")
+                break
+
+        type_label = {
+            "subvention": "Subvention",
+            "concours": "Concours",
+            "aap": "Appel à projets",
+            "ami": "Appel à manifestation d'intérêt",
+            "investissement": "Investissement",
+            "accompagnement": "Programme d'accompagnement",
+        }.get(opportunity_type, "Opportunite")
+        return f"{type_label} - {cleaned[:140]}".strip()
+
+    def _format_amount_label(self, amount: float, currency: Optional[str]) -> str:
+        amount_text = f"{amount:,.0f}".replace(",", " ") if amount.is_integer() else f"{amount:,.2f}".replace(",", " ")
+        return f"{amount_text} {currency or 'EUR'}"
 
     def _extract_global_south_sections(self, raw_body: str) -> dict[str, str]:
         soup = BeautifulSoup(raw_body or "", "lxml")
@@ -1613,6 +1717,66 @@ class Normalizer:
                 re.IGNORECASE,
             )
         return clean_editorial_text(match.group(1)) if match else None
+
+    def _extract_amount_value_and_currency(self, text: str) -> tuple[Optional[float], Optional[str]]:
+        label = self._extract_amount_label(text)
+        cleaned_text = sanitize_text(text or "")
+        if not label:
+            fallback = re.search(
+                r"(?:[$\u20ac\u00a3]\s?\d[\d\s,.]*(?:\s?(?:m|million|millions|k|thousand))?|\d[\d\s,.]*(?:\s?(?:m|million|millions|k|thousand))?\s?(?:usd|eur|cad|gbp|[$\u20ac\u00a3]))",
+                cleaned_text,
+                re.IGNORECASE,
+            )
+            if not fallback:
+                return None, None
+            label = fallback.group(0)
+        range_match = re.search(
+            r"([$\u20ac\u00a3]?\s?\d[\d\s,.]*)\s*(?:-|–|to|à)\s*([$\u20ac\u00a3]?\s?\d[\d\s,.]*)",
+            cleaned_text,
+            re.IGNORECASE,
+        )
+        value_source = " ".join(range_match.groups()) if range_match else label
+        numeric_source = re.sub(r"([,.])\s+", r"\1", value_source)
+        value_matches = re.findall(r"\d+(?:[,\s]\d{3})*(?:\.\d+)?|\d+(?:,\d+)?", numeric_source)
+        if not value_matches:
+            return None, None
+        parsed_values: list[float] = []
+        for value_match in value_matches:
+            raw_value = value_match.replace(" ", "")
+            if "," in raw_value and "." in raw_value:
+                raw_value = raw_value.replace(",", "")
+            elif "," in raw_value:
+                parts = raw_value.split(",")
+                raw_value = "".join(parts) if parts[-1].isdigit() and len(parts[-1]) == 3 else raw_value.replace(",", ".")
+            try:
+                parsed_values.append(float(raw_value))
+            except ValueError:
+                continue
+        if not parsed_values:
+            return None, None
+        value = max(parsed_values)
+        try:
+            value = float(value)
+        except ValueError:
+            return None, None
+        multiplier_scope = unidecode(f"{label} {cleaned_text}".lower())
+        normalized = unidecode(label.lower())
+        if re.search(r"\b(m|million|millions)\b", multiplier_scope):
+            value *= 1_000_000
+        elif re.search(r"\b(k|thousand)\b", multiplier_scope):
+            value *= 1_000
+        currency = "EUR"
+        if "$" in label or "usd" in normalized:
+            currency = "USD"
+        elif "£" in label or "gbp" in normalized:
+            currency = "GBP"
+        elif "cad" in normalized:
+            currency = "CAD"
+        elif "€" in label or "eur" in normalized:
+            currency = "EUR"
+        if value < 100 or value > 1_000_000_000:
+            return None, None
+        return value, currency
 
     def _build_short_description(self, item: RawItem, raw_body: str, metadata: dict, close_date: Optional[date]) -> Optional[str]:
         profile_short = self._get_profile_text(metadata, getattr(self.profile, "short_description_fields", ()))
@@ -2281,8 +2445,10 @@ class Normalizer:
                 r"date limite[:\s]+(.{5,30})",
                 r"deadline[:\s]+(.{5,30})",
                 r"(?:submission|application|final)?\s*deadline\s+(?:is|set for|falls on|closes on)\s+(.{5,35})",
+                r"applications?\s+are\s+open\s+until\s+(.{5,40}?)(?:\.|,|with|\n)",
                 r"apply\s+(?:by|before)\s+(.{5,30})",
                 r"applications?\s+(?:close|closes|end|ends)\s+(?:on\s+)?(.{5,30})",
+                r"closing\s+date[:\s]+(.{5,35})",
                 r"jusqu'au\s+(.{5,25})",
                 r"au\s+(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})",
                 r"au\s+(\d{1,2}\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[ûu]t|septembre|octobre|novembre|d[ée]cembre)\s+\d{4})",
@@ -2311,6 +2477,12 @@ class Normalizer:
             year_match = re.search(r"(.{0,45}?\d{4})", candidate)
             if year_match:
                 candidate = year_match.group(1)
+            candidate = re.sub(
+                r"\s+(?:at|à)\s+\d{1,2}[:h]\d{2}(?:\s*(?:utc|gmt)?[+-]?\d{0,2})?.*$",
+                "",
+                candidate,
+                flags=re.IGNORECASE,
+            )
             parsed = dateparser.parse(
                 candidate,
                 languages=["fr", "en"],

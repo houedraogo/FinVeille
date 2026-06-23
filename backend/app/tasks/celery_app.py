@@ -90,6 +90,11 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=15, hour=4),
         "kwargs": {"batch_size": 20},
     },
+    "requalify-editorial-auto-sources": {
+        "task": "app.tasks.quality_tasks.requalify_editorial_auto_sources",
+        "schedule": crontab(minute=18, hour="*/2"),
+        "kwargs": {"batch_size": 80},
+    },
     "weekly-quality-report": {
         "task": "app.tasks.quality_tasks.weekly_quality_report",
         "schedule": crontab(minute=0, hour=9, day_of_week=1),

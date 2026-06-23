@@ -91,6 +91,13 @@ class CollectionPipeline:
         source_blob = self._source_blob()
         return "les-aides.fr" in source_blob or "les aides" in source_blob
 
+    def _is_editorial_opportunity_source(self) -> bool:
+        config = self.source.get("config") or {}
+        return str(config.get("source_kind") or "").lower() in {
+            "editorial_opportunities",
+            "editorial_funding",
+        }
+
     def _apply_source_visibility_rules(self, device: dict, quality_reasons: list[str]) -> None:
         title = clean_editorial_text(device.get("title") or "")
         source_url = str(device.get("source_url") or self.source.get("url") or "")
@@ -126,6 +133,42 @@ class CollectionPipeline:
                 analysis["admin_only_reason"] = "Global South: fiche a qualifier avant publication publique"
                 analysis["source_visibility_rule"] = {
                     "source": "Global South Opportunities",
+                    "host": host,
+                    "title_is_english": title_is_english,
+                    "has_reliable_date": has_reliable_date,
+                    "status": status,
+                    "generic_type": generic_type,
+                    "quality_reasons": sorted(reasons),
+                }
+                device["decision_analysis"] = analysis
+
+        if self._is_editorial_opportunity_source() and not self._is_global_south_source():
+            title_is_english = looks_english_text(title)
+            generic_type = str(device.get("device_type") or "").lower() in {"autre", "unknown", ""}
+            should_hide = (
+                title_is_english
+                or not has_reliable_date
+                or status == "standby"
+                or generic_type
+                or bool(reasons.intersection({"english_content_remaining", "open_without_close_date", "no_reliable_status_or_close_date"}))
+            )
+            if should_hide:
+                device["validation_status"] = "admin_only"
+                tags = set(device.get("tags") or [])
+                tags.update({"source:editorial_auto_admin_only", "visibility:admin_only"})
+                if title_is_english:
+                    tags.add("quality:english_title_admin_only")
+                if not has_reliable_date:
+                    tags.add("quality:missing_reliable_deadline")
+                if generic_type:
+                    tags.add("quality:generic_type_admin_only")
+                device["tags"] = sorted(tags)
+
+                analysis = dict(device.get("decision_analysis") or {})
+                analysis["public_visibility"] = "admin_only"
+                analysis["admin_only_reason"] = "Source editoriale auto: fiche a qualifier avant publication publique"
+                analysis["source_visibility_rule"] = {
+                    "source": self.source.get("name"),
                     "host": host,
                     "title_is_english": title_is_english,
                     "has_reliable_date": has_reliable_date,

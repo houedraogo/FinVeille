@@ -267,6 +267,7 @@ export const admin = {
       body: JSON.stringify({ plan_slug: planSlug }),
     }),
   operations: () => apiFetch<any>("/api/v1/admin/operations"),
+  collectionReport: (days = 7) => apiFetch<any>(`/api/v1/admin/collection-report?days=${days}`),
   organizationOperations: (id: string) => apiFetch<any>(`/api/v1/admin/operations/organizations/${id}`),
   qualityAudit: () => apiFetch<any>("/api/v1/admin/quality/audit"),
   visibleQualityAudit: () => apiFetch<any>("/api/v1/admin/quality/visible-audit"),

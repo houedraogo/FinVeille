@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from app.collector.api_connector import APIConnector
 from app.collector.html_connector import HTMLConnector
+from app.collector.rss_connector import RSSConnector
 from app.collector.normalizer import Normalizer
 from app.database import AsyncSessionLocal
 from app.models.source import Source
@@ -40,6 +41,8 @@ async def run(source_name: str) -> None:
 
         if source.collection_mode == "api":
             connector = APIConnector(source_dict)
+        elif source.collection_mode == "rss":
+            connector = RSSConnector(source_dict)
         else:
             connector = HTMLConnector(source_dict)
 

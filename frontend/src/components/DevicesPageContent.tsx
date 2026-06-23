@@ -395,7 +395,7 @@ export default function DevicesPageContent({
   const [profileActive,    setProfileActive]    = useState(false);
   const [userIsStaff,      setUserIsStaff]      = useState(false);
   const [profileReady,     setProfileReady]     = useState(false);
-  const [adminFullCatalog, setAdminFullCatalog] = useState(() => canAccessAdmin(getCurrentRole()));
+  const [adminFullCatalog, setAdminFullCatalog] = useState(false);
   const [savedActionableNow, setSavedActionableNow] = useState<boolean | null>(null);
   const effectiveActionableNow = savedActionableNow ?? actionableNow;
   const adminCatalogEnabled = userIsStaff && adminFullCatalog;
@@ -423,7 +423,7 @@ export default function DevicesPageContent({
     setClosingSoon(filters.closingSoon || "");
     setHasCloseDate(Boolean(filters.hasCloseDate));
     setSavedActionableNow(typeof filters.actionableNow === "boolean" ? filters.actionableNow : null);
-    if (typeof filters.adminFullCatalog === "boolean") setAdminFullCatalog(filters.adminFullCatalog);
+    setAdminFullCatalog(false);
     setSortBy(filters.sortBy || defaultSort);
     setPage(filters.page && filters.page > 0 ? filters.page : 1);
   }, [defaultSort, lockedDeviceTypes]);
