@@ -1341,3 +1341,31 @@ async def _log_quality_audit(prefix: str, *, source_window_days: int, recent_sou
         )
 
     return audit
+
+
+# ---------------------------------------------------------------------------
+# Sync quotidien des sources France (Aides-Territoires + aides-entreprises)
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="app.tasks.quality_tasks.sync_aides_territoires")
+def sync_aides_territoires():
+    """Relance l'import Aides-Territoires (ANCT) — ~3000 aides, token JWT 24h."""
+    logger.info("[sync_aides_territoires] Démarrage")
+    try:
+        from app.data.import_aides_territoires import main as at_main
+        asyncio.run(at_main())
+        logger.info("[sync_aides_territoires] Terminé")
+    except Exception as e:
+        logger.error("[sync_aides_territoires] Erreur: %s", e)
+
+
+@celery_app.task(name="app.tasks.quality_tasks.sync_aides_entreprises_csv")
+def sync_aides_entreprises_csv():
+    """Relance l'import CSV aides-entreprises.fr — ~2500 aides."""
+    logger.info("[sync_aides_entreprises_csv] Démarrage")
+    try:
+        from app.data.import_aides_entreprises_csv import main as ae_main
+        asyncio.run(ae_main())
+        logger.info("[sync_aides_entreprises_csv] Terminé")
+    except Exception as e:
+        logger.error("[sync_aides_entreprises_csv] Erreur: %s", e)

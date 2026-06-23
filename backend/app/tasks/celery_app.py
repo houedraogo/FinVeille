@@ -99,4 +99,12 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.quality_tasks.weekly_quality_report",
         "schedule": crontab(minute=0, hour=9, day_of_week=1),
     },
+    "sync-aides-territoires-daily": {
+        "task": "app.tasks.quality_tasks.sync_aides_territoires",
+        "schedule": crontab(minute=30, hour=4),
+    },
+    "sync-aides-entreprises-csv-daily": {
+        "task": "app.tasks.quality_tasks.sync_aides_entreprises_csv",
+        "schedule": crontab(minute=0, hour=5),
+    },
 }
