@@ -117,7 +117,7 @@ class DeviceResponse(BaseModel):
     required_documents: Optional[str]
     amount_min: Optional[Decimal]
     amount_max: Optional[Decimal]
-    currency: str
+    currency: str = "EUR"
     funding_rate: Optional[Decimal]
     funding_details: Optional[str]
     open_date: Optional[date]
@@ -125,10 +125,10 @@ class DeviceResponse(BaseModel):
     is_recurring: bool
     recurrence_notes: Optional[str]
     status: str
-    source_url: str
+    source_url: str = ""
     source_id: Optional[UUID]
     source_raw: Optional[str] = None
-    language: str
+    language: str = "fr"
     keywords: Optional[List[str]]
     tags: Optional[List[str]]
     auto_summary: Optional[str]
@@ -181,8 +181,63 @@ class DeviceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DeviceListItemResponse(BaseModel):
+    id: UUID
+    slug: Optional[str]
+    title: str
+    organism: str
+    country: str
+    region: Optional[str]
+    zone: Optional[str]
+    device_type: str
+    aid_nature: Optional[str]
+    sectors: Optional[List[str]]
+    beneficiaries: Optional[List[str]]
+    short_description: Optional[str]
+    eligibility_criteria: Optional[str]
+    amount_min: Optional[Decimal]
+    amount_max: Optional[Decimal]
+    currency: str = "EUR"
+    funding_rate: Optional[Decimal]
+    funding_details: Optional[str]
+    open_date: Optional[date]
+    close_date: Optional[date]
+    is_recurring: bool
+    recurrence_notes: Optional[str]
+    status: str
+    source_url: str = ""
+    source_id: Optional[UUID]
+    language: str = "fr"
+    keywords: Optional[List[str]]
+    tags: Optional[List[str]]
+    auto_summary: Optional[str]
+    confidence_score: int
+    completeness_score: int
+    relevance_score: int
+    relevance_label: Optional[str] = None
+    relevance_reasons: Optional[List[str]] = None
+    priority_level: Optional[str] = None
+    eligibility_confidence: Optional[str] = None
+    decision_hint: Optional[str] = None
+    ai_readiness_score: int = 0
+    ai_readiness_label: Optional[str] = None
+    user_quality_score: int = 0
+    user_quality_decision: Optional[str] = None
+    user_quality_reasons: Optional[List[str]] = None
+    match_reasons: Optional[List[str]] = None
+    decision_analysis: Optional[dict[str, Any]] = None
+    decision_analyzed_at: Optional[datetime] = None
+    validation_status: str
+    first_seen_at: datetime
+    last_verified_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class DeviceListResponse(BaseModel):
-    items: List[DeviceResponse]
+    items: List[DeviceListItemResponse]
     total: int
     page: int
     page_size: int

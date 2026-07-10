@@ -106,7 +106,7 @@ class SourceResponse(BaseModel):
     level: int
     url: str
     collection_mode: str
-    source_kind: SourceKind = "listing"
+    source_kind: str = "listing"
     check_frequency: str
     reliability: int
     is_active: bool
