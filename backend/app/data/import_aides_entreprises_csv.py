@@ -57,11 +57,9 @@ DOMAINE_TO_SECTOR = {
 def clean_text(txt: str) -> str:
     if not txt:
         return ""
-    txt = txt.encode("latin-1", errors="ignore").decode("utf-8", errors="replace")
+    # Le CSV est décodé en cp1252 — pas de re-encodage, juste strip HTML
     txt = re.sub(r"<[^>]+>", " ", txt)
     txt = re.sub(r"\s+", " ", txt).strip()
-    txt = txt.replace("\x92", "'").replace("\x93", '"').replace("\x94", '"')
-    txt = txt.replace("�", "'")
     return txt
 
 
@@ -154,7 +152,7 @@ async def main():
         resp = await client.get(CSV_URL)
         resp.raise_for_status()
 
-    raw = resp.content.decode("latin-1")
+    raw = resp.content.decode("cp1252", errors="replace")
     reader = csv.DictReader(io.StringIO(raw), delimiter=";", quotechar='"')
     rows = list(reader)
     print(f"{len(rows)} lignes CSV chargées", flush=True)
@@ -227,7 +225,12 @@ async def main():
                     region = geo[:100]
 
                 financeurs = clean_text(row.get("financeurs") or "")
-                organism = financeurs[:150] if financeurs else SOURCE_ORGANISM
+                # financeurs peut contenir des IDs numériques internes — fallback sur SOURCE_ORGANISM
+                organism = (
+                    financeurs[:150]
+                    if financeurs and not re.match(r'^[\d\s,;/]+$', financeurs.strip())
+                    else SOURCE_ORGANISM
+                )
 
                 sources_links = clean_text(row.get("complements_sources") or "")
                 source_url_match = re.search(r'https?://[^\s"<>]+', sources_links)
