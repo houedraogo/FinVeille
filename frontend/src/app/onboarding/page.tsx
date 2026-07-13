@@ -152,11 +152,11 @@ const PROFILE_BENEFICIARIES: Record<string, string[]> = {
 };
 
 const COUNTRY_ALIASES: Record<string, string> = {
-  "BÃ©nin": "Bénin",
-  "CÃ´te d'Ivoire": "Côte d'Ivoire",
-  "SÃ©nÃ©gal": "Sénégal",
-  "GuinÃ©e": "Guinée",
-  "Ã‰thiopie": "Éthiopie",
+  "Bénin": "Bénin",
+  "Côte d'Ivoire": "Côte d'Ivoire",
+  "Sénégal": "Sénégal",
+  "Guinée": "Guinée",
+  "Éthiopie": "Éthiopie",
 };
 
 const DEVICE_FILTERS_SESSION_PREFIX = "kafundo_devices_filters:";

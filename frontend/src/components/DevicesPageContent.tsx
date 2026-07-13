@@ -34,10 +34,10 @@ const STATUS_LABELS_DISPLAY: Record<string, string> = {
 };
 
 const USER_QUALITY_META: Record<string, { label: string; className: string }> = {
-  publish: { label: "PrÃªte utilisateur", className: "bg-emerald-100 text-emerald-700" },
-  publish_with_caution: { label: "Ã€ confirmer", className: "bg-amber-100 text-amber-700" },
+  publish: { label: "Prête utilisateur", className: "bg-emerald-100 text-emerald-700" },
+  publish_with_caution: { label: "À confirmer", className: "bg-amber-100 text-amber-700" },
   admin_only: { label: "Admin uniquement", className: "bg-slate-100 text-slate-600" },
-  reject: { label: "Ã€ rejeter", className: "bg-red-100 text-red-700" },
+  reject: { label: "À rejeter", className: "bg-red-100 text-red-700" },
 };
 
 const PIPELINE_LABELS: Record<DevicePipelineStatus, string> = {
@@ -1215,7 +1215,7 @@ export default function DevicesPageContent({
                         <th className="px-4 py-3">Montant</th>
                         <th className="px-4 py-3">Clôture</th>
                         <th className="px-4 py-3">Statut</th>
-                        {userIsStaff && <th className="px-4 py-3">QualitÃ©</th>}
+                        {userIsStaff && <th className="px-4 py-3">Qualité</th>}
                         <th className="px-4 py-3">Source</th>
                       </tr>
                     </thead>

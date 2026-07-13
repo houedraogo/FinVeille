@@ -1374,13 +1374,13 @@ export default function DeviceDetailPage() {
         ? "border-violet-200/70 bg-violet-50/15 text-violet-50"
         : "border-amber-200/70 bg-amber-50/15 text-amber-50";
   const presentationContent = sanitizeDisplayText(
-    stripLeadingSectionHeading(device.full_description || "", ["PrÃ©sentation", "PrÃ©sentation du dispositif"]),
+    stripLeadingSectionHeading(device.full_description || "", ["Présentation", "Présentation du dispositif"]),
   );
   const eligibilityContent = sanitizeDisplayText(
-    stripLeadingSectionHeading(device.eligibility_criteria || "", ["CritÃ¨res d'Ã©ligibilitÃ©", "Conditions d'attribution"]),
+    stripLeadingSectionHeading(device.eligibility_criteria || "", ["Critères d'éligibilité", "Conditions d'attribution"]),
   );
   const projectContent = sanitizeDisplayText(
-    stripLeadingSectionHeading(device.eligible_expenses || "", ["DÃ©penses concernÃ©es", "Montants & Financement"]),
+    stripLeadingSectionHeading(device.eligible_expenses || "", ["Dépenses concernées", "Montants & Financement"]),
   );
   const fundingContent = sanitizeDisplayText((device as any).funding_details || "");
   const displayPresentationContent = sanitizeDisplayText(
@@ -2271,7 +2271,7 @@ export default function DeviceDetailPage() {
                     )}
                     {device.ai_rewrite_checked_at && (
                       <p>
-                        DerniÃ¨re reformulation : <span className="font-medium">{formatDate(device.ai_rewrite_checked_at)}</span>
+                        Dernière reformulation : <span className="font-medium">{formatDate(device.ai_rewrite_checked_at)}</span>
                       </p>
                     )}
                     <p className="text-slate-600">
