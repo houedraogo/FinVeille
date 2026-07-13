@@ -294,6 +294,13 @@ async def main():
         await db.commit()
         print(f"\nTERMINÉ: {ok} importés, {skipped} ignorés, {errors} erreurs", flush=True)
 
+        # Réinitialiser le compteur d'erreurs de la source
+        await db.execute(text("""
+            UPDATE sources SET consecutive_errors = 0, last_success_at = NOW(), last_checked_at = NOW()
+            WHERE name = :n
+        """), {"n": SOURCE_NAME})
+        await db.commit()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

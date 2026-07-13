@@ -85,7 +85,10 @@ def parse_date(d):
     if not d:
         return None
     try:
-        return datetime.fromisoformat(d.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except (ValueError, TypeError):
         return None
 
@@ -362,6 +365,13 @@ async def main():
 
         await db.commit()
         print(f"\nTERMINÉ: {ok} importés, {skipped} ignorés, {expired_skip} expirés skip, {errors} erreurs", flush=True)
+
+        # Réinitialiser le compteur d'erreurs de la source
+        await db.execute(text("""
+            UPDATE sources SET consecutive_errors = 0, last_success_at = NOW(), last_checked_at = NOW()
+            WHERE name = :n
+        """), {"n": SOURCE_NAME})
+        await db.commit()
 
 
 if __name__ == "__main__":
