@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Any, Optional, List, Literal
 from uuid import UUID
 from datetime import date, datetime
@@ -155,6 +155,13 @@ class DeviceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("currency", "source_url", "language", mode="before")
+    @classmethod
+    def coerce_str_defaults(cls, v, info):
+        if v is not None:
+            return v
+        return {"currency": "EUR", "source_url": "", "language": "fr"}.get(info.field_name, "")
+
     @field_validator("content_sections_json", "ai_rewritten_sections_json", mode="before")
     @classmethod
     def normalize_sections_payload(cls, value):
@@ -232,6 +239,13 @@ class DeviceListItemResponse(BaseModel):
     last_verified_at: datetime
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("currency", "source_url", "language", mode="before")
+    @classmethod
+    def coerce_str_defaults(cls, v, info):
+        if v is not None:
+            return v
+        return {"currency": "EUR", "source_url": "", "language": "fr"}.get(info.field_name, "")
 
     model_config = {"from_attributes": True}
 

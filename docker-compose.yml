@@ -1,4 +1,4 @@
-﻿version: "3.9"
+﻿name: kafundo
 
 services:
   postgres:
@@ -40,6 +40,8 @@ services:
     restart: unless-stopped
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     env_file: .env
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
     ports:
       - "8000:8000"
     depends_on:
@@ -63,6 +65,8 @@ services:
     restart: unless-stopped
     command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q default,collect,alerts
     env_file: .env
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,6 +83,8 @@ services:
     restart: unless-stopped
     command: celery -A app.tasks.celery_app beat --loglevel=info
     env_file: .env
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
     depends_on:
       - celery-worker
     volumes:
