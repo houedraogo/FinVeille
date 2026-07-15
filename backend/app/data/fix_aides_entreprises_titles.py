@@ -1,13 +1,12 @@
 """
 Fix — Corriger les titres corrompus des fiches aides-entreprises.fr.
 
-Contexte : le CSV était décodé en latin-1 au lieu de cp1252. Les caractères accentués
-français (à, é, è, â, ê, î, ô, û, ç…) ont été corrompus en apostrophes ou caractères
-de remplacement lors du premier import. Le champ ON CONFLICT ne corrigeait pas les titres
-déjà stockés car les slugs différaient.
+Contexte : l'ancien code décodait le CSV en latin-1 puis ré-encodait en UTF-8
+avec errors="replace", ce qui remplaçait TOUS les caractères accentués (à, é, è,
+â, ê, î, ô, û, ç…) par U+FFFD, ensuite converti en apostrophe '.
 
-Mécanisme de lookup : la colonne source_url stocke l'URL canonique avec l'aid_id,
-ce qui permet de retrouver chaque fiche sans dépendre du titre ou du slug corrompu.
+Ce script simule l'ancien pipeline pour calculer le slug corrompu de chaque fiche
+CSV, retrouve la fiche en base par ce slug, et met à jour le titre propre.
 
 Usage: docker exec kafundo-backend python -m app.data.fix_aides_entreprises_titles
 """
@@ -17,6 +16,7 @@ import io
 import re
 
 import httpx
+from slugify import slugify
 from sqlalchemy import text
 
 from app.database import AsyncSessionLocal
@@ -26,11 +26,30 @@ SOURCE_NAME = "data.aides-entreprises.fr - aides aux entreprises (CSV)"
 
 
 def clean_text(txt: str) -> str:
+    """Pipeline corrigé — décodage cp1252 correct."""
     if not txt:
         return ""
     txt = re.sub(r"<[^>]+>", " ", txt)
     txt = re.sub(r"\s+", " ", txt).strip()
     return txt
+
+
+def corrupt_title(csv_title: str) -> str:
+    """Simule l'ancien pipeline bugué latin-1→UTF-8 pour retrouver le titre corrompu."""
+    try:
+        b = csv_title.encode("latin-1", errors="ignore")
+        result = b.decode("utf-8", errors="replace")
+        result = re.sub(r"<[^>]+>", " ", result)
+        result = re.sub(r"\s+", " ", result).strip()
+        result = result.replace("�", "'")
+        return result
+    except Exception:
+        return csv_title
+
+
+def make_slug_from_title(title: str, aid_id: str) -> str:
+    base = slugify(title, max_length=60) or f"aide-{aid_id}"
+    return f"fr-ae-{base}"
 
 
 async def main() -> None:
@@ -45,7 +64,6 @@ async def main() -> None:
     print(f"{len(rows)} lignes CSV", flush=True)
 
     async with AsyncSessionLocal() as db:
-        # Récupérer source_id
         row_s = await db.execute(text(
             "SELECT id FROM sources WHERE name = :n LIMIT 1"
         ), {"n": SOURCE_NAME})
@@ -54,51 +72,63 @@ async def main() -> None:
             print("Source introuvable, arrêt.")
             return
 
-        updated = skipped = errors = 0
+        updated = not_found = already_clean = 0
 
         for i, row in enumerate(rows):
-            try:
-                aid_id = (row.get("id_aid") or "").strip()
-                if not aid_id:
-                    skipped += 1
-                    continue
+            aid_id = (row.get("id_aid") or "").strip()
+            if not aid_id:
+                continue
 
-                clean_title = clean_text(row.get("aid_nom") or "")
-                if not clean_title or len(clean_title) < 5:
-                    skipped += 1
-                    continue
+            clean_t = clean_text(row.get("aid_nom") or "")
+            if not clean_t or len(clean_t) < 5:
+                continue
 
-                canonical_url = f"https://www.aides-entreprises.fr/aide/{aid_id}"
+            corrupt_t = corrupt_title(clean_t)
 
-                result = await db.execute(text("""
-                    UPDATE devices
-                    SET title = :title,
-                        title_normalized = :title_normalized,
-                        updated_at = NOW()
-                    WHERE source_id = :sid
-                      AND source_url = :url
-                      AND title != :title
-                """), {
-                    "title": clean_title,
-                    "title_normalized": clean_title.lower(),
-                    "sid": str(source_id),
-                    "url": canonical_url,
-                })
+            # Si les deux sont identiques, pas de corruption possible sur ce titre
+            if corrupt_t == clean_t:
+                already_clean += 1
+                continue
 
-                if result.rowcount:
-                    updated += 1
+            # Slug que l'ancien code aurait généré
+            old_slug = make_slug_from_title(corrupt_t, aid_id)
 
-                if i % 2000 == 0 and i > 0:
-                    await db.commit()
-                    print(f"  {i} traités, {updated} titres corrigés...", flush=True)
+            result = await db.execute(text("""
+                UPDATE devices
+                SET title = :title,
+                    title_normalized = :title_normalized,
+                    updated_at = NOW()
+                WHERE slug = :slug
+                  AND source_id = :sid
+                  AND title != :title
+            """), {
+                "title": clean_t,
+                "title_normalized": clean_t.lower(),
+                "slug": old_slug,
+                "sid": str(source_id),
+            })
 
-            except Exception as e:
-                errors += 1
-                if errors <= 3:
-                    print(f"  ERR ligne {i}: {e}", flush=True)
+            if result.rowcount:
+                updated += 1
+            else:
+                not_found += 1
+
+            if i % 2000 == 0 and i > 0:
+                await db.commit()
+                print(f"  {i} traités, {updated} titres corrigés...", flush=True)
 
         await db.commit()
-        print(f"\nTerminé : {updated} titres corrigés, {skipped} ignorés, {errors} erreurs")
+        print(
+            f"\nTerminé : {updated} titres corrigés, "
+            f"{already_clean} déjà propres, {not_found} slugs non trouvés"
+        )
+
+        # Vérification rapide
+        r = await db.execute(text(
+            "SELECT COUNT(*) FROM devices "
+            "WHERE source_id = :sid AND title LIKE '%''%'",
+        ), {"sid": str(source_id)})
+        print(f"Fiches encore avec apostrophe dans le titre : {r.scalar()}")
 
 
 if __name__ == "__main__":
