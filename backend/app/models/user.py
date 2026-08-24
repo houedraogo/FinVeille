@@ -18,6 +18,8 @@ class User(Base):
     # 'super_admin' | 'member'
     default_organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    country = Column(String(100), nullable=True)
+    sectors = Column(String(500), nullable=True)  # comma-separated list
     last_login_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
