@@ -320,8 +320,18 @@ def check_visible_source_links(batch_size: int = 80):
     asyncio.run(_check_visible_source_links_async(batch_size=batch_size))
 
 
+@celery_app.task
+def structure_visible_amounts(batch_size: int = 120):
+    asyncio.run(_structure_visible_amounts_async(batch_size=batch_size))
+
+
+@celery_app.task
+def cleanup_low_quality_visibility(batch_size: int = 200):
+    asyncio.run(_cleanup_low_quality_visibility_async(batch_size=batch_size))
+
+
 async def _update_expired_async():
-    from sqlalchemy import update, and_
+    from sqlalchemy import update, and_, func
     from datetime import date, datetime, timezone
     from app.models.device import Device
 
@@ -329,8 +339,17 @@ async def _update_expired_async():
         today = date.today()
         result = await db.execute(
             update(Device)
-            .where(and_(Device.close_date < today, Device.status == "open"))
-            .values(status="expired", updated_at=datetime.now(timezone.utc))
+            .where(
+                and_(
+                    Device.close_date < today,
+                    Device.status.in_(["open", "standby", "recurring"]),
+                )
+            )
+            .values(
+                status="expired",
+                tags=func.array_append(Device.tags, "deadline:auto_expired"),
+                updated_at=datetime.now(timezone.utc),
+            )
             .returning(Device.id)
         )
         updated = result.fetchall()
@@ -348,6 +367,32 @@ async def _requalify_editorial_auto_sources_async(batch_size: int = 80):
         result.get("hidden", 0),
         result.get("skipped", 0),
     )
+
+
+async def _structure_visible_amounts_async(batch_size: int = 120):
+    from app.data.structure_visible_amounts import run as run_amount_structuring
+
+    result = await run_amount_structuring(apply=True, limit=batch_size)
+    logger.warning(
+        "[Catalog Quality][amounts] scanned=%s updated=%s candidates=%s",
+        result.get("scanned", 0),
+        result.get("updated", 0),
+        result.get("candidates", 0),
+    )
+    return result
+
+
+async def _cleanup_low_quality_visibility_async(batch_size: int = 200):
+    from app.data.cleanup_low_quality_visibility import run as run_cleanup
+
+    result = await run_cleanup(apply=True, limit=batch_size)
+    logger.warning(
+        "[Visible Quality][low-score] scanned=%s admin_only=%s rejected=%s",
+        result.get("scanned", 0),
+        result.get("admin_only", 0),
+        result.get("rejected", 0),
+    )
+    return result
 
 
 @celery_app.task(bind=True, max_retries=0)
@@ -602,6 +647,10 @@ async def _auto_rewrite_quality_queue_async(batch_size: int = 20):
                 device.ai_rewrite_status = result.status
                 device.ai_rewrite_model = result.model
                 device.ai_rewrite_checked_at = result.checked_at
+                if result.title_fr:
+                    from app.services.device_service import normalize_title
+                    device.title = result.title_fr
+                    device.title_normalized = normalize_title(result.title_fr)
                 processed += 1
                 if result.status in (REWRITE_DONE, REWRITE_NEEDS_REVIEW):
                     succeeded += 1

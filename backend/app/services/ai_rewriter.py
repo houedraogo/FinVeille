@@ -47,6 +47,7 @@ class AIRewriteResult:
     model: str | None
     checked_at: datetime
     issues: list[str]
+    title_fr: str | None = None
 
 
 class AIRewriter:
@@ -76,9 +77,10 @@ class AIRewriter:
             return AIRewriteResult(REWRITE_FAILED, [], self.model, checked_at, [f"appel_ia_echoue:{type(exc).__name__}"])
 
         sections = _normalize_rewritten_sections(payload)
+        title_fr = _extract_title_fr(payload, device)
         issues = validate_rewritten_sections(sections, source_sections, device)
         status = REWRITE_DONE if not issues else REWRITE_NEEDS_REVIEW
-        return AIRewriteResult(status, sections, self.model, checked_at, issues)
+        return AIRewriteResult(status, sections, self.model, checked_at, issues, title_fr=title_fr)
 
     async def _call_provider(self, device: dict[str, Any], sections: list[dict[str, Any]]) -> dict[str, Any]:
         if self.provider != "openai":
@@ -148,9 +150,11 @@ def build_rewrite_prompt(device: dict[str, Any], sections: list[dict[str, Any]])
         "- Ecris dans un style naturel, business et directement comprehensible par un lecteur francophone.\n"
         "- Utilise des phrases courtes et des listes quand plusieurs criteres sont presentes.\n"
         "- Si une information manque, ecris 'Non communique par la source' ou 'A confirmer sur la source officielle'.\n"
-        "- Retourne uniquement un objet JSON valide.\n\n"
+        "- Retourne uniquement un objet JSON valide.\n"
+        "- Si le titre est en anglais, traduis-le en francais professionnel dans le champ title_fr. Sinon conserve-le tel quel.\n\n"
         "Format JSON attendu:\n"
-        "{\"sections\":[{\"key\":\"why_this_opportunity\",\"title\":\"Pourquoi regarder cette opportunite ?\",\"content\":\"...\"},"
+        "{\"title_fr\":\"Titre traduit ou original en francais\","
+        "\"sections\":[{\"key\":\"why_this_opportunity\",\"title\":\"Pourquoi regarder cette opportunite ?\",\"content\":\"...\"},"
         "{\"key\":\"audience\",\"title\":\"Pour qui ?\",\"content\":\"...\"},"
         "{\"key\":\"benefits\",\"title\":\"Ce que vous pouvez obtenir\",\"content\":\"...\"},"
         "{\"key\":\"availability\",\"title\":\"Date limite ou disponibilite\",\"content\":\"...\"},"
@@ -300,6 +304,18 @@ def _normalize_rewrite_content(value: str, *, key: str) -> str:
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     normalized = re.sub(r"(?<!\n)- (?=[^\n]+:)", "- ", normalized)
     return normalized
+
+
+def _extract_title_fr(payload: dict[str, Any], device: dict[str, Any]) -> str | None:
+    """Extrait le titre traduit depuis la réponse IA si différent de l'original."""
+    raw = payload.get("title_fr") if isinstance(payload, dict) else None
+    if not raw or not isinstance(raw, str):
+        return None
+    cleaned = clean_editorial_text(raw.strip())
+    original = clean_editorial_text((device.get("title") or "").strip())
+    if not cleaned or cleaned.lower() == original.lower():
+        return None
+    return cleaned
 
 
 def _expected_date_variants(close_date: str) -> set[str]:
