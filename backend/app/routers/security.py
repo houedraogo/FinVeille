@@ -48,7 +48,7 @@ async def forgot_password(
         db.add(reset)
         await db.commit()
 
-        reset_url = f"{settings.PUBLIC_APP_URL}/settings/security?reset_token={token}"
+        reset_url = f"{settings.PUBLIC_APP_URL}/reset-password?token={token}"
         subject = "Réinitialisation de votre mot de passe Kafundo"
         sent = NotificationService.send_email(
             user.email,

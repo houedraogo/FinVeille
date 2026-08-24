@@ -2,9 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { auth } from "@/lib/api";
+import { auth, security } from "@/lib/api";
 import { isStoredAdmin } from "@/lib/auth";
-import { Chrome, Eye, EyeOff } from "lucide-react";
+import { Chrome, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 
 declare global {
   interface Window {
@@ -36,7 +36,7 @@ export default function LoginPage() {
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const manualLoginModeRef = useRef(false);
 
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,6 +46,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [disableGoogleAuth, setDisableGoogleAuth] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
@@ -118,11 +119,27 @@ export default function LoginPage() {
     }
   };
 
-  const switchMode = (newMode: "login" | "register") => {
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) { setError("Entrez votre adresse email."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      await security.forgotPassword(email);
+      setForgotSent(true);
+    } catch {
+      setForgotSent(true); // toujours afficher le succès (sécurité)
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const switchMode = (newMode: "login" | "register" | "forgot") => {
     setMode(newMode);
     setError("");
     setPassword("");
     setConfirmPassword("");
+    setForgotSent(false);
   };
 
   useEffect(() => {
@@ -193,50 +210,55 @@ export default function LoginPage() {
         </div>
 
         {/* Tabs Connexion / Inscription */}
-        <div className="flex border-b border-gray-100 mx-6">
-          <button
-            onClick={() => switchMode("login")}
-            className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
-              mode === "login"
-                ? "border-primary-600 text-primary-700"
-                : "border-transparent text-gray-400 hover:text-gray-600"
-            }`}
-          >
-            Se connecter
-          </button>
-          <button
-            onClick={() => switchMode("register")}
-            className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
-              mode === "register"
-                ? "border-primary-600 text-primary-700"
-                : "border-transparent text-gray-400 hover:text-gray-600"
-            }`}
-          >
-            S'inscrire
-          </button>
-        </div>
+        {mode !== "forgot" && (
+          <div className="flex border-b border-gray-100 mx-6">
+            <button
+              onClick={() => switchMode("login")}
+              className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+                mode === "login"
+                  ? "border-primary-600 text-primary-700"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Se connecter
+            </button>
+            <button
+              onClick={() => switchMode("register")}
+              className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+                mode === "register"
+                  ? "border-primary-600 text-primary-700"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              S'inscrire
+            </button>
+          </div>
+        )}
 
         <div className="px-8 py-6 space-y-5">
-          {/* Google OAuth */}
-          {googleClientId ? (
-            <div className="flex flex-col items-center gap-2">
-              <div ref={googleButtonRef} className="min-h-[44px] w-full flex justify-center" />
-              {googleLoading && <p className="text-xs text-gray-400">Connexion Google en cours...</p>}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-              <div className="flex items-center gap-2 font-medium text-slate-600">
-                <Chrome className="h-4 w-4" />
-                Google non configuré
+          {/* Google OAuth — masqué en mode "oublié" */}
+          {mode !== "forgot" && (
+            <>
+              {googleClientId ? (
+                <div className="flex flex-col items-center gap-2">
+                  <div ref={googleButtonRef} className="min-h-[44px] w-full flex justify-center" />
+                  {googleLoading && <p className="text-xs text-gray-400">Connexion Google en cours...</p>}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  <div className="flex items-center gap-2 font-medium text-slate-600">
+                    <Chrome className="h-4 w-4" />
+                    Google non configuré
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-3 text-xs text-gray-300">
+                <div className="h-px flex-1 bg-gray-100" />
+                <span className="uppercase tracking-widest">ou</span>
+                <div className="h-px flex-1 bg-gray-100" />
               </div>
-            </div>
+            </>
           )}
-
-          <div className="flex items-center gap-3 text-xs text-gray-300">
-            <div className="h-px flex-1 bg-gray-100" />
-            <span className="uppercase tracking-widest">ou</span>
-            <div className="h-px flex-1 bg-gray-100" />
-          </div>
 
           {/* ── FORMULAIRE CONNEXION ── */}
           {mode === "login" && (
@@ -283,7 +305,63 @@ export default function LoginPage() {
               <button type="submit" disabled={loading} className="btn-primary w-full justify-center mt-1">
                 {loading ? "Connexion…" : "Se connecter"}
               </button>
+              <p className="text-center">
+                <button
+                  type="button"
+                  onClick={() => switchMode("forgot")}
+                  className="text-xs text-slate-400 hover:text-primary-600 underline"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </p>
             </form>
+          )}
+
+          {/* ── MOT DE PASSE OUBLIÉ ── */}
+          {mode === "forgot" && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Mot de passe oublié</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Entrez votre email. Si un compte existe, vous recevrez un lien valable 2 heures.
+                </p>
+              </div>
+              {forgotSent ? (
+                <div className="flex items-start gap-3 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-emerald-800">
+                    Si ce compte existe, un email de réinitialisation vient d'être envoyé. Vérifiez vos spams.
+                  </p>
+                </div>
+              ) : (
+                <form onSubmit={handleForgot} className="space-y-3">
+                  <div>
+                    <label className="label">Adresse email</label>
+                    <input
+                      type="email"
+                      className="input"
+                      placeholder="vous@exemple.com"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+                  <button type="submit" disabled={loading} className="btn-primary w-full justify-center">
+                    {loading ? "Envoi…" : "Envoyer le lien"}
+                  </button>
+                </form>
+              )}
+              <p className="text-center">
+                <button
+                  type="button"
+                  onClick={() => switchMode("login")}
+                  className="text-xs text-slate-400 hover:text-slate-600 underline"
+                >
+                  Retour à la connexion
+                </button>
+              </p>
+            </div>
           )}
 
           {/* ── FORMULAIRE INSCRIPTION ── */}
