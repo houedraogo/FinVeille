@@ -71,6 +71,8 @@ export const auth = {
       body: JSON.stringify({ credential }),
     }),
   me: () => apiFetch("/api/v1/auth/me"),
+  updateMe: (data: { country?: string; sectors?: string; full_name?: string }) =>
+    apiFetch<any>("/api/v1/auth/me", { method: "PATCH", body: JSON.stringify(data) }),
   context: () => apiFetch("/api/v1/me/context"),
 };
 

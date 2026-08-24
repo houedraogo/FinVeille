@@ -227,3 +227,29 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession = Depends(get_db
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+from pydantic import BaseModel as _PydanticBaseModel
+
+class UpdateMeRequest(_PydanticBaseModel):
+    country: str | None = None
+    sectors: str | None = None
+    full_name: str | None = None
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    data: UpdateMeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if data.country is not None:
+        current_user.country = data.country
+    if data.sectors is not None:
+        current_user.sectors = data.sectors
+    if data.full_name is not None:
+        current_user.full_name = data.full_name
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
