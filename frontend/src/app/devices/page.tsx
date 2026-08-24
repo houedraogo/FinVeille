@@ -21,7 +21,7 @@ export default function PublicDevicesPage() {
       title="Opportunités publiques à prioriser"
       lockedDeviceTypes={PUBLIC_TYPES}
       availableDeviceTypes={PUBLIC_TYPES}
-      defaultSort="relevance"
+      defaultSort="updated_at"
       showClosingFilter={true}
       actionableNow={true}
     />
