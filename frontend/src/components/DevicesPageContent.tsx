@@ -702,16 +702,44 @@ export default function DevicesPageContent({
   const exportCsvUrl   = devices.exportCsv(exportParams);
   const exportExcelUrl = devices.exportExcel(exportParams);
 
+  const isQuickFilterActive = (kind: string): boolean => {
+    if (kind === "open")           return filterStatuses.includes("open") && !hasCloseDate;
+    if (kind === "with_deadline")  return hasCloseDate;
+    if (kind === "subvention")     return filterTypes.includes("subvention");
+    if (kind === "investissement") return filterTypes.includes("investissement");
+    if (kind === "afrique")        return filterCountries.some(c => ["Afrique", "Afrique de l'Ouest"].includes(c));
+    if (kind === "france")         return filterCountries.includes("France");
+    if (kind === "30days")         return closingSoon === "30";
+    if (kind === "ai_ready")       return filterAiReadiness.includes("pret_pour_recommandation_ia");
+    return false;
+  };
+
   const applyQuickFilter = (kind: string) => {
     setPage(1); setEditingSavedSearchId(null);
-    if (kind === "open")            { setFilterStatuses(["open"]); return; }
-    if (kind === "with_deadline")   { setHasCloseDate(true); setFilterStatuses(["open"]); setSortBy("close_date"); return; }
-    if (kind === "subvention")      { setFilterTypes(["subvention"]); return; }
-    if (kind === "investissement")  { setFilterTypes(["investissement"]); return; }
-    if (kind === "afrique")         { setFilterCountries(["Afrique", "Afrique de l'Ouest"]); return; }
-    if (kind === "france")          { setFilterCountries(["France"]); return; }
-    if (kind === "30days")          { setClosingSoon("30"); setHasCloseDate(true); setFilterStatuses(["open"]); return; }
-    if (kind === "ai_ready")        { setFilterAiReadiness(["pret_pour_recommandation_ia"]); setSortBy("ai_readiness"); }
+    // Toggle : si déjà actif, on le désactive
+    if (kind === "open") {
+      if (filterStatuses.includes("open") && !hasCloseDate) { setFilterStatuses([]); } else { setFilterStatuses(["open"]); }
+      return;
+    }
+    if (kind === "with_deadline") {
+      if (hasCloseDate) { setHasCloseDate(false); setSortBy(defaultSort); } else { setHasCloseDate(true); setFilterStatuses(["open"]); setSortBy("close_date"); }
+      return;
+    }
+    if (kind === "subvention")     { setFilterTypes(filterTypes.includes("subvention") ? [] : ["subvention"]); return; }
+    if (kind === "investissement") { setFilterTypes(filterTypes.includes("investissement") ? [] : ["investissement"]); return; }
+    if (kind === "afrique") {
+      const africaCountries = ["Afrique", "Afrique de l'Ouest"];
+      const active = filterCountries.some(c => africaCountries.includes(c));
+      setFilterCountries(active ? [] : africaCountries); return;
+    }
+    if (kind === "france") { setFilterCountries(filterCountries.includes("France") ? [] : ["France"]); return; }
+    if (kind === "30days") {
+      if (closingSoon === "30") { setClosingSoon(""); setHasCloseDate(false); } else { setClosingSoon("30"); setHasCloseDate(true); setFilterStatuses(["open"]); }
+      return;
+    }
+    if (kind === "ai_ready") {
+      if (filterAiReadiness.includes("pret_pour_recommandation_ia")) { setFilterAiReadiness([]); setSortBy(defaultSort); } else { setFilterAiReadiness(["pret_pour_recommandation_ia"]); setSortBy("ai_readiness"); }
+    }
   };
 
   const buildRelevanceExplanation = (device: any) => {
@@ -988,12 +1016,20 @@ export default function DevicesPageContent({
       <div className="mb-4 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_12px_35px_-28px_rgba(15,23,42,0.35)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-2">
-            {quickFilters.map(([kind, label]) => (
-              <button key={kind} type="button" onClick={() => applyQuickFilter(kind)}
-                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700">
-                {label}
-              </button>
-            ))}
+            {quickFilters.map(([kind, label]) => {
+              const active = isQuickFilterActive(kind);
+              return (
+                <button key={kind} type="button" onClick={() => applyQuickFilter(kind)}
+                  className={clsx(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    active
+                      ? "border-primary-500 bg-primary-100 text-primary-700 hover:bg-primary-200"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
+                  )}>
+                  {label}
+                </button>
+              );
+            })}
           </div>
           <button type="button" onClick={handleSaveSearch}
             className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-700">
