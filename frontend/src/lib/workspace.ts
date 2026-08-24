@@ -1,12 +1,12 @@
-export const SAVED_SEARCHES_KEY = "finveille_saved_searches";
-export const PENDING_SAVED_SEARCH_KEY = "finveille_pending_saved_search";
-export const MATCH_STORAGE_KEY = "finveille_match_state";
-export const FAVORITE_DEVICES_KEY = "finveille_favorite_devices";
-export const DEVICES_VIEW_MODE_KEY = "finveille_devices_view_modes";
-export const DEVICE_PIPELINE_KEY = "finveille_device_pipeline";
-export const USER_PREFERENCES_KEY = "finveille_user_preferences";
-const WORKSPACE_MIGRATION_KEY = "finveille_workspace_api_migrated";
-const WORKSPACE_MATCH_SYNC_KEY = "finveille_workspace_match_synced_at";
+﻿export const SAVED_SEARCHES_KEY = "kafundo_saved_searches";
+export const PENDING_SAVED_SEARCH_KEY = "kafundo_pending_saved_search";
+export const MATCH_STORAGE_KEY = "kafundo_match_state";
+export const FAVORITE_DEVICES_KEY = "kafundo_favorite_devices";
+export const DEVICES_VIEW_MODE_KEY = "kafundo_devices_view_modes";
+export const DEVICE_PIPELINE_KEY = "kafundo_device_pipeline";
+export const USER_PREFERENCES_KEY = "kafundo_user_preferences";
+const WORKSPACE_MIGRATION_KEY = "kafundo_workspace_api_migrated";
+const WORKSPACE_MATCH_SYNC_KEY = "kafundo_workspace_match_synced_at";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface SavedSearchFilters {
@@ -96,12 +96,12 @@ function isBrowser() {
 
 function emitWorkspaceUpdate() {
   if (!isBrowser()) return;
-  window.dispatchEvent(new CustomEvent("finveille:workspace-update"));
+  window.dispatchEvent(new CustomEvent("kafundo:workspace-update"));
 }
 
 function getToken(): string | null {
   if (!isBrowser()) return null;
-  return localStorage.getItem("finveille_token");
+  return localStorage.getItem("kafundo_token");
 }
 
 async function workspaceFetch<T>(path: string, options: RequestInit = {}): Promise<T> {

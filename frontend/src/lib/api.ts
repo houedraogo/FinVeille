@@ -1,8 +1,8 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+﻿const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("finveille_token");
+  return localStorage.getItem("kafundo_token");
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -19,7 +19,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     const error = await response.json().catch(() => ({ detail: "Erreur réseau" }));
     if (response.status === 401) {
       if (typeof window !== "undefined") {
-        localStorage.removeItem("finveille_token");
+        localStorage.removeItem("kafundo_token");
       }
       throw new Error("Session expirée. Veuillez vous reconnecter.");
     }
@@ -54,7 +54,12 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ credential }),
     }),
-  me: () => apiFetch("/api/v1/auth/me"),
+  me: () => apiFetch<any>("/api/v1/auth/me"),
+  updateMe: (data: { full_name?: string; country?: string; sectors?: string }) =>
+    apiFetch<any>("/api/v1/auth/me", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
   context: () => apiFetch("/api/v1/me/context"),
 };
 
@@ -135,6 +140,19 @@ export const devices = {
     const qs = buildQueryString(params);
     return `${API_BASE}/api/v1/devices/export/excel?${qs}`;
   },
+};
+
+// Projects
+export const projects = {
+  list: () => apiFetch<any[]>("/api/v1/projects/"),
+  get: (id: string) => apiFetch<any>(`/api/v1/projects/${id}`),
+  create: (data: any) =>
+    apiFetch<any>("/api/v1/projects/", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: any) =>
+    apiFetch<any>(`/api/v1/projects/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  delete: (id: string) => apiFetch<void>(`/api/v1/projects/${id}`, { method: "DELETE" }),
+  refreshMatch: (id: string) =>
+    apiFetch<any>(`/api/v1/projects/${id}/match`, { method: "POST" }),
 };
 
 // Dashboard

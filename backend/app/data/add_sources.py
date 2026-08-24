@@ -1,6 +1,6 @@
-"""
+﻿"""
 Ajout de nouvelles sources de financement — dispositifs publics et privés.
-Usage : docker exec finveille-backend python -m app.data.add_sources
+Usage : docker exec kafundo-backend python -m app.data.add_sources
 """
 import asyncio
 import os

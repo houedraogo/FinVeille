@@ -1,4 +1,4 @@
-export type AppRole = "admin" | "editor" | "reader";
+﻿export type AppRole = "admin" | "editor" | "reader";
 
 export interface StoredUser {
   id?: string;
@@ -14,7 +14,7 @@ function getStoredUser(): StoredUser | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = localStorage.getItem("finveille_user");
+    const raw = localStorage.getItem("kafundo_user");
     if (!raw) return null;
     return JSON.parse(raw) as StoredUser;
   } catch {

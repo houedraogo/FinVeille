@@ -134,6 +134,8 @@ export interface DashboardStats {
   closing_soon_7d: number;
   pending_validation: number;
   avg_confidence: number;
+  potential_funding: number;
+  high_roi_count: number;
   by_country: { country: string; count: number }[];
   by_type: { type: string; count: number }[];
   by_status: { status: string; count: number }[];
@@ -153,6 +155,72 @@ export interface DashboardStats {
     }[];
   };
   last_collection: { at: string | null; status: string | null; items_new: number };
+}
+
+export type ProjectStage = "ideation" | "mvp" | "croissance" | "expansion" | "maturite";
+
+export const PROJECT_STAGE_LABELS: Record<ProjectStage, string> = {
+  ideation: "Idéation",
+  mvp: "MVP",
+  croissance: "Croissance",
+  expansion: "Expansion",
+  maturite: "Maturité",
+};
+
+export const PROJECT_STAGE_COLORS: Record<ProjectStage, string> = {
+  ideation: "bg-gray-100 text-gray-700",
+  mvp: "bg-blue-100 text-blue-700",
+  croissance: "bg-emerald-100 text-emerald-700",
+  expansion: "bg-violet-100 text-violet-700",
+  maturite: "bg-orange-100 text-orange-700",
+};
+
+export interface ProjectMatch {
+  id: string;
+  title: string;
+  organism: string;
+  country: string;
+  device_type: string;
+  amount_max: number | null;
+  currency: string;
+  close_date: string | null;
+  days_left: number | null;
+  score: number;
+  confidence_score: number;
+}
+
+export interface ProjectNextAction {
+  type: "deadline" | "complete" | "opportunity";
+  priority: "high" | "medium" | "low";
+  label: string;
+  href: string;
+}
+
+export interface ProjectMatchSummary {
+  matches: ProjectMatch[];
+  global_score: number;
+  total_compatible: number;
+  potential_funding: number;
+  next_actions: ProjectNextAction[];
+}
+
+export interface UserProject {
+  id: string;
+  name: string;
+  description: string | null;
+  sectors: string[];
+  countries: string[];
+  stage: ProjectStage;
+  budget_min: number | null;
+  budget_max: number | null;
+  currency: string;
+  keywords: string[];
+  cached_matches: ProjectMatch[];
+  match_score: number | null;
+  matched_at: string | null;
+  created_at: string;
+  updated_at: string;
+  match_summary?: ProjectMatchSummary;
 }
 
 export const SOURCE_MODE_LABELS: Record<string, string> = {

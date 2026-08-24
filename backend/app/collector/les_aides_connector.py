@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import logging
 import re
 from html import unescape
@@ -13,7 +13,7 @@ DOMAINS = [883, 790, 793, 798, 802, 805, 862, 807, 810, 813, 816, 820, 818]
 # Secteurs NAF de premier niveau (A à U) — on les parcourt tous pour couvrir toutes les activités
 APE_SECTORS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U"]
 
-# Mapping moyen d'intervention → device_type FinVeille
+# Mapping moyen d'intervention → device_type Kafundo
 MOYEN_TO_TYPE = {
     822: "investissement",   # Intervention en fonds propres
     827: "pret",             # Avance − Prêts − Garanties

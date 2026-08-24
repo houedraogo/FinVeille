@@ -1,4 +1,4 @@
-# Déploiement production
+﻿# Déploiement production
 
 ## 1. Préparer le serveur
 
@@ -14,8 +14,8 @@ sudo systemctl start docker
 ## 2. Copier le projet
 
 ```bash
-git clone <votre-repo> finveille
-cd finveille
+git clone <votre-repo> kafundo
+cd kafundo
 cp .env.production.example .env.production
 nano .env.production
 ```

@@ -6,7 +6,7 @@ import secrets
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import UserCreate, UserResponse, TokenResponse, LoginRequest, GoogleAuthRequest
+from app.schemas.user import UserCreate, UserResponse, TokenResponse, LoginRequest, GoogleAuthRequest, UserProfileUpdate
 from app.utils.auth_utils import hash_password, verify_password, create_access_token
 from app.utils.google_auth import verify_google_credential
 from app.dependencies import get_current_user
@@ -84,4 +84,21 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession = Depends(get_db
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_me(
+    data: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if data.full_name is not None:
+        current_user.full_name = data.full_name.strip() or None
+    if data.country is not None:
+        current_user.country = data.country.strip() or None
+    if data.sectors is not None:
+        current_user.sectors = data.sectors.strip() or None
+    await db.commit()
+    await db.refresh(current_user)
     return current_user

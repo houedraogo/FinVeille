@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/api";
@@ -40,8 +40,8 @@ export default function LoginPage() {
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
   const finishAuth = (result: { access_token: string; user: unknown }) => {
-    localStorage.setItem("finveille_token", result.access_token);
-    if (result.user) localStorage.setItem("finveille_user", JSON.stringify(result.user));
+    localStorage.setItem("kafundo_token", result.access_token);
+    if (result.user) localStorage.setItem("kafundo_user", JSON.stringify(result.user));
     router.push("/");
   };
 
@@ -116,7 +116,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-2">
             <TrendingUp className="w-7 h-7 text-primary-600" />
-            <span className="text-2xl font-bold text-gray-900">FinVeille</span>
+            <span className="text-2xl font-bold text-gray-900">Kafundo</span>
           </div>
           <p className="text-sm text-gray-500">Veille financement public France & Afrique</p>
         </div>
@@ -150,7 +150,7 @@ export default function LoginPage() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="label">Email</label>
-            <input type="email" className="input" placeholder="admin@finveille.com"
+            <input type="email" className="input" placeholder="admin@kafundo.com"
               value={email} onChange={e => setEmail(e.target.value)} required />
           </div>
           <div>

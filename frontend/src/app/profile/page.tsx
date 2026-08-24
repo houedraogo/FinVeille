@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -11,6 +11,8 @@ import {
   List,
   LogOut,
   Mail,
+  MapPin,
+  Save,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -20,6 +22,7 @@ import {
 
 import AppLayout from "@/components/AppLayout";
 import { auth, billing, organizations } from "@/lib/api";
+import { COUNTRIES } from "@/lib/constants";
 import { getCurrentRole, type AppRole } from "@/lib/auth";
 import {
   DEVICES_VIEW_MODE_KEY,
@@ -76,11 +79,17 @@ export default function ProfilePage() {
   const [planName, setPlanName] = useState<string>("Free");
   const [planStatus, setPlanStatus] = useState<string>("free");
   const [creatingOrg, setCreatingOrg] = useState(false);
+  const [profileCountry, setProfileCountry] = useState<string>("");
+  const [profileSectors, setProfileSectors] = useState<string>("");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("finveille_user");
-      setUser(raw ? (JSON.parse(raw) as ProfileUser) : null);
+      const raw = localStorage.getItem("kafundo_user");
+      const parsed = raw ? JSON.parse(raw) : null;
+      setUser(parsed as ProfileUser | null);
+      if (parsed?.country) setProfileCountry(parsed.country);
+      if (parsed?.sectors) setProfileSectors(parsed.sectors);
     } catch {
       setUser(null);
     }
@@ -118,7 +127,7 @@ export default function ProfilePage() {
   }, []);
 
   const displayName = useMemo(
-    () => user?.full_name || user?.name || user?.email || "Utilisateur FinVeille",
+    () => user?.full_name || user?.name || user?.email || "Utilisateur Kafundo",
     [user],
   );
 
@@ -146,13 +155,35 @@ export default function ProfilePage() {
     setFavoriteCount(0);
     setPipelineCount(0);
     setFeedback("Données personnelles locales effacées.");
-    window.dispatchEvent(new CustomEvent("finveille:workspace-update"));
+    window.dispatchEvent(new CustomEvent("kafundo:workspace-update"));
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("finveille_token");
-    localStorage.removeItem("finveille_user");
+    localStorage.removeItem("kafundo_token");
+    localStorage.removeItem("kafundo_user");
     window.location.href = "/login";
+  };
+
+  const handleSaveWatchProfile = async () => {
+    setSavingProfile(true);
+    try {
+      const updated = await auth.updateMe({
+        country: profileCountry || undefined,
+        sectors: profileSectors || undefined,
+      });
+      const raw = localStorage.getItem("kafundo_user");
+      const existing = raw ? JSON.parse(raw) : {};
+      localStorage.setItem("kafundo_user", JSON.stringify({
+        ...existing,
+        country: updated.country,
+        sectors: updated.sectors,
+      }));
+      setFeedback("Profil de veille mis à jour. Les résultats seront filtrés pour " + (updated.country || "votre profil") + " lors de votre prochaine visite.");
+    } catch (e: any) {
+      setFeedback(e.message || "Impossible de sauvegarder le profil.");
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const handleCreateOrganization = async () => {
@@ -255,6 +286,70 @@ export default function ProfilePage() {
               </dd>
             </div>
           </dl>
+        </section>
+
+        <section className="rounded-[28px] border border-primary-200 bg-white p-6 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.25)]">
+          <div className="mb-5 flex items-start gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[24px] bg-primary-50 text-primary-700">
+              <MapPin className="h-8 w-8" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950">Préférences de veille</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Kafundo filtrera automatiquement les dispositifs de votre pays et secteurs à chaque connexion.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 mb-2">
+                Pays d'activité principal
+              </label>
+              <select
+                className="input text-sm"
+                value={profileCountry}
+                onChange={(e) => setProfileCountry(e.target.value)}
+              >
+                <option value="">— Sélectionner un pays —</option>
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 mb-2">
+                Secteurs d'activité <span className="normal-case font-normal">(séparés par des virgules)</span>
+              </label>
+              <input
+                className="input text-sm"
+                placeholder="agriculture, énergie, technologie…"
+                value={profileSectors}
+                onChange={(e) => setProfileSectors(e.target.value)}
+              />
+            </div>
+
+            {profileCountry && (
+              <div className="rounded-2xl border border-primary-100 bg-primary-50/60 px-3 py-2.5 text-xs text-primary-700">
+                Les pages de dispositifs afficheront automatiquement les aides disponibles pour <strong>{profileCountry}</strong>.
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleSaveWatchProfile}
+              disabled={savingProfile}
+              className="btn-primary text-xs flex items-center gap-1.5"
+            >
+              {savingProfile ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              {savingProfile ? "Enregistrement…" : "Sauvegarder mes préférences"}
+            </button>
+          </div>
         </section>
 
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.25)]">

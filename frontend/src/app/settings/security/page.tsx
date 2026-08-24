@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
@@ -17,7 +17,7 @@ function SecurityContent() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const requestReset = async () => {
-    const rawUser = localStorage.getItem("finveille_user");
+    const rawUser = localStorage.getItem("kafundo_user");
     const userEmail = email || (rawUser ? JSON.parse(rawUser).email : "");
     if (!userEmail) return setFeedback("Indique un email.");
     const response = await security.forgotPassword(userEmail);

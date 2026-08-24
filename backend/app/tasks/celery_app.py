@@ -1,11 +1,11 @@
-from celery import Celery
+﻿from celery import Celery
 from celery.schedules import crontab
 
 from app.config import settings
 
 
 celery_app = Celery(
-    "finveille",
+    "kafundo",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
     include=[

@@ -1,4 +1,4 @@
-import smtplib
+﻿import smtplib
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -93,7 +93,7 @@ class NotificationService:
         return f"""
         <html><body style="font-family:sans-serif;color:#1f2937;max-width:800px;margin:auto">
         <div style="background:#2563eb;padding:20px;border-radius:8px 8px 0 0">
-            <h1 style="color:white;margin:0;font-size:20px">FinVeille — Alerte : {alert_name}</h1>
+            <h1 style="color:white;margin:0;font-size:20px">Kafundo — Alerte : {alert_name}</h1>
         </div>
         <div style="padding:20px;background:#f9fafb;">
             <p>Bonjour {user_name},</p>
@@ -111,7 +111,7 @@ class NotificationService:
                 <tbody>{rows}</tbody>
             </table>
             <p style="color:#6b7280;font-size:12px;margin-top:20px">
-                Vous recevez cet email car vous avez configuré une alerte sur FinVeille.<br>
+                Vous recevez cet email car vous avez configuré une alerte sur Kafundo.<br>
                 <a href="#">Se désabonner</a>
             </p>
         </div>

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
@@ -13,7 +13,7 @@ import {
   Search, SlidersHorizontal, Download, Plus,
   ChevronLeft, ChevronRight, X,
   ShieldCheck, XCircle, Trash2, Tag, CheckSquare,
-  FileSpreadsheet, FileText, ChevronDown, LayoutGrid, Rows3, ExternalLink, BookmarkPlus,
+  FileSpreadsheet, FileText, ChevronDown, LayoutGrid, Rows3, ExternalLink, BookmarkPlus, MapPin,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -77,6 +77,9 @@ export default function DevicesPageContent({
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [editingSavedSearchId, setEditingSavedSearchId] = useState<string | null>(null);
   const [exportsAllowed, setExportsAllowed] = useState(true);
+  // Filtre pays auto — issu du profil utilisateur
+  const [userCountry, setUserCountry] = useState<string | null>(null);
+  const [autoCountryDismissed, setAutoCountryDismissed] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q), 300);
@@ -90,13 +93,37 @@ export default function DevicesPageContent({
   }, []);
 
   useEffect(() => {
+    // Lire le pays de l'utilisateur depuis localStorage
+    try {
+      const raw = localStorage.getItem("kafundo_user");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.country) setUserCountry(parsed.country);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
     const preferredView = getSavedViewMode(pathname);
     if (preferredView) {
       setViewMode(preferredView);
     }
 
     const pendingSearch = consumePendingSavedSearch(pathname);
-    if (!pendingSearch) return;
+    if (!pendingSearch) {
+      // Appliquer le filtre pays automatique si pas de recherche en attente
+      try {
+        const raw = localStorage.getItem("kafundo_user");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.country) {
+            setFilterCountries([parsed.country]);
+            setUserCountry(parsed.country);
+          }
+        }
+      } catch { /* ignore */ }
+      return;
+    }
 
     setQ(pendingSearch.search.filters.q);
     setDebouncedQ(pendingSearch.search.filters.q);
@@ -222,7 +249,7 @@ export default function DevicesPageContent({
       ? `${title} - ${q.trim()}`
       : `${title} - vue enregistrée`;
     const existingSearchName = editingSavedSearchId
-      ? window.localStorage.getItem("finveille_saved_searches")
+      ? window.localStorage.getItem("kafundo_saved_searches")
       : null;
     let suggestedName = defaultName;
 
@@ -284,8 +311,40 @@ export default function DevicesPageContent({
   const exportCsvUrl   = devices.exportCsv(exportParams);
   const exportExcelUrl = devices.exportExcel(exportParams);
 
+  const isAutoCountryActive =
+    userCountry !== null &&
+    !autoCountryDismissed &&
+    filterCountries.length === 1 &&
+    filterCountries[0] === userCountry;
+
+  const dismissAutoCountry = () => {
+    setAutoCountryDismissed(true);
+    setFilterCountries([]);
+    setPage(1);
+  };
+
   return (
     <AppLayout>
+      {/* Bandeau filtre pays automatique */}
+      {isAutoCountryActive && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-primary-100 bg-primary-50/60 px-4 py-2.5">
+          <div className="flex items-center gap-2 text-sm text-primary-800">
+            <MapPin className="h-4 w-4 text-primary-500 flex-shrink-0" />
+            <span>
+              Affichage filtré pour <strong>{userCountry}</strong> — dispositifs correspondant à votre pays d'activité.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={dismissAutoCountry}
+            className="flex-shrink-0 flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-primary-600 hover:bg-primary-100 transition-colors"
+          >
+            <X className="h-3 w-3" />
+            Voir tout
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>

@@ -23,6 +23,60 @@ const TYPE_LABELS: Record<string, string> = {
   accompagnement: "Accompagnement", concours: "Concours",
 };
 
+interface AlertTemplate {
+  label: string;
+  description: string;
+  icon: string;
+  preset: {
+    name: string;
+    frequency: string;
+    criteria: { countries: string[]; sectors: string[]; device_types: string[]; keywords: string; close_within_days: string };
+  };
+}
+
+const ALERT_TEMPLATES: AlertTemplate[] = [
+  {
+    label: "Subventions Europe",
+    description: "Nouveaux appels à projets et subventions européennes",
+    icon: "🇪🇺",
+    preset: {
+      name: "Subventions Europe",
+      frequency: "weekly",
+      criteria: { countries: ["France"], sectors: [], device_types: ["subvention", "aap"], keywords: "europe, horizon, feder", close_within_days: "" },
+    },
+  },
+  {
+    label: "Financements Afrique de l'Ouest",
+    description: "Aides et appels à projets pour l'Afrique subsaharienne",
+    icon: "🌍",
+    preset: {
+      name: "Financements Afrique de l'Ouest",
+      frequency: "weekly",
+      criteria: { countries: ["Sénégal", "Côte d'Ivoire", "Mali"], sectors: [], device_types: ["subvention", "aap", "investissement"], keywords: "", close_within_days: "" },
+    },
+  },
+  {
+    label: "AAP clôturant bientôt",
+    description: "Appels à projets se terminant dans les 30 prochains jours",
+    icon: "⏰",
+    preset: {
+      name: "AAP urgents — J-30",
+      frequency: "daily",
+      criteria: { countries: [], sectors: [], device_types: ["aap", "concours"], keywords: "", close_within_days: "30" },
+    },
+  },
+  {
+    label: "Innovation & Tech",
+    description: "Aides à l'innovation, R&D et transformation numérique",
+    icon: "🚀",
+    preset: {
+      name: "Innovation & Numérique",
+      frequency: "weekly",
+      criteria: { countries: [], sectors: ["technologie", "innovation"], device_types: ["subvention", "credit_impot", "aap"], keywords: "innovation, numérique, R&D", close_within_days: "" },
+    },
+  },
+];
+
 export default function AlertsPage() {
   const [alertList, setAlertList] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,6 +187,12 @@ export default function AlertsPage() {
 
   const toggleMulti = (arr: string[], set: (v: string[]) => void, val: string) =>
     set(arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val]);
+
+  const applyTemplate = (template: AlertTemplate) => {
+    setForm({ ...template.preset, channels: ["email", "dashboard"], alert_types: ["new", "updated", "closing_soon"] });
+    setShowForm(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+  };
 
   return (
     <AppLayout>
@@ -316,17 +376,62 @@ export default function AlertsPage() {
         </div>
       )}
 
-      {/* Vide */}
+      {/* Onboarding vide — suggestions automatiques */}
       {!loading && !error && alertList.length === 0 && (
-        <div className="text-center py-20 text-gray-400">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Bell className="w-7 h-7 opacity-40" />
+        <div>
+          <div className="text-center py-10 text-gray-400">
+            <div className="w-16 h-16 bg-primary-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Bell className="w-7 h-7 text-primary-400" />
+            </div>
+            <p className="font-semibold text-gray-700 mb-1 text-base">Aucune alerte configurée</p>
+            <p className="text-sm text-gray-500 mb-2 max-w-sm mx-auto">
+              Les alertes te notifient automatiquement dès qu'un nouveau dispositif correspond à ton profil.
+            </p>
+            <p className="text-xs text-gray-400 mb-6">Choisis un modèle ci-dessous pour démarrer en 10 secondes.</p>
           </div>
-          <p className="font-medium text-gray-600 mb-1">Aucune alerte configurée</p>
-          <p className="text-sm mb-4">Créez une alerte pour être notifié des nouveaux dispositifs</p>
-          <button onClick={() => setShowForm(true)} className="btn-primary text-sm">
-            <Plus className="w-4 h-4" /> Créer ma première alerte
-          </button>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-6">
+            {ALERT_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.label}
+                type="button"
+                onClick={() => applyTemplate(tpl)}
+                className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition-all hover:border-primary-300 hover:shadow-sm hover:-translate-y-0.5"
+              >
+                <span className="text-2xl">{tpl.icon}</span>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">{tpl.label}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{tpl.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="text-center">
+            <button onClick={() => setShowForm(true)} className="btn-primary text-sm">
+              <Plus className="w-4 h-4" /> Créer une alerte personnalisée
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Suggestions pour utilisateurs existants */}
+      {!loading && alertList.length > 0 && (
+        <div className="mb-5 rounded-2xl border border-primary-100 bg-primary-50/40 px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary-600 mb-3">Suggestions d'alertes</p>
+          <div className="flex flex-wrap gap-2">
+            {ALERT_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.label}
+                type="button"
+                onClick={() => applyTemplate(tpl)}
+                className="flex items-center gap-1.5 rounded-full border border-primary-200 bg-white px-3 py-1.5 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100"
+              >
+                <span>{tpl.icon}</span>
+                {tpl.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -21,6 +21,7 @@ import {
   CreditCard,
   KeyRound,
   UsersRound,
+  FolderKanban,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -68,6 +69,12 @@ const NAV_GROUPS = [
   {
     label: "Outils",
     items: [
+      {
+        href: "/projects",
+        label: "Mes projets",
+        icon: FolderKanban,
+        activeFn: (pathname: string) => pathname === "/projects" || pathname.startsWith("/projects/"),
+      },
       {
         href: "/workspace",
         label: "Mon espace",
@@ -129,7 +136,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("finveille_user");
+      const raw = localStorage.getItem("kafundo_user");
       if (raw) {
         const user = JSON.parse(raw);
         setUserEmail(user.email || user.name || "Connecté");
@@ -174,7 +181,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             <TrendingUp className="w-5 h-5 text-white" />
           </div>
           <div>
-            <span className="text-lg font-bold tracking-tight">FinVeille</span>
+            <span className="text-lg font-bold tracking-tight">Kafundo</span>
             <p className="text-xs text-primary-400 leading-none">France & Afrique</p>
           </div>
         </div>
@@ -229,8 +236,8 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </div>
         <button
           onClick={() => {
-            localStorage.removeItem("finveille_token");
-            localStorage.removeItem("finveille_user");
+            localStorage.removeItem("kafundo_token");
+            localStorage.removeItem("kafundo_user");
             window.location.href = "/login";
           }}
           className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm text-primary-300 hover:bg-primary-800 hover:text-white transition-colors"

@@ -11,6 +11,10 @@ from app.services.device_service import DeviceService
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
+# Seuils "fort ROI" : confiance élevée et montant significatif
+_HIGH_ROI_CONFIDENCE = 70
+_HIGH_ROI_AMOUNT = 50_000
+
 
 @router.get("/")
 async def get_dashboard(db: AsyncSession = Depends(get_db)):
@@ -64,6 +68,32 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         for d in r.scalars().all()
     ]
 
+    # Financement potentiel — somme des amount_max des dispositifs ouverts avec montant connu
+    r = await db.execute(
+        select(func.coalesce(func.sum(Device.amount_max), 0))
+        .where(
+            and_(
+                Device.status == "open",
+                Device.validation_status != "rejected",
+                Device.amount_max.isnot(None),
+            )
+        )
+    )
+    potential_funding = float(r.scalar() or 0)
+
+    # Opportunités à fort ROI
+    r = await db.execute(
+        select(func.count()).where(
+            and_(
+                Device.status == "open",
+                Device.validation_status != "rejected",
+                Device.confidence_score >= _HIGH_ROI_CONFIDENCE,
+                Device.amount_max >= _HIGH_ROI_AMOUNT,
+            )
+        )
+    )
+    high_roi_count = r.scalar() or 0
+
     # Santé des sources
     r = await db.execute(select(func.count()).where(Source.is_active == True))
     active_sources = r.scalar() or 0
@@ -106,6 +136,8 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
 
     return {
         **device_stats,
+        "potential_funding": potential_funding,
+        "high_roi_count": high_roi_count,
         "recent_devices": recent_devices,
         "closing_soon": closing_soon,
         "sources": {

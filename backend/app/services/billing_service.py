@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+﻿from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -17,39 +17,88 @@ from app.config import settings
 DEFAULT_PLANS: list[dict[str, Any]] = [
     {
         "slug": "free",
-        "name": "Free",
-        "description": "Pour tester FinVeille avec un usage limite.",
+        "name": "Découverte",
+        "description": "Testez Kafundo sans engagement. Accès limité pour découvrir la plateforme.",
         "price_monthly_eur": 0,
         "sort_order": 1,
-        "limits": {"users": 1, "alerts": 3, "saved_searches": 5, "pipeline_projects": 10},
-        "features": {"matching_ai": False, "exports": False, "private_sources": False},
+        "limits": {"users": 1, "alerts": 2, "saved_searches": 3, "pipeline_projects": 5},
+        "features": {
+            "matching_ai": False,
+            "exports": False,
+            "private_sources": False,
+            "api_access": False,
+            "collaboration": False,
+            "advanced_analytics": False,
+            "dedicated_coach": False,
+        },
     },
     {
         "slug": "pro",
         "name": "Pro",
-        "description": "Pour un utilisateur avance qui suit activement les opportunites.",
-        "price_monthly_eur": 29,
+        "description": "Pour les professionnels qui veulent maximiser leurs chances de financement.",
+        "price_monthly_eur": 49,
         "sort_order": 2,
         "limits": {"users": 1, "alerts": 20, "saved_searches": 50, "pipeline_projects": 100},
-        "features": {"matching_ai": True, "exports": True, "private_sources": False},
+        "features": {
+            "matching_ai": True,
+            "exports": False,
+            "private_sources": False,
+            "api_access": False,
+            "collaboration": False,
+            "advanced_analytics": False,
+            "dedicated_coach": False,
+        },
     },
     {
         "slug": "team",
         "name": "Team",
-        "description": "Pour une equipe qui partage la veille et les projets.",
-        "price_monthly_eur": 99,
+        "description": "Pour les équipes et cabinets de conseil qui collaborent sur les dossiers.",
+        "price_monthly_eur": 179,
         "sort_order": 3,
-        "limits": {"users": 5, "alerts": 100, "saved_searches": 200, "pipeline_projects": 500},
-        "features": {"matching_ai": True, "exports": True, "private_sources": True},
+        "limits": {"users": 10, "alerts": 100, "saved_searches": 200, "pipeline_projects": 500},
+        "features": {
+            "matching_ai": True,
+            "exports": True,
+            "private_sources": True,
+            "api_access": False,
+            "collaboration": True,
+            "advanced_analytics": False,
+            "dedicated_coach": False,
+        },
     },
     {
-        "slug": "enterprise",
-        "name": "Enterprise",
-        "description": "Pour les organisations avec besoins avances, SSO et accompagnement.",
-        "price_monthly_eur": 0,
+        "slug": "expert",
+        "name": "Expert",
+        "description": "Pour les utilisateurs avancés qui veulent une veille stratégique complète.",
+        "price_monthly_eur": 399,
         "sort_order": 4,
         "limits": {"users": -1, "alerts": -1, "saved_searches": -1, "pipeline_projects": -1},
-        "features": {"matching_ai": True, "exports": True, "private_sources": True},
+        "features": {
+            "matching_ai": True,
+            "exports": True,
+            "private_sources": True,
+            "api_access": True,
+            "collaboration": True,
+            "advanced_analytics": True,
+            "dedicated_coach": False,
+        },
+    },
+    {
+        "slug": "accompagnement",
+        "name": "Accompagnement Financement",
+        "description": "Service de consulting premium avec un expert dédié à votre stratégie de financement.",
+        "price_monthly_eur": 0,
+        "sort_order": 5,
+        "limits": {"users": -1, "alerts": -1, "saved_searches": -1, "pipeline_projects": -1},
+        "features": {
+            "matching_ai": True,
+            "exports": True,
+            "private_sources": True,
+            "api_access": True,
+            "collaboration": True,
+            "advanced_analytics": True,
+            "dedicated_coach": True,
+        },
     },
 ]
 
@@ -66,7 +115,8 @@ async def ensure_default_plans(db: AsyncSession) -> None:
     stripe_price_ids = {
         "pro": settings.STRIPE_PRICE_PRO,
         "team": settings.STRIPE_PRICE_TEAM,
-        "enterprise": settings.STRIPE_PRICE_ENTERPRISE,
+        "expert": settings.STRIPE_PRICE_EXPERT,
+        "entreprise": settings.STRIPE_PRICE_ENTERPRISE,
     }
     for item in DEFAULT_PLANS:
         result = await db.execute(select(Plan).where(Plan.slug == item["slug"]))

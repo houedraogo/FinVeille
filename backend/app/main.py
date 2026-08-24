@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import create_tables
-from app.routers import auth, devices, sources, alerts, dashboard, admin, match, organizations, workspace, billing, security
+from app.routers import auth, devices, sources, alerts, dashboard, admin, match, organizations, workspace, billing, security, projects
 
 if settings.SENTRY_DSN:
     try:
@@ -57,6 +57,7 @@ app.include_router(organizations.router)
 app.include_router(workspace.router)
 app.include_router(billing.router)
 app.include_router(security.router)
+app.include_router(projects.router)
 
 
 @app.get("/api/health", tags=["health"])

@@ -7,7 +7,7 @@ import DeviceCard from "@/components/DeviceCard";
 import { devices } from "@/lib/api";
 import { canModerateDevices, getCurrentRole, type AppRole } from "@/lib/auth";
 import { Device, DEVICE_TYPE_LABELS, STATUS_LABELS } from "@/lib/types";
-import { formatAmount, formatDate, formatDateRelative, daysUntil, getDeviceNatureBanner, sanitizeDisplayText } from "@/lib/utils";
+import { formatAmount, formatDate, formatDateRelative, daysUntil, getDeviceNatureBanner, sanitizeDisplayText, scoreLabel, buildScoreExplanation, aiRecommendation } from "@/lib/utils";
 import {
   getPipelineDevice,
   isFavoriteDevice,
@@ -609,6 +609,33 @@ export default function DeviceDetailPage() {
     setPipelineFeedback("Suivi personnel enregistré dans Mon espace.");
   };
 
+  const quickPipeline = (status: DevicePipelineStatus) => {
+    if (!device) return;
+    setPipelineStatus(status);
+    savePipelineDevice({
+      id: device.id,
+      title: device.title,
+      organism: device.organism,
+      country: device.country,
+      region: device.region,
+      deviceType: device.device_type,
+      status: device.status,
+      closeDate: device.close_date,
+      amountMax: device.amount_max,
+      currency: device.currency,
+      sourceUrl: device.source_url,
+      pipelineStatus: status,
+      note: pipelineNote.trim(),
+    });
+    setPipelineFeedback(
+      status === "candidature_en_cours"
+        ? "✅ Candidature lancée — retrouvez ce dossier dans Mon espace."
+        : status === "a_etudier"
+        ? "⭐ Ajouté à vos priorités — retrouvez-le dans Mon espace."
+        : "Statut mis à jour dans Mon espace."
+    );
+  };
+
   if (loading) {
     return (
       <AppLayout>
@@ -960,6 +987,37 @@ export default function DeviceDetailPage() {
           </div>
 
           <div className="space-y-4">
+            {/* CTAs rapides pipeline */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => quickPipeline("a_etudier")}
+                  className={clsx(
+                    "flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors",
+                    pipelineStatus === "a_etudier"
+                      ? "bg-amber-500 text-white"
+                      : "border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  )}
+                >
+                  ⭐ Prioriser
+                </button>
+                <button
+                  onClick={() => quickPipeline("candidature_en_cours")}
+                  className={clsx(
+                    "flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors",
+                    pipelineStatus === "candidature_en_cours"
+                      ? "bg-blue-600 text-white"
+                      : "border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  )}
+                >
+                  🚀 Lancer la candidature
+                </button>
+              </div>
+              {pipelineFeedback && (
+                <p className="text-center text-xs text-primary-700">{pipelineFeedback}</p>
+              )}
+            </div>
+
             {device.source_url && (
               <a
                 href={device.source_url}
@@ -968,10 +1026,26 @@ export default function DeviceDetailPage() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
               >
                 <ExternalLink className="h-4 w-4" />
-                Accéder au dispositif
+                Accéder au dispositif officiel
                 <ArrowRight className="ml-auto h-4 w-4" />
               </a>
             )}
+
+            {/* Bloc accompagnement */}
+            <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-600 mb-1">Service premium</p>
+              <p className="text-sm font-semibold text-slate-800 mb-0.5">Besoin d'aide pour candidater ?</p>
+              <p className="text-xs leading-5 text-slate-500 mb-3">
+                Un expert vous accompagne de la constitution du dossier jusqu'à l'obtention du financement.
+              </p>
+              <a
+                href="mailto:contact@finveille.com"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-600"
+              >
+                <Sparkles className="h-4 w-4" />
+                Se faire accompagner
+              </a>
+            </div>
 
             {(device.sectors?.length || device.beneficiaries?.length) && (
               <div className="card p-4 space-y-3">
@@ -1009,35 +1083,51 @@ export default function DeviceDetailPage() {
               </div>
             )}
 
-            <div className="card p-4">
-              <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-gray-700">
-                <Info className="h-3.5 w-3.5 text-gray-400" />
-                Qualité
-              </h2>
-              <div className="space-y-2.5">
-                {[
-                  { label: "Fiabilité", value: device.confidence_score },
-                  { label: "Complétude", value: device.completeness_score },
-                  { label: "Pertinence", value: device.relevance_score },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <div className="mb-0.5 flex justify-between text-xs text-gray-500">
-                      <span>{label}</span>
-                      <span className="font-semibold">{value}%</span>
+            {/* Bloc Intelligence du score */}
+            {(() => {
+              const sl = scoreLabel(device.confidence_score);
+              const points = buildScoreExplanation(device);
+              const reco = aiRecommendation(device.device_type, daysLeft);
+              return (
+                <div className="card p-4 space-y-4">
+                  {/* Score label */}
+                  <div>
+                    <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-700">
+                      <Sparkles className="h-3.5 w-3.5 text-primary-400" />
+                      Analyse IA
+                    </h2>
+                    <div className={clsx("rounded-xl px-3 py-2 text-sm font-semibold", sl.bg, sl.color)}>
+                      {sl.label}
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className={clsx(
-                          "h-full rounded-full transition-all",
-                          value >= 70 ? "bg-green-500" : value >= 40 ? "bg-yellow-400" : "bg-red-400",
-                        )}
-                        style={{ width: `${value}%` }}
-                      />
+                    <p className="mt-1 text-xs text-gray-400">{sl.sublabel} · Fiabilité {device.confidence_score}%</p>
+                  </div>
+
+                  {/* Pourquoi ce score */}
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Pourquoi ce score</p>
+                    <div className="space-y-1.5">
+                      {points.map((p) => (
+                        <div key={p.label} className="flex items-center gap-2 text-xs">
+                          {p.ok
+                            ? <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 text-emerald-500" />
+                            : <XCircle className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />
+                          }
+                          <span className={p.ok ? "text-gray-700" : "text-gray-400"}>{p.label}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+
+                  {/* Recommandation IA */}
+                  <div className="rounded-xl border border-primary-100 bg-primary-50/60 p-3">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-primary-600">
+                      Recommandation
+                    </p>
+                    <p className="text-xs leading-relaxed text-primary-800">{reco}</p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {device.keywords?.length ? (
               <div className="card p-4">

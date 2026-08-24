@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+﻿from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, update
 from datetime import date, timedelta, datetime, timezone
@@ -458,7 +458,7 @@ async def send_test_email(
 
     ok = NotificationService.send_email(
         to=current_user.email,
-        subject="[FinVeille] Test de configuration email",
+        subject="[Kafundo] Test de configuration email",
         html_body=html,
     )
     if not ok:

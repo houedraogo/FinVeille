@@ -43,6 +43,7 @@ async def create_tables():
     await ensure_workspace_columns()
     await ensure_billing_columns()
     await ensure_billing_defaults()
+    await ensure_user_profile_columns()
     await ensure_search_vector_trigger()
 
 
@@ -64,6 +65,19 @@ async def ensure_saas_columns():
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS ix_alerts_organization_id
             ON alerts (organization_id)
+        """))
+
+
+async def ensure_user_profile_columns():
+    """Ajoute les colonnes de profil utilisateur (country, sectors) sur bases existantes."""
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS country VARCHAR(100) NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS sectors VARCHAR(500) NULL
         """))
 
 

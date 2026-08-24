@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+﻿from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 import asyncio
@@ -34,7 +34,7 @@ class BaseConnector(ABC):
     """Classe abstraite — tous les connecteurs en héritent."""
 
     BOT_HEADERS = {
-        "User-Agent": "FinVeille/1.0 Bot (veille financement public; +https://finveille.com/bot)",
+        "User-Agent": "Kafundo/1.0 Bot (veille financement public; +https://kafundo.com/bot)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
     }

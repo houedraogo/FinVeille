@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import logging
 from contextlib import asynccontextmanager
 from app.tasks.celery_app import celery_app
@@ -60,7 +60,7 @@ async def _send_daily_alerts_async():
                     )
                     NotificationService.send_email(
                         to=user.email,
-                        subject=f"[FinVeille] {len(devices)} dispositif(s) — {alert.name}",
+                        subject=f"[Kafundo] {len(devices)} dispositif(s) — {alert.name}",
                         html_body=html,
                     )
 

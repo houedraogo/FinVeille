@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import AppLayout from "@/components/AppLayout";
 import LimitNotice from "@/components/LimitNotice";
@@ -11,7 +11,7 @@ import clsx from "clsx";
 import { billing } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const MATCH_STORAGE_KEY = "finveille_match_state";
+const MATCH_STORAGE_KEY = "kafundo_match_state";
 
 const DEVICE_TYPE_LABELS: Record<string, string> = {
   subvention: "Subvention", pret: "Prêt", aap: "Appel à projets",
@@ -158,7 +158,7 @@ export default function MatchPage() {
     form.append("file", file);
 
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("finveille_token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("kafundo_token") : null;
       const res = await fetch(`${API_BASE}/api/v1/match/`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -212,7 +212,7 @@ export default function MatchPage() {
             <h1 className="text-2xl font-bold text-gray-900">Matching de projet</h1>
           </div>
           <p className="text-sm text-gray-500">
-            Importez votre pitch ou présentation — FinVeille analyse votre document et identifie
+            Importez votre pitch ou présentation — Kafundo analyse votre document et identifie
             les dispositifs de financement les plus adaptés à votre projet.
           </p>
         </div>

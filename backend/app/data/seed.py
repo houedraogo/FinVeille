@@ -1,4 +1,4 @@
-"""
+﻿"""
 Script de seed : peuple la base avec des sources initiales fiables et un compte admin.
 Usage : python -m app.data.seed
 """
@@ -199,9 +199,9 @@ INITIAL_SOURCES = [
 ]
 
 ADMIN_USER = {
-    "email": "admin@finveille.com",
+    "email": "admin@kafundo.com",
     "password": "Admin@2024!",
-    "full_name": "Administrateur FinVeille",
+    "full_name": "Administrateur Kafundo",
     "role": "admin",
 }
 

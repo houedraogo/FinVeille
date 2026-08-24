@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -393,7 +393,7 @@ async def export_csv(
         generate_csv(),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": 'attachment; filename="finveille-export.csv"',
+            "Content-Disposition": 'attachment; filename="kafundo-export.csv"',
             "Cache-Control": "no-store",
         },
     )
@@ -431,7 +431,7 @@ async def export_excel(
     # ── Construire le classeur ────────────────────────────────────────────
     wb = Workbook()
     ws = wb.active
-    ws.title = "FinVeille Export"
+    ws.title = "Kafundo Export"
 
     # Styles
     header_fill   = PatternFill("solid", fgColor="1D4ED8")   # bleu primary
@@ -492,7 +492,7 @@ async def export_excel(
     # Onglet récapitulatif
     ws_info = wb.create_sheet("Infos export")
     from datetime import datetime
-    ws_info.append(["Export FinVeille"])
+    ws_info.append(["Export Kafundo"])
     ws_info.append(["Date", datetime.now().strftime("%d/%m/%Y %H:%M")])
     ws_info.append(["Filtres", f"q={q or ''} | pays={','.join(countries or [])} | types={','.join(device_types or [])}"])
     ws_info.append(["Nombre de lignes", len(rows)])
@@ -509,7 +509,7 @@ async def export_excel(
         content=buf.read(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": 'attachment; filename="finveille-export.xlsx"',
+            "Content-Disposition": 'attachment; filename="kafundo-export.xlsx"',
             "Cache-Control": "no-store",
         },
     )

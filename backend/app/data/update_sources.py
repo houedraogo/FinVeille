@@ -1,8 +1,8 @@
-"""
+﻿"""
 Met a jour les sources existantes, desactive les sources fragiles
 et ajoute un socle de sources plus fiables cote public et prive.
 
-Usage : docker exec finveille-backend python -m app.data.update_sources
+Usage : docker exec kafundo-backend python -m app.data.update_sources
 """
 import asyncio
 import json

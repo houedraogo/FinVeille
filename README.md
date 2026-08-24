@@ -1,4 +1,4 @@
-# FinVeille
+﻿# Kafundo
 
 Plateforme de veille sur les dispositifs de financement public — **France & Afrique**
 
@@ -12,7 +12,7 @@ Plateforme de veille sur les dispositifs de financement public — **France & Af
 
 ```bash
 # 1. Cloner et aller dans le projet
-cd finveille
+cd kafundo
 
 # 2. Copier la configuration
 cp .env.example .env
@@ -28,7 +28,7 @@ L'application sera accessible sur :
 - **Workers** : http://localhost:5555 (Flower)
 
 Identifiants par défaut :
-- Email : `admin@finveille.com`
+- Email : `admin@kafundo.com`
 - Mot de passe : `Admin@2024!`
 
 > ⚠️ Changez le mot de passe admin dès la première connexion en production.
@@ -38,7 +38,7 @@ Identifiants par défaut :
 ## Architecture
 
 ```
-finveille/
+kafundo/
 ├── backend/           # FastAPI + Celery
 │   ├── app/
 │   │   ├── models/        # Modèles SQLAlchemy
