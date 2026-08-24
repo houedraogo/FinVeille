@@ -301,6 +301,17 @@ export const admin = {
     }),
 };
 
+// Projects (suivi des dossiers de financement)
+export const projects = {
+  list: () => apiFetch<any[]>("/api/v1/projects/"),
+  get: (id: string) => apiFetch<any>(`/api/v1/projects/${id}`),
+  create: (data: any) => apiFetch<any>("/api/v1/projects/", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: any) =>
+    apiFetch<any>(`/api/v1/projects/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  delete: (id: string) => apiFetch<void>(`/api/v1/projects/${id}`, { method: "DELETE" }),
+  refreshMatch: (id: string) => apiFetch<any>(`/api/v1/projects/${id}/match`, { method: "POST" }),
+};
+
 function buildQueryString(params: Record<string, unknown>): string {
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
