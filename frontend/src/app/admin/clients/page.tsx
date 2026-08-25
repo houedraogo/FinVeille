@@ -296,9 +296,13 @@ export default function AdminClientsPage() {
                       )}
                     </div>
 
-                    {/* Date */}
+                    {/* Dernière connexion */}
                     <div className="text-xs text-slate-500">
-                      {org.created_at ? formatDateRelative(org.created_at) : "N/A"}
+                      {org.owner?.last_login_at
+                        ? formatDateRelative(org.owner.last_login_at)
+                        : org.created_at
+                        ? formatDateRelative(org.created_at)
+                        : "N/A"}
                     </div>
 
                     {/* Actions */}

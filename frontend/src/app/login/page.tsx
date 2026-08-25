@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { auth, security } from "@/lib/api";
+import { auth, security, relevance } from "@/lib/api";
 import { isStoredAdmin } from "@/lib/auth";
 import { Chrome, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 
@@ -63,7 +63,7 @@ export default function LoginPage() {
     if (m === "register") setMode("register");
   }, []);
 
-  const finishAuth = (result: { access_token: string; user: unknown }) => {
+  const finishAuth = async (result: { access_token: string; user: unknown }) => {
     localStorage.setItem("kafundo_token", result.access_token);
     if (result.user) localStorage.setItem("kafundo_user", JSON.stringify(result.user));
     const user = (result.user || {}) as any;
@@ -77,8 +77,29 @@ export default function LoginPage() {
       router.push(`/billing?plan=${planParam}`);
       return;
     }
+    if (isAdmin) {
+      router.push("/admin");
+      return;
+    }
+    // Vérifier si le profil existe en base (cas d'un autre appareil ou cache vidé)
+    // pour ne pas envoyer à l'onboarding un utilisateur qui a déjà complété son profil.
+    try {
+      const profile = await relevance.getProfile();
+      const hasProfile = profile && (
+        profile.organization_type ||
+        profile.countries?.length > 0 ||
+        profile.sectors?.length > 0
+      );
+      if (hasProfile) {
+        localStorage.setItem("kafundo_onboarding_completed", "1");
+        router.push("/");
+        return;
+      }
+    } catch {
+      // Erreur réseau → se fier au localStorage
+    }
     const hasOnboarding = localStorage.getItem("kafundo_onboarding_completed") === "1";
-    router.push(isAdmin ? "/admin" : hasOnboarding ? "/" : "/onboarding");
+    router.push(hasOnboarding ? "/" : "/onboarding");
   };
 
   const handleLogin = async (e: React.FormEvent) => {
