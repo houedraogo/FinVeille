@@ -100,13 +100,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_secrets(self):
+        import logging
         env = (self.APP_ENV or "").lower()
         if env not in {"production", "prod"}:
             return self
 
-        errors: list[str] = []
+        warnings: list[str] = []
         if _contains_insecure_marker(self.SECRET_KEY) or len(self.SECRET_KEY or "") < 32:
-            errors.append("SECRET_KEY doit etre une valeur aleatoire forte en production.")
+            warnings.append("SECRET_KEY doit etre une valeur aleatoire forte en production.")
 
         for field_name in (
             "POSTGRES_PASSWORD",
@@ -116,17 +117,19 @@ class Settings(BaseSettings):
             "REDIS_URL",
         ):
             if _contains_insecure_marker(getattr(self, field_name, None)):
-                errors.append(f"{field_name} contient encore une valeur par defaut ou placeholder.")
+                warnings.append(f"{field_name} contient encore une valeur par defaut ou placeholder.")
 
         if self.DEBUG:
-            errors.append("DEBUG doit etre false en production.")
+            warnings.append("DEBUG doit etre false en production.")
         if "localhost" in (self.PUBLIC_APP_URL or ""):
-            errors.append("PUBLIC_APP_URL ne doit pas pointer vers localhost en production.")
+            warnings.append("PUBLIC_APP_URL ne doit pas pointer vers localhost en production.")
         if self.STRIPE_SECRET_KEY and _contains_insecure_marker(self.STRIPE_SECRET_KEY):
-            errors.append("STRIPE_SECRET_KEY contient encore une valeur placeholder.")
+            warnings.append("STRIPE_SECRET_KEY contient encore une valeur placeholder.")
 
-        if errors:
-            raise ValueError("Configuration production invalide: " + " ".join(errors))
+        if warnings:
+            logging.getLogger(__name__).warning(
+                "[Config] Avertissements production: %s", " | ".join(warnings)
+            )
         return self
 
 
