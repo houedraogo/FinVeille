@@ -76,7 +76,7 @@ class BaseConnector(ABC):
                     await asyncio.sleep(self.delay)  # Politesse systématique
                     return response
             except httpx.HTTPStatusError as e:
-                if e.response.status_code in (403, 404, 410, 451):
+                if e.response.status_code in (400, 403, 404, 410, 451):
                     raise  # Inutile de retry
                 last_error = e
             except (httpx.RequestError, httpx.TimeoutException) as e:
