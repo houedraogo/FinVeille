@@ -306,6 +306,103 @@ def _normalize_rewrite_content(value: str, *, key: str) -> str:
     return normalized
 
 
+async def rewrite_from_text_fields(
+    device_id: str,
+    title: str,
+    organism: str,
+    country: str,
+    device_type: str,
+    close_date: str,
+    source_url: str,
+    full_description: str,
+    eligibility_criteria: str,
+    funding_details: str,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> AIRewriteResult:
+    """Rewrite pour fiches sans content_sections_json (Aides-territoires, etc.)."""
+    checked_at = datetime.now(timezone.utc)
+    _provider = (provider or settings.AI_REWRITE_PROVIDER or "openai").strip().lower()
+    _model = (model or settings.AI_REWRITE_MODEL or "gpt-4o-mini").strip()
+
+    if not settings.OPENAI_API_KEY:
+        return AIRewriteResult(REWRITE_FAILED, [], _model, checked_at, ["ia_non_configuree"])
+
+    context = {
+        "title": clean_editorial_text(title or ""),
+        "organism": clean_editorial_text(organism or ""),
+        "country": clean_editorial_text(country or ""),
+        "device_type": clean_editorial_text(device_type or ""),
+        "close_date": close_date or "",
+        "source_url": source_url or "",
+        "presentation": clean_editorial_text(full_description or "")[:2500],
+        "eligibility": clean_editorial_text(eligibility_criteria or "")[:1500],
+        "funding": clean_editorial_text(funding_details or "")[:800],
+    }
+
+    prompt = (
+        "Reformule cette fiche de financement en français professionnel, clair et lisible.\n"
+        "Contraintes strictes :\n"
+        "- N'invente aucune information absente des champs fournis.\n"
+        "- Conserve les dates, montants, pays, organisme et conditions tels qu'ils sont fournis.\n"
+        "- Corrige accents, ponctuation, espaces, phrases collées et paragraphes.\n"
+        "- Supprime les doublons, fils d'Ariane, menus, textes techniques et HTML.\n"
+        "- Écris dans un style naturel, business, directement compréhensible.\n"
+        "- Utilise des listes à puces quand plusieurs critères sont présentés.\n"
+        "- Si une information manque, écris 'Non communiqué par la source'.\n"
+        "- Retourne uniquement un objet JSON valide.\n\n"
+        "Format JSON attendu :\n"
+        "{\"title_fr\":\"Titre traduit ou original en français\","
+        "\"sections\":[{\"key\":\"why_this_opportunity\",\"title\":\"Pourquoi regarder cette opportunité ?\",\"content\":\"...\"},"
+        "{\"key\":\"audience\",\"title\":\"Pour qui ?\",\"content\":\"...\"},"
+        "{\"key\":\"benefits\",\"title\":\"Ce que vous pouvez obtenir\",\"content\":\"...\"},"
+        "{\"key\":\"availability\",\"title\":\"Date limite ou disponibilité\",\"content\":\"...\"},"
+        "{\"key\":\"application\",\"title\":\"Comment candidater\",\"content\":\"...\"},"
+        "{\"key\":\"checks\",\"title\":\"Points à vérifier\",\"content\":\"...\"}]}\n\n"
+        "Attendus par section :\n"
+        "- why_this_opportunity : 1 paragraphe court expliquant l'intérêt concret.\n"
+        "- audience : publics cibles et critères principaux, en liste si possible.\n"
+        "- benefits : montant, taux, dotation ou avantages ; sinon 'Non communiqué'.\n"
+        "- availability : date limite, statut récurrent/permanent ou 'date non communiquée'.\n"
+        "- application : démarche concrète, URL officielle si fournie, sinon consulter la source.\n"
+        "- checks : incertitudes réelles à confirmer avant décision.\n\n"
+        f"Données source :\n{json.dumps(context, ensure_ascii=False, default=str)}"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": _model,
+        "messages": [
+            {"role": "system", "content": "Tu es un rédacteur métier pour une plateforme de veille financement. Tu reformules en français clair sans inventer de faits."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.AI_REWRITE_TIMEOUT_SECONDS) as client:
+            response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=body)
+            response.raise_for_status()
+            payload = json.loads(response.json()["choices"][0]["message"]["content"])
+    except Exception as exc:
+        return AIRewriteResult(REWRITE_FAILED, [], _model, checked_at, [f"appel_ia_echoue:{type(exc).__name__}"])
+
+    sections = _normalize_rewritten_sections(payload)
+    device_dict = {"title": title, "close_date": close_date}
+    title_fr = _extract_title_fr(payload, device_dict)
+    source_sections: list[dict] = []
+    if full_description:
+        source_sections.append({"key": "presentation", "content": full_description})
+    issues = validate_rewritten_sections(sections, source_sections, device_dict)
+    status = REWRITE_DONE if not issues else REWRITE_NEEDS_REVIEW
+    return AIRewriteResult(status, sections, _model, checked_at, issues, title_fr=title_fr)
+
+
 def _extract_title_fr(payload: dict[str, Any], device: dict[str, Any]) -> str | None:
     """Extrait le titre traduit depuis la réponse IA si différent de l'original."""
     raw = payload.get("title_fr") if isinstance(payload, dict) else None

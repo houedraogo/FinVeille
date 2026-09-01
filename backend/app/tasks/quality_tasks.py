@@ -310,6 +310,12 @@ def auto_rewrite_quality_queue(batch_size: int = 20):
     asyncio.run(_auto_rewrite_quality_queue_async(batch_size=batch_size))
 
 
+@celery_app.task(name="app.tasks.quality_tasks.enrich_structured_fiches_quality")
+def enrich_structured_fiches_quality(batch_size: int = 30):
+    """Rewrite IA pour fiches sans content_sections_json (AT, aides-entreprises)."""
+    asyncio.run(_enrich_structured_fiches_quality_async(batch_size=batch_size))
+
+
 @celery_app.task
 def requalify_editorial_auto_sources(batch_size: int = 80):
     asyncio.run(_requalify_editorial_auto_sources_async(batch_size=batch_size))
@@ -664,6 +670,76 @@ async def _auto_rewrite_quality_queue_async(batch_size: int = 20):
         await db.commit()
 
     logger.warning("[Visible Quality][rewrite] processed=%s succeeded=%s failed=%s", processed, succeeded, failed)
+    return {"processed": processed, "succeeded": succeeded, "failed": failed}
+
+
+async def _enrich_structured_fiches_quality_async(batch_size: int = 30):
+    """Rewrite IA pour fiches avec full_description mais sans content_sections_json."""
+    from app.services.ai_rewriter import rewrite_from_text_fields, REWRITE_DONE, REWRITE_NEEDS_REVIEW
+    from app.services.device_service import normalize_title
+    from sqlalchemy import select, text as sa_text
+    from app.models.device import Device
+
+    if not __import__("app.config", fromlist=["settings"]).settings.OPENAI_API_KEY:
+        logger.warning("[StructuredEnrich] OpenAI API key manquante, skip")
+        return
+
+    async with _fresh_db() as db:
+        rows = (await db.execute(sa_text("""
+            SELECT id FROM devices
+            WHERE validation_status IN ('auto_published', 'manually_published')
+            AND (ai_rewrite_status IS NULL OR ai_rewrite_status = 'pending')
+            AND (content_sections_json IS NULL OR json_typeof(content_sections_json) != 'array'
+                 OR json_array_length(content_sections_json) = 0)
+            AND (full_description IS NOT NULL AND length(full_description) > 80)
+            ORDER BY created_at DESC
+            LIMIT :batch
+        """), {"batch": batch_size})).fetchall()
+
+        if not rows:
+            logger.info("[StructuredEnrich] Aucune fiche à traiter")
+            return
+
+        ids = [r[0] for r in rows]
+        devices = (
+            await db.execute(select(Device).where(Device.id.in_(ids)))
+        ).scalars().all()
+
+        processed = succeeded = failed = 0
+        for device in devices:
+            try:
+                result = await rewrite_from_text_fields(
+                    device_id=str(device.id),
+                    title=device.title or "",
+                    organism=device.organism or "",
+                    country=device.country or "",
+                    device_type=device.device_type or "",
+                    close_date=str(device.close_date or ""),
+                    source_url=device.source_url or "",
+                    full_description=device.full_description or "",
+                    eligibility_criteria=device.eligibility_criteria or "",
+                    funding_details=device.funding_details or "",
+                )
+                device.ai_rewritten_sections_json = result.sections
+                device.ai_rewrite_status = result.status
+                device.ai_rewrite_model = result.model
+                device.ai_rewrite_checked_at = result.checked_at
+                if result.title_fr:
+                    device.title = result.title_fr
+                    device.title_normalized = normalize_title(result.title_fr)
+                processed += 1
+                if result.status in (REWRITE_DONE, REWRITE_NEEDS_REVIEW):
+                    succeeded += 1
+                else:
+                    failed += 1
+            except Exception as exc:
+                logger.warning("[StructuredEnrich] Erreur device=%s: %s", device.id, exc)
+                device.ai_rewrite_status = "failed"
+                failed += 1
+
+        await db.commit()
+
+    logger.info("[StructuredEnrich] processed=%s succeeded=%s failed=%s", processed, succeeded, failed)
     return {"processed": processed, "succeeded": succeeded, "failed": failed}
 
 

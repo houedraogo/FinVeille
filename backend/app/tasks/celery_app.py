@@ -100,6 +100,11 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=15, hour=4),
         "kwargs": {"batch_size": 20},
     },
+    "enrich-structured-fiches-quality": {
+        "task": "app.tasks.quality_tasks.enrich_structured_fiches_quality",
+        "schedule": crontab(minute=30, hour=2),
+        "kwargs": {"batch_size": 40},
+    },
     "requalify-editorial-auto-sources": {
         "task": "app.tasks.quality_tasks.requalify_editorial_auto_sources",
         "schedule": crontab(minute=18, hour="*/2"),
