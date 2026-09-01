@@ -84,6 +84,38 @@ class BaseConnector(ABC):
 
         raise Exception(f"Échec après {settings.MAX_RETRIES} tentatives: {last_error}")
 
+    async def _post(self, url: str, json_body: dict, extra_headers: dict = None) -> httpx.Response:
+        headers = {**self.BOT_HEADERS, "Content-Type": "application/json", "Accept": "application/json"}
+        if self.config.get("user_agent"):
+            headers["User-Agent"] = self.config["user_agent"]
+        if extra_headers:
+            headers.update(extra_headers)
+
+        last_error = None
+        for attempt in range(settings.MAX_RETRIES):
+            if attempt > 0:
+                wait = self.delay * (2 ** attempt)
+                logger.debug(f"[{self.source_id}] Retry {attempt} — attente {wait:.1f}s")
+                await asyncio.sleep(wait)
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    follow_redirects=True,
+                    verify=True,
+                ) as client:
+                    response = await client.post(url, json=json_body, headers=headers)
+                    response.raise_for_status()
+                    await asyncio.sleep(self.delay)
+                    return response
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (403, 404, 410, 451):
+                    raise
+                last_error = e
+            except (httpx.RequestError, httpx.TimeoutException) as e:
+                last_error = e
+
+        raise Exception(f"Échec après {settings.MAX_RETRIES} tentatives: {last_error}")
+
     def _build_absolute_url(self, href: str, base_url: str) -> str:
         if href.startswith("http"):
             return href
