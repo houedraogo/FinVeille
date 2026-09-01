@@ -29,7 +29,7 @@ GRANTSGOV_AFRICA_SOURCE = {
     "config": {
         "use_post": True,
         "post_body": {
-            "keyword": "africa",
+            "keyword": "sub-saharan africa",
             "oppStatuses": "posted",
         },
         "post_body_offset_field": "startRecordNum",
