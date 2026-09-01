@@ -85,6 +85,16 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=25, hour=5),
         "kwargs": {"batch_size": 120},
     },
+    "daily-visible-amount-structuring": {
+        "task": "app.tasks.quality_tasks.structure_visible_amounts",
+        "schedule": crontab(minute=40, hour=5),
+        "kwargs": {"batch_size": 160},
+    },
+    "daily-low-quality-visibility-cleanup": {
+        "task": "app.tasks.quality_tasks.cleanup_low_quality_visibility",
+        "schedule": crontab(minute=50, hour=5),
+        "kwargs": {"batch_size": 240},
+    },
     "auto-rewrite-visible-quality-queue": {
         "task": "app.tasks.quality_tasks.auto_rewrite_quality_queue",
         "schedule": crontab(minute=15, hour=4),

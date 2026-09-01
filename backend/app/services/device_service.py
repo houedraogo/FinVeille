@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import select, func, and_, or_, update, delete as sql_delete, text, bindparam, String as SA_String, case
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 from unidecode import unidecode
 
 from app.models.device import Device
@@ -320,6 +321,55 @@ class DeviceService:
     # Lecture
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _list_load_columns():
+        return (
+            Device.id,
+            Device.slug,
+            Device.title,
+            Device.organism,
+            Device.country,
+            Device.region,
+            Device.zone,
+            Device.device_type,
+            Device.aid_nature,
+            Device.sectors,
+            Device.beneficiaries,
+            Device.short_description,
+            Device.eligibility_criteria,
+            Device.amount_min,
+            Device.amount_max,
+            Device.currency,
+            Device.funding_rate,
+            Device.funding_details,
+            Device.open_date,
+            Device.close_date,
+            Device.is_recurring,
+            Device.recurrence_notes,
+            Device.status,
+            Device.source_url,
+            Device.source_id,
+            Device.language,
+            Device.keywords,
+            Device.tags,
+            Device.auto_summary,
+            Device.confidence_score,
+            Device.completeness_score,
+            Device.relevance_score,
+            Device.ai_readiness_score,
+            Device.ai_readiness_label,
+            Device.user_quality_score,
+            Device.user_quality_decision,
+            Device.user_quality_reasons,
+            Device.validation_status,
+            Device.decision_analysis,
+            Device.decision_analyzed_at,
+            Device.first_seen_at,
+            Device.last_verified_at,
+            Device.created_at,
+            Device.updated_at,
+        )
+
     async def get_by_id(self, device_id: UUID) -> Optional[Device]:
         result = await self.db.execute(select(Device).where(Device.id == device_id))
         return result.scalar_one_or_none()
@@ -577,7 +627,7 @@ class DeviceService:
         query = self._build_filter_query(params)
 
         # Comptage
-        count_q = select(func.count()).select_from(query.subquery())
+        count_q = select(func.count()).select_from(query.with_only_columns(Device.id).order_by(None).subquery())
         total = (await self.db.execute(count_q)).scalar() or 0
 
         # Tri
@@ -617,7 +667,7 @@ class DeviceService:
 
         # Pagination
         offset = (params.page - 1) * params.page_size
-        query = query.offset(offset).limit(params.page_size)
+        query = query.options(load_only(*self._list_load_columns())).offset(offset).limit(params.page_size)
 
         result = await self.db.execute(query)
         items = result.scalars().all()
@@ -670,33 +720,33 @@ class DeviceService:
 
         stats = {}
 
-        r = await self.db.execute(select(func.count()).where(Device.status == "open"))
+        r = await self.db.execute(select(func.count()).select_from(Device).where(Device.status == "open"))
         stats["total_active"] = r.scalar() or 0
 
-        r = await self.db.execute(select(func.count()))
+        r = await self.db.execute(select(func.count()).select_from(Device))
         stats["total"] = r.scalar() or 0
 
         r = await self.db.execute(
-            select(func.count()).where(Device.first_seen_at >= week_ago)
+            select(func.count()).select_from(Device).where(Device.first_seen_at >= week_ago)
         )
         stats["new_last_7_days"] = r.scalar() or 0
 
         r = await self.db.execute(
-            select(func.count()).where(
+            select(func.count()).select_from(Device).where(
                 and_(Device.close_date <= closing_30, Device.close_date >= today, Device.status == "open")
             )
         )
         stats["closing_soon_30d"] = r.scalar() or 0
 
         r = await self.db.execute(
-            select(func.count()).where(
+            select(func.count()).select_from(Device).where(
                 and_(Device.close_date <= closing_7, Device.close_date >= today, Device.status == "open")
             )
         )
         stats["closing_soon_7d"] = r.scalar() or 0
 
         r = await self.db.execute(
-            select(func.count()).where(Device.validation_status == "pending_review")
+            select(func.count()).select_from(Device).where(Device.validation_status == "pending_review")
         )
         stats["pending_validation"] = r.scalar() or 0
 
@@ -721,7 +771,7 @@ class DeviceService:
         )
         stats["by_status"] = [{"status": row[0], "count": row[1]} for row in r]
 
-        r = await self.db.execute(select(func.avg(Device.confidence_score)))
+        r = await self.db.execute(select(func.avg(Device.confidence_score)).select_from(Device))
         avg = r.scalar()
         stats["avg_confidence"] = round(float(avg), 1) if avg else 0
 

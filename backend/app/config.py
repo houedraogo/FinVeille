@@ -2,6 +2,23 @@
 from typing import Optional
 
 
+from pydantic import model_validator
+
+
+INSECURE_SECRET_MARKERS = (
+    "changeme",
+    "change-me",
+    "replace-with",
+    "dev-secret",
+    "not-for-production",
+)
+
+
+def _contains_insecure_marker(value: str | None) -> bool:
+    lowered = str(value or "").lower()
+    return any(marker in lowered for marker in INSECURE_SECRET_MARKERS)
+
+
 class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Kafundo"
@@ -14,10 +31,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 heures
 
     # Base de données
+    POSTGRES_PASSWORD: Optional[str] = None
     DATABASE_URL: str = "postgresql+asyncpg://kafundo:changeme@localhost:5432/kafundo"
     DATABASE_SYNC_URL: str = "postgresql://kafundo:changeme@localhost:5432/kafundo"
 
     # Redis / Celery
+    REDIS_PASSWORD: Optional[str] = None
     REDIS_URL: str = "redis://:changeme@redis:6379/0"
 
     # Email
@@ -78,6 +97,37 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        env = (self.APP_ENV or "").lower()
+        if env not in {"production", "prod"}:
+            return self
+
+        errors: list[str] = []
+        if _contains_insecure_marker(self.SECRET_KEY) or len(self.SECRET_KEY or "") < 32:
+            errors.append("SECRET_KEY doit etre une valeur aleatoire forte en production.")
+
+        for field_name in (
+            "POSTGRES_PASSWORD",
+            "DATABASE_URL",
+            "DATABASE_SYNC_URL",
+            "REDIS_PASSWORD",
+            "REDIS_URL",
+        ):
+            if _contains_insecure_marker(getattr(self, field_name, None)):
+                errors.append(f"{field_name} contient encore une valeur par defaut ou placeholder.")
+
+        if self.DEBUG:
+            errors.append("DEBUG doit etre false en production.")
+        if "localhost" in (self.PUBLIC_APP_URL or ""):
+            errors.append("PUBLIC_APP_URL ne doit pas pointer vers localhost en production.")
+        if self.STRIPE_SECRET_KEY and _contains_insecure_marker(self.STRIPE_SECRET_KEY):
+            errors.append("STRIPE_SECRET_KEY contient encore une valeur placeholder.")
+
+        if errors:
+            raise ValueError("Configuration production invalide: " + " ".join(errors))
+        return self
 
 
 settings = Settings()

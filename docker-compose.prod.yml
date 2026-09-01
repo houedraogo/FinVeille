@@ -1,4 +1,6 @@
-﻿services:
+﻿name: kafundo
+
+services:
   postgres:
     image: postgres:15-alpine
     container_name: kafundo-postgres

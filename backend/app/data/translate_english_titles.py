@@ -15,11 +15,11 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 
 EN_WORDS = re.compile(
-    r'\b(the|and|for|grant|fund|programme|challenge|fellowship|call for|award|opportunity|opportunities|support|funding|access|innovation|africa|african|impact|women|youth|empowerment|business|market|trade|capacity|building|accelerat|incubat|startup|entrepreneur|competition|scholarship|apply|application|deadline|eligible|eligib)\b',
+    r'\b(the|and|for|grant|fund|programme|challenge|fellowship|call for|award|opportunity|opportunities|support|funding|access|innovation|africa|african|impact|women|youth|empowerment|business|market|trade|capacity|building|accelerat|incubat|startup|entrepreneur|competition|scholarship|apply|application|deadline|eligible|eligib|open|launch|project|program|initiative|development|response|displacement|community|landscape|energy|resources|mining|urban|resilience|connectivity|agriculture|agricultural|vocational|economic|governance|emergency|commercialization|additional|financing|integrated|competitive|enhancing|solar)\b',
     re.IGNORECASE,
 )
 FR_WORDS = re.compile(
-    r'\b(le|la|les|de|du|des|un|une|pour|avec|sur|dans|par|au|aux|appel|candidat|projet|aide|financement|subvention|programme|bourse|concours|prix|soutien|accompagnement|dispositif|fonds|credit|garantie)\b',
+    r'\b(le|la|les|de|du|des|un|une|pour|avec|sur|dans|par|au|aux|appel|candidat|projet|aide|financement|subvention|programme|bourse|concours|prix|soutien|accompagnement|dispositif|fonds|credit|garantie|lancement|ouverture|nouveau|nouvelle|renforcement)\b',
     re.IGNORECASE,
 )
 

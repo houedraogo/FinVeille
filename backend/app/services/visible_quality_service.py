@@ -103,10 +103,6 @@ def _has_rewrite(device: Device) -> bool:
 def _visible_filter():
     return and_(
         Device.validation_status.in_(list(PUBLIC_VALIDATION_STATUSES)),
-        or_(
-            Device.user_quality_decision.is_(None),
-            Device.user_quality_decision.in_(list(PUBLIC_USER_QUALITY_DECISIONS)),
-        ),
         Device.status.in_(list(ACTIONABLE_STATUSES)),
         Device.device_type.notin_(list(NON_ACTIONABLE_TYPES)),
     )
@@ -134,7 +130,7 @@ def issues_for_visible_device(device: Device, source: Source | None = None) -> l
         issues.append("no_source")
     elif _looks_like_dead_link(device, source):
         issues.append("dead_link")
-    if device.close_date and device.close_date < today and device.status == "open":
+    if device.close_date and device.close_date < today and device.status in {"open", "standby", "recurring"}:
         issues.append("expired_visible")
     if looks_english_text(device.title or ""):
         issues.append("english_title")
