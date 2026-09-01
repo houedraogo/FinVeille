@@ -78,24 +78,32 @@ class APIConnector(BaseConnector):
                         params[pagination.get("page_param", "page")] = page
                         params[pagination.get("size_param", "per_page")] = size_val
 
-                if use_post:
-                    post_body = dict(base_post_body)
-                    if pagination:
-                        size_val = pagination.get("size_value", 25)
-                        offset_field = self.config.get("post_body_offset_field", "startRecordNum")
-                        size_field = self.config.get("post_body_size_field", "rows")
-                        post_body[size_field] = size_val
-                        if pagination_type == "offset":
-                            post_body[offset_field] = offset
-                    response = await self._post(self.url, json_body=post_body, extra_headers=headers)
-                else:
-                    parsed = urlparse(self.url)
-                    existing = parse_qs(parsed.query, keep_blank_values=True)
-                    base_params = {key: value[0] for key, value in existing.items()}
-                    merged = {**base_params, **params}
-                    clean_base = parsed._replace(query="").geturl()
-                    url = f"{clean_base}?{urlencode(merged)}" if merged else clean_base
-                    response = await self._get(url, extra_headers=headers)
+                try:
+                    if use_post:
+                        post_body = dict(base_post_body)
+                        if pagination:
+                            size_val = pagination.get("size_value", 25)
+                            offset_field = self.config.get("post_body_offset_field", "startRecordNum")
+                            size_field = self.config.get("post_body_size_field", "rows")
+                            post_body[size_field] = size_val
+                            if pagination_type == "offset":
+                                post_body[offset_field] = offset
+                        response = await self._post(self.url, json_body=post_body, extra_headers=headers)
+                    else:
+                        parsed = urlparse(self.url)
+                        existing = parse_qs(parsed.query, keep_blank_values=True)
+                        base_params = {key: value[0] for key, value in existing.items()}
+                        merged = {**base_params, **params}
+                        clean_base = parsed._replace(query="").geturl()
+                        url = f"{clean_base}?{urlencode(merged)}" if merged else clean_base
+                        response = await self._get(url, extra_headers=headers)
+                except Exception as page_exc:
+                    import httpx
+                    status = getattr(getattr(page_exc, "response", None), "status_code", None)
+                    if all_items and status in (400, 404, 410):
+                        logger.debug(f"[API][{self.source_id}] Fin pagination (HTTP {status} page {page})")
+                        break
+                    raise
                 data = response.json()
 
                 page_items = self._extract_items(data)
