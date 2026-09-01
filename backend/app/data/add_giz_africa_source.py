@@ -25,7 +25,7 @@ GIZ_WEST_AFRICA_SOURCE = {
     "url": "https://www.giz.de/en/worldwide/west_africa.html",
     "collection_mode": "html",
     "check_frequency": "weekly",
-    "is_active": True,
+    "is_active": False,
     "config": {
         "source_kind": "listing",
         "list_selector": "article, .news-item, .project-item, .teaserbox, li",
@@ -40,10 +40,9 @@ GIZ_WEST_AFRICA_SOURCE = {
         "pagination": {"max_pages": 3},
     },
     "notes": (
-        "GIZ (cooperation technique allemande) - programmes en Afrique de l'Ouest. "
-        "Appels a propositions pour ONG, entreprises locales, institutions. "
-        "Contenu principalement en anglais. "
-        "Le site GIZ peut etre protege, verifier lors du premier run."
+        "DESACTIVEE : l'URL pointe vers une page d'overview pays avec liens de navigation, "
+        "pas une liste d'appels. Le collecteur suit tous les liens du menu (83 pages parasites). "
+        "Utiliser GIZ - Calls for proposals Africa a la place."
     ),
 }
 

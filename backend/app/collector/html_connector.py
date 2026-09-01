@@ -48,7 +48,10 @@ class HTMLConnector(BaseConnector):
 
     async def _collect_page(self, url: str) -> List[RawItem]:
         response = await self._get(url)
-        soup = BeautifulSoup(response.text, "lxml")
+        # lxml tronque les grandes pages HTML (>~100KB) perdant le contenu du bas
+        # html.parser est plus lent mais plus fiable sur toutes tailles de pages
+        parser = self.config.get("html_parser", "html.parser")
+        soup = BeautifulSoup(response.text, parser)
         items = []
 
         list_sel = self.config.get("list_selector")
@@ -105,7 +108,8 @@ class HTMLConnector(BaseConnector):
     async def _fetch_detail_text(self, url: str, detail_selector: str | None, max_chars: int) -> str:
         try:
             response = await self._get(url)
-            soup = BeautifulSoup(response.text, "lxml")
+            parser = self.config.get("html_parser", "html.parser")
+            soup = BeautifulSoup(response.text, parser)
             if detail_selector:
                 nodes = soup.select(detail_selector)
                 if nodes:
@@ -123,7 +127,8 @@ class HTMLConnector(BaseConnector):
         if not next_sel:
             return None
         response = await self._get(current_url)
-        soup = BeautifulSoup(response.text, "lxml")
+        parser = self.config.get("html_parser", "html.parser")
+        soup = BeautifulSoup(response.text, parser)
         el = soup.select_one(next_sel)
         if el and el.get("href"):
             return self._build_absolute_url(el["href"], current_url)
