@@ -44,6 +44,15 @@ class APIConnector(BaseConnector):
 
     Note : si items_path pointe vers un dict (ex. World Bank),
     les valeurs du dict sont utilisées comme liste d'items.
+
+    Pour les APIs qui requièrent POST (ex. Grants.gov), utiliser :
+    {
+        "use_post": true,
+        "post_body": {"keyword": "africa", "oppStatuses": "posted"},
+        "post_body_offset_field": "startRecordNum",
+        "post_body_size_field": "rows",
+        "pagination": {"type": "offset", "size_value": 25}
+    }
     """
 
     async def collect(self) -> CollectionResult:
@@ -54,6 +63,8 @@ class APIConnector(BaseConnector):
         offset = 0
         all_items = []
         pagination_type = pagination.get("type", "page")
+        use_post = self.config.get("use_post", False)
+        base_post_body = dict(self.config.get("post_body") or {})
 
         try:
             while True:
@@ -67,13 +78,24 @@ class APIConnector(BaseConnector):
                         params[pagination.get("page_param", "page")] = page
                         params[pagination.get("size_param", "per_page")] = size_val
 
-                parsed = urlparse(self.url)
-                existing = parse_qs(parsed.query, keep_blank_values=True)
-                base_params = {key: value[0] for key, value in existing.items()}
-                merged = {**base_params, **params}
-                clean_base = parsed._replace(query="").geturl()
-                url = f"{clean_base}?{urlencode(merged)}" if merged else clean_base
-                response = await self._get(url, extra_headers=headers)
+                if use_post:
+                    post_body = dict(base_post_body)
+                    if pagination:
+                        size_val = pagination.get("size_value", 25)
+                        offset_field = self.config.get("post_body_offset_field", "startRecordNum")
+                        size_field = self.config.get("post_body_size_field", "rows")
+                        post_body[size_field] = size_val
+                        if pagination_type == "offset":
+                            post_body[offset_field] = offset
+                    response = await self._post(self.url, json_body=post_body, extra_headers=headers)
+                else:
+                    parsed = urlparse(self.url)
+                    existing = parse_qs(parsed.query, keep_blank_values=True)
+                    base_params = {key: value[0] for key, value in existing.items()}
+                    merged = {**base_params, **params}
+                    clean_base = parsed._replace(query="").geturl()
+                    url = f"{clean_base}?{urlencode(merged)}" if merged else clean_base
+                    response = await self._get(url, extra_headers=headers)
                 data = response.json()
 
                 page_items = self._extract_items(data)
