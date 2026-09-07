@@ -75,6 +75,8 @@ type PersistedDeviceFilters = {
   sectors?: string[];
   statuses?: string[];
   aiReadiness?: string[];
+  userQualityDecisions?: string[];
+  validationStatuses?: string[];
   closingSoon?: string;
   hasCloseDate?: boolean;
   actionableNow?: boolean | null;
@@ -384,6 +386,8 @@ export default function DevicesPageContent({
   const [filterSectors,    setFilterSectors]    = useState<string[]>([]);
   const [filterStatuses,   setFilterStatuses]   = useState<string[]>([]);
   const [filterAiReadiness,setFilterAiReadiness]= useState<string[]>([]);
+  const [filterUserQuality,setFilterUserQuality]= useState<string[]>([]);
+  const [filterValidationStatuses, setFilterValidationStatuses] = useState<string[]>([]);
   const [closingSoon,      setClosingSoon]      = useState("");
   const [hasCloseDate,     setHasCloseDate]     = useState(false);
   const [sortBy,           setSortBy]           = useState(defaultSort);
@@ -420,6 +424,8 @@ export default function DevicesPageContent({
     setFilterSectors(Array.isArray(filters.sectors) ? filters.sectors : []);
     setFilterStatuses(Array.isArray(filters.statuses) ? filters.statuses : []);
     setFilterAiReadiness(Array.isArray(filters.aiReadiness) ? filters.aiReadiness : []);
+    setFilterUserQuality(Array.isArray(filters.userQualityDecisions) ? filters.userQualityDecisions : []);
+    setFilterValidationStatuses(Array.isArray(filters.validationStatuses) ? filters.validationStatuses : []);
     setClosingSoon(filters.closingSoon || "");
     setHasCloseDate(Boolean(filters.hasCloseDate));
     setSavedActionableNow(typeof filters.actionableNow === "boolean" ? filters.actionableNow : null);
@@ -555,6 +561,8 @@ export default function DevicesPageContent({
       sectors: filterSectors,
       statuses: filterStatuses,
       aiReadiness: filterAiReadiness,
+      userQualityDecisions: filterUserQuality,
+      validationStatuses: filterValidationStatuses,
       closingSoon,
       hasCloseDate,
       actionableNow: savedActionableNow,
@@ -572,19 +580,21 @@ export default function DevicesPageContent({
       const effectiveTypes = getScopedDeviceTypes();
       const data = await devices.list({
         q: debouncedQ || undefined,
-        countries:          filterCountries.length   ? filterCountries   : undefined,
-        device_types:       effectiveTypes,
-        sectors:            filterSectors.length     ? filterSectors     : undefined,
-        status:             filterStatuses.length    ? filterStatuses    : undefined,
-        ai_readiness_labels:filterAiReadiness.length ? filterAiReadiness : undefined,
-        closing_soon_days:  closingSoon ? parseInt(closingSoon) : undefined,
-        has_close_date:     hasCloseDate || undefined,
-        actionable_now:     adminCatalogEnabled ? undefined : effectiveActionableNow || undefined,
-        include_all_statuses: adminCatalogEnabled || undefined,
-        include_rejected: adminCatalogEnabled || undefined,
-        include_low_quality: adminCatalogEnabled || undefined,
-        sort_by:            sortBy,
-        sort_desc:          sortBy !== "close_date",
+        countries:              filterCountries.length            ? filterCountries            : undefined,
+        device_types:           effectiveTypes,
+        sectors:                filterSectors.length             ? filterSectors             : undefined,
+        status:                 filterStatuses.length            ? filterStatuses            : undefined,
+        ai_readiness_labels:    filterAiReadiness.length         ? filterAiReadiness         : undefined,
+        user_quality_decisions: filterUserQuality.length         ? filterUserQuality         : undefined,
+        validation_status:      filterValidationStatuses.length === 1 ? filterValidationStatuses[0] : undefined,
+        closing_soon_days:      closingSoon ? parseInt(closingSoon) : undefined,
+        has_close_date:         hasCloseDate || undefined,
+        actionable_now:         adminCatalogEnabled ? undefined : effectiveActionableNow || undefined,
+        include_all_statuses:   adminCatalogEnabled || undefined,
+        include_rejected:       adminCatalogEnabled || undefined,
+        include_low_quality:    adminCatalogEnabled || undefined,
+        sort_by:                sortBy,
+        sort_desc:              sortBy !== "close_date",
         page,
         page_size: viewMode === "table" ? 50 : 30,
       });
@@ -615,7 +625,7 @@ export default function DevicesPageContent({
     } finally {
       setLoading(false);
     }
-  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, closingSoon, hasCloseDate, effectiveActionableNow, adminCatalogEnabled, sortBy, page, viewMode, lockedDeviceTypes, getScopedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedQ, filterCountries, filterTypes, filterSectors, filterStatuses, filterAiReadiness, filterUserQuality, filterValidationStatuses, closingSoon, hasCloseDate, effectiveActionableNow, adminCatalogEnabled, sortBy, page, viewMode, lockedDeviceTypes, getScopedDeviceTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (profileReady) fetchDevices(); }, [fetchDevices, profileReady]);
 
@@ -626,12 +636,14 @@ export default function DevicesPageContent({
 
   const clearFilters = () => {
     setFilterCountries([]); setFilterTypes([]); setFilterSectors([]);
-    setFilterStatuses([]); setFilterAiReadiness([]); setClosingSoon(""); setHasCloseDate(false); setPage(1);
+    setFilterStatuses([]); setFilterAiReadiness([]); setFilterUserQuality([]); setFilterValidationStatuses([]);
+    setClosingSoon(""); setHasCloseDate(false); setPage(1);
     setEditingSavedSearchId(null); setProfileActive(false); setAdminFullCatalog(userIsStaff); setSavedActionableNow(null);
   };
 
   const hasFilters = filterCountries.length || filterTypes.length || filterSectors.length ||
-    filterStatuses.length || filterAiReadiness.length || closingSoon || hasCloseDate || adminCatalogEnabled;
+    filterStatuses.length || filterAiReadiness.length || filterUserQuality.length || filterValidationStatuses.length ||
+    closingSoon || hasCloseDate || adminCatalogEnabled;
 
   const pageIds = result?.items.map((d) => d.id) ?? [];
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
@@ -692,6 +704,8 @@ export default function DevicesPageContent({
     device_types: effectiveTypesForExport, sectors: filterSectors.length ? filterSectors : undefined,
     status: filterStatuses.length ? filterStatuses : undefined,
     ai_readiness_labels: filterAiReadiness.length ? filterAiReadiness : undefined,
+    user_quality_decisions: filterUserQuality.length ? filterUserQuality : undefined,
+    validation_status: filterValidationStatuses.length === 1 ? filterValidationStatuses[0] : undefined,
     closing_soon_days: closingSoon ? parseInt(closingSoon) : undefined,
     has_close_date: hasCloseDate || undefined,
     actionable_now: adminCatalogEnabled ? undefined : effectiveActionableNow || undefined,
@@ -998,7 +1012,7 @@ export default function DevicesPageContent({
             Filtres
             {hasFilters && (
               <span className="bg-primary-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) + Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(!!closingSoon) + Number(hasCloseDate) + Number(adminCatalogEnabled)}
+                {Number(filterCountries.length > 0) + Number(filterTypes.length > 0) + Number(filterSectors.length > 0) + Number(filterStatuses.length > 0) + Number(filterAiReadiness.length > 0) + Number(filterUserQuality.length > 0) + Number(filterValidationStatuses.length > 0) + Number(!!closingSoon) + Number(hasCloseDate) + Number(adminCatalogEnabled)}
               </span>
             )}
           </button>
@@ -1099,6 +1113,37 @@ export default function DevicesPageContent({
                   {Object.entries(AI_READINESS_LABELS).map(([key, label]) => (
                     <button key={key} onClick={() => toggleFilter(filterAiReadiness, setFilterAiReadiness, key)}
                       className={clsx("badge cursor-pointer", filterAiReadiness.includes(key) ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200")}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="label">Publication client</p>
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(USER_QUALITY_META).map(([key, meta]) => (
+                    <button key={key} onClick={() => toggleFilter(filterUserQuality, setFilterUserQuality, key)}
+                      className={clsx("badge cursor-pointer", filterUserQuality.includes(key) ? meta.className : "bg-gray-100 text-gray-600 hover:bg-gray-200")}>
+                      {meta.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="label">Validation</p>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { key: "auto_published", label: "Publiée auto" },
+                    { key: "approved", label: "Approuvée" },
+                    { key: "validated", label: "Validée" },
+                    { key: "pending_review", label: "En attente" },
+                    { key: "rejected", label: "Rejetée" },
+                  ].map(({ key, label }) => (
+                    <button key={key} onClick={() => {
+                      setFilterValidationStatuses((prev) => prev.includes(key) ? prev.filter((v) => v !== key) : [key]);
+                      setPage(1);
+                    }}
+                      className={clsx("badge cursor-pointer", filterValidationStatuses.includes(key) ? "bg-violet-100 text-violet-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200")}>
                       {label}
                     </button>
                   ))}

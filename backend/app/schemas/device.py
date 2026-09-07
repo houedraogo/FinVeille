@@ -290,6 +290,7 @@ class DeviceSearchParams(BaseModel):
     min_ai_readiness: Optional[int] = None
     ai_readiness_labels: Optional[List[str]] = None
     validation_status: Optional[str] = None
+    user_quality_decisions: Optional[List[str]] = None
     include_all_statuses: bool = False
     include_rejected: bool = False
     include_low_quality: bool = False

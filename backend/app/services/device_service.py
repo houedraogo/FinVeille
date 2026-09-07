@@ -504,6 +504,8 @@ class DeviceService:
             query = query.where(Device.ai_readiness_score >= params.min_ai_readiness)
         if params.ai_readiness_labels:
             query = query.where(Device.ai_readiness_label.in_(params.ai_readiness_labels))
+        if params.user_quality_decisions:
+            query = query.where(Device.user_quality_decision.in_(params.user_quality_decisions))
         if params.source_id:
             query = query.where(Device.source_id == params.source_id)
 
