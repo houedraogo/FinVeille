@@ -441,7 +441,7 @@ class DeviceService:
         query = select(Device)
         if not params.include_rejected:
             query = query.where(Device.validation_status != "rejected")
-        if not params.include_low_quality:
+        if not params.include_low_quality and not params.user_quality_decisions:
             query = query.where(self._visible_quality_filter())
         if not params.include_all_statuses and not params.device_types:
             query = query.where(self._default_public_type_filter())
