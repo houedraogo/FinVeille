@@ -27,6 +27,7 @@ import {
 import {
   AlertCircle,
   ArrowLeft,
+  MoreHorizontal,
   ArrowRight,
   Banknote,
   Bell,
@@ -927,10 +928,13 @@ function DocumentManager({
   const [docType, setDocType] = useState<"url" | "note" | "brouillon">("url");
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const handleAdd = async () => {
     if (!name.trim()) return;
     setSaving(true);
+    setAddError(null);
     try {
       const doc = await addPipelineDocument(deviceId, {
         name: name.trim(),
@@ -942,7 +946,7 @@ function DocumentManager({
       setName(""); setUrl(""); setNote(""); setDocType("url");
       setShowForm(false);
     } catch {
-      // silent
+      setAddError("Impossible d'ajouter le document. Réessayez.");
     } finally {
       setSaving(false);
     }
@@ -950,11 +954,12 @@ function DocumentManager({
 
   const handleRemove = async (docId: string) => {
     setRemovingId(docId);
+    setRemoveError(null);
     try {
       await removePipelineDocument(deviceId, docId);
       onDocumentsChange(documents.filter((d) => d.id !== docId));
     } catch {
-      // silent
+      setRemoveError("Impossible de supprimer le document. Réessayez.");
     } finally {
       setRemovingId(null);
     }
@@ -1035,10 +1040,11 @@ function DocumentManager({
             >
               {saving ? "…" : "Enregistrer"}
             </button>
-            <button type="button" onClick={() => setShowForm(false)} className="text-xs text-slate-500 hover:text-slate-700">
+            <button type="button" onClick={() => { setShowForm(false); setAddError(null); }} className="text-xs text-slate-500 hover:text-slate-700">
               Annuler
             </button>
           </div>
+          {addError && <p className="text-xs text-red-600 mt-1">{addError}</p>}
         </div>
       )}
 
@@ -1076,6 +1082,7 @@ function DocumentManager({
           ))}
         </ul>
       )}
+      {removeError && <p className="mt-1 text-xs text-red-600">{removeError}</p>}
     </div>
   );
 }
@@ -1095,6 +1102,7 @@ export default function DeviceDetailPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showMobileMore, setShowMobileMore] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [rewriting, setRewriting] = useState(false);
@@ -1476,81 +1484,131 @@ export default function DeviceDetailPage() {
             <ArrowLeft className="h-3.5 w-3.5" />
             Retour
           </button>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            {/* Actions primaires — toujours visibles */}
             {canModerate && device.validation_status === "pending_review" && (
               <>
-                <button onClick={handleValidate} disabled={actionLoading} className="btn-primary bg-green-600 text-xs hover:bg-green-700">
+                <button onClick={handleValidate} disabled={actionLoading} className="btn-primary bg-green-600 text-xs hover:bg-green-700 min-h-[36px]">
                   <ShieldCheck className="h-3 w-3" />
                   Valider
                 </button>
-                <button onClick={handleReject} disabled={actionLoading} className="btn-secondary border-red-300 text-xs text-red-600 hover:bg-red-50">
+                <button onClick={handleReject} disabled={actionLoading} className="btn-secondary border-red-300 text-xs text-red-600 hover:bg-red-50 min-h-[36px]">
                   <XCircle className="h-3 w-3" />
                   Rejeter
                 </button>
               </>
             )}
             {canModerate && (
-              <>
-                <button
-                  onClick={handleScrape}
-                  disabled={scraping}
-                  className="btn-secondary flex items-center gap-1.5 border-violet-300 text-xs text-violet-700 hover:bg-violet-50"
-                >
-                  {scraping ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                  {scraping ? "Enrichissement..." : "Enrichir"}
-                </button>
-                <button
-                  onClick={handleRewrite}
-                  disabled={rewriting}
-                  className="btn-secondary flex items-center gap-1.5 border-indigo-300 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-                  title="Reformuler les sections avec l'IA"
-                >
-                  {rewriting ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Brain className="h-3 w-3" />}
-                  {rewriting ? "Reformulation…" : "Reformuler IA"}
-                </button>
-                <button onClick={() => setShowHistory(!showHistory)} className="btn-secondary text-xs">
-                  <History className="h-3 w-3" />
-                  Historique
-                </button>
-                <Link href={`/devices/${id}/edit`} className="btn-primary text-xs">
-                  <Pencil className="h-3 w-3" />
-                  Modifier
-                </Link>
-              </>
+              <Link href={`/devices/${id}/edit`} className="btn-primary text-xs min-h-[36px]">
+                <Pencil className="h-3 w-3" />
+                Modifier
+              </Link>
             )}
-            <button onClick={handleCopyLink} className="btn-secondary flex items-center gap-1.5 text-xs">
-              <Share2 className="h-3 w-3" />
-              {copied ? "Copié" : "Partager"}
-            </button>
             <button
               onClick={handleToggleFavorite}
               className={clsx(
-                "btn-secondary flex items-center gap-1.5 text-xs",
+                "btn-secondary flex items-center gap-1.5 text-xs min-h-[36px]",
                 favorite && "border-rose-300 text-rose-600 hover:bg-rose-50"
               )}
             >
               <Heart className={clsx("h-3 w-3", favorite && "fill-current")} />
-              {favorite ? "Favori" : "Ajouter aux favoris"}
+              <span className="hidden sm:inline">{favorite ? "Favori" : "Ajouter aux favoris"}</span>
             </button>
-            {canModerate &&
-              (deleteConfirm ? (
-                <div className="flex items-center gap-1">
+
+            {/* Actions secondaires — visibles sur desktop, dans un dropdown sur mobile */}
+            <div className="hidden sm:flex items-center gap-2">
+              {canModerate && (
+                <>
                   <button
-                    onClick={handleDelete}
-                    disabled={deleteLoading}
-                    className="btn-secondary border-red-600 bg-red-600 text-xs text-white hover:bg-red-700 disabled:opacity-60"
+                    onClick={handleScrape}
+                    disabled={scraping}
+                    className="btn-secondary flex items-center gap-1.5 border-violet-300 text-xs text-violet-700 hover:bg-violet-50"
                   >
-                    {deleteLoading ? "Suppression..." : "Confirmer"}
+                    {scraping ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    {scraping ? "Enrichissement..." : "Enrichir"}
                   </button>
-                  <button onClick={() => { setDeleteConfirm(false); setDeleteError(null); }} className="btn-secondary text-xs">
-                    Annuler
+                  <button
+                    onClick={handleRewrite}
+                    disabled={rewriting}
+                    className="btn-secondary flex items-center gap-1.5 border-indigo-300 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                  >
+                    {rewriting ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Brain className="h-3 w-3" />}
+                    {rewriting ? "Reformulation…" : "Reformuler IA"}
                   </button>
+                  <button onClick={() => setShowHistory(!showHistory)} className="btn-secondary text-xs">
+                    <History className="h-3 w-3" />
+                    Historique
+                  </button>
+                </>
+              )}
+              <button onClick={handleCopyLink} className="btn-secondary flex items-center gap-1.5 text-xs">
+                <Share2 className="h-3 w-3" />
+                {copied ? "Copié" : "Partager"}
+              </button>
+              {canModerate &&
+                (deleteConfirm ? (
+                  <div className="flex items-center gap-1">
+                    <button onClick={handleDelete} disabled={deleteLoading} className="btn-secondary border-red-600 bg-red-600 text-xs text-white hover:bg-red-700 disabled:opacity-60">
+                      {deleteLoading ? "Suppression..." : "Confirmer"}
+                    </button>
+                    <button onClick={() => { setDeleteConfirm(false); setDeleteError(null); }} className="btn-secondary text-xs">Annuler</button>
+                  </div>
+                ) : (
+                  <button onClick={handleDelete} className="btn-secondary text-xs text-red-600 hover:bg-red-50" title="Supprimer">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                ))}
+            </div>
+
+            {/* Bouton "..." mobile uniquement */}
+            <div className="relative sm:hidden">
+              <button
+                onClick={() => setShowMobileMore((v) => !v)}
+                className="btn-secondary text-xs min-h-[36px] min-w-[36px] flex items-center justify-center"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+              {showMobileMore && (
+                <div className="absolute right-0 top-10 z-30 min-w-[180px] rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl flex flex-col gap-0.5">
+                  {canModerate && (
+                    <>
+                      <button onClick={() => { handleScrape(); setShowMobileMore(false); }} disabled={scraping}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-violet-700 hover:bg-violet-50 disabled:opacity-50">
+                        <Sparkles className="h-4 w-4" /> Enrichir
+                      </button>
+                      <button onClick={() => { handleRewrite(); setShowMobileMore(false); }} disabled={rewriting}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
+                        <Brain className="h-4 w-4" /> Reformuler IA
+                      </button>
+                      <button onClick={() => { setShowHistory((v) => !v); setShowMobileMore(false); }}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                        <History className="h-4 w-4" /> Historique
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => { handleCopyLink(); setShowMobileMore(false); }}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                    <Share2 className="h-4 w-4" /> {copied ? "Copié" : "Partager"}
+                  </button>
+                  {canModerate && (
+                    <button onClick={() => { setDeleteConfirm(true); setShowMobileMore(false); }}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+                      <Trash2 className="h-4 w-4" /> Supprimer
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <button onClick={handleDelete} className="btn-secondary text-xs text-red-600 hover:bg-red-50" title="Supprimer">
-                  <Trash2 className="h-3 w-3" />
+              )}
+            </div>
+
+            {/* Confirmation suppression mobile */}
+            {deleteConfirm && (
+              <div className="sm:hidden flex items-center gap-1">
+                <button onClick={handleDelete} disabled={deleteLoading} className="btn-secondary border-red-600 bg-red-600 text-xs text-white hover:bg-red-700 disabled:opacity-60">
+                  {deleteLoading ? "Suppression..." : "Confirmer"}
                 </button>
-              ))}
+                <button onClick={() => { setDeleteConfirm(false); setDeleteError(null); }} className="btn-secondary text-xs">Annuler</button>
+              </div>
+            )}
           </div>
         </div>
 

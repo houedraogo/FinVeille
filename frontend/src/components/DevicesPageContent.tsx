@@ -21,6 +21,15 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
+// Cache module-niveau pour éviter le double-appel relevance.getProfile() (AppLayout + DevicesPageContent)
+let _profileCache: { data: any; ts: number } | null = null;
+async function getCachedProfile() {
+  if (_profileCache && Date.now() - _profileCache.ts < 60_000) return _profileCache.data;
+  const data = await (await import("@/lib/api")).relevance.getProfile();
+  _profileCache = { data, ts: Date.now() };
+  return data;
+}
+
 const STATUSES = ["open", "recurring", "standby", "closed", "expired"];
 const DEVICE_FILTERS_SESSION_PREFIX = "kafundo_devices_filters:";
 const AI_READINESS_LABELS: Record<string, string> = {
@@ -395,6 +404,8 @@ export default function DevicesPageContent({
   const [showExportMenu,   setShowExportMenu]   = useState(false);
   const [viewMode,         setViewMode]         = useState<ViewMode>("split");
   const [editingSavedSearchId, setEditingSavedSearchId] = useState<string | null>(null);
+  const [saveSearchModalOpen, setSaveSearchModalOpen] = useState(false);
+  const [saveSearchName, setSaveSearchName] = useState("");
   const [exportsAllowed,   setExportsAllowed]   = useState(true);
   const [profileActive,    setProfileActive]    = useState(false);
   const [userIsStaff,      setUserIsStaff]      = useState(false);
@@ -477,7 +488,7 @@ export default function DevicesPageContent({
       setEditingSavedSearchId(pendingSearch.mode === "edit" ? pendingSearch.search.id : null);
       setAdminFullCatalog(false);
       if (!isStaff) {
-        relevance.getProfile().then((profile: any) => {
+        getCachedProfile().then((profile: any) => {
           const hasProfile = profile && (profile.countries?.length || profile.sectors?.length);
           setProfileActive(Boolean(hasProfile));
           setProfileReady(true);
@@ -514,7 +525,7 @@ export default function DevicesPageContent({
     // Pour les utilisateurs normaux, le filtre pays est appliqué silencieusement
     // côté backend. On affiche juste la bannière "Contenu personnalisé" pour informer.
     if (!isStaff) {
-      relevance.getProfile().then((profile: any) => {
+      getCachedProfile().then((profile: any) => {
         const hasProfile = profile && (profile.countries?.length || profile.sectors?.length);
         if (hasProfile) setProfileActive(true);
         setPage(1);
@@ -687,7 +698,12 @@ export default function DevicesPageContent({
         suggestedName = parsed.find((item) => item.id === editingSavedSearchId)?.name || defaultName;
       } catch { /* ignore */ }
     }
-    const name = window.prompt(editingSavedSearchId ? "Mettre à jour le nom de cette recherche" : "Nom de cette recherche enregistrée", suggestedName)?.trim();
+    setSaveSearchName(suggestedName);
+    setSaveSearchModalOpen(true);
+  };
+
+  const handleConfirmSaveSearch = () => {
+    const name = saveSearchName.trim();
     if (!name) return;
     saveSearch({
       id: editingSavedSearchId || crypto.randomUUID(), name, title, path: pathname,
@@ -696,6 +712,7 @@ export default function DevicesPageContent({
     });
     setBulkMsg({ type: "success", text: editingSavedSearchId ? `Recherche mise à jour : ${name}` : `Recherche enregistrée : ${name}` });
     setEditingSavedSearchId(null);
+    setSaveSearchModalOpen(false);
   };
 
   const effectiveTypesForExport = getScopedDeviceTypes();
@@ -883,7 +900,7 @@ export default function DevicesPageContent({
         </div>
         <div className="flex items-center gap-2">
           {/* Toggle vue */}
-          <div className="hidden items-center rounded-xl border border-gray-200 bg-white p-1 sm:flex">
+          <div className="flex items-center rounded-xl border border-gray-200 bg-white p-1">
             <button type="button" onClick={() => setViewMode("split")}
               className={clsx("inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                 viewMode === "split" ? "bg-slate-900 text-white" : "text-gray-500 hover:bg-gray-50 hover:text-gray-800")}>
@@ -1192,7 +1209,7 @@ export default function DevicesPageContent({
       {viewMode === "split" && (
         <>
           {loading ? (
-            <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_14px_40px_-28px_rgba(15,23,42,0.35)]" style={{ height: "calc(100vh - 22rem)", minHeight: 480 }}>
+            <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_14px_40px_-28px_rgba(15,23,42,0.35)] h-[calc(100svh-12rem)] sm:h-[calc(100vh-22rem)] min-h-[360px] sm:min-h-[480px]">
               <div className="flex h-full">
                 <div className="w-full md:w-[45%] border-r border-slate-100 divide-y divide-slate-100">
                   {Array.from({ length: 8 }).map((_, i) => (
@@ -1214,8 +1231,7 @@ export default function DevicesPageContent({
             </div>
           ) : (
             <div
-              className="flex overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_14px_40px_-28px_rgba(15,23,42,0.35)]"
-              style={{ height: "calc(100vh - 22rem)", minHeight: 480 }}
+              className="flex overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_14px_40px_-28px_rgba(15,23,42,0.35)] h-[calc(100svh-12rem)] sm:h-[calc(100vh-22rem)] min-h-[360px] sm:min-h-[480px]"
             >
               {/* ── GAUCHE : liste ──────────────────────────────────── */}
               <div className={clsx(
@@ -1330,9 +1346,9 @@ export default function DevicesPageContent({
                           <td className="px-4 py-4 text-slate-700">{[device.country, device.region].filter(Boolean).join(" · ") || "—"}</td>
                           <td className="px-4 py-4 text-slate-700">{device.amount_max ? formatAmount(device.amount_max, device.currency) : "—"}</td>
                           <td className="px-4 py-4">
-                            {getDeadlineDisplay(device).hasDeadline
-                              ? <span className="font-medium text-slate-800">{getDeadlineDisplay(device).label}</span>
-                              : <span className="text-slate-400">{device.status === "recurring" ? "Récurrent" : "—"}</span>}
+                            {(() => { const dl = getDeadlineDisplay(device); return dl.hasDeadline
+                              ? <span className="font-medium text-slate-800">{dl.label}</span>
+                              : <span className="text-slate-400">{device.status === "recurring" ? "Récurrent" : "—"}</span>; })()}
                           </td>
                           <td className="px-4 py-4">
                             <span className={clsx("rounded-full px-2.5 py-1 text-xs font-medium", STATUS_COLORS[device.status])}>
@@ -1423,6 +1439,38 @@ export default function DevicesPageContent({
                 <Trash2 className="w-3.5 h-3.5" /> Supprimer
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal : enregistrer / renommer une recherche ─────────────────── */}
+      {saveSearchModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setSaveSearchModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-semibold text-slate-900 mb-4">
+              {editingSavedSearchId ? "Renommer la recherche" : "Enregistrer cette recherche"}
+            </h3>
+            <input
+              type="text"
+              value={saveSearchName}
+              onChange={(e) => setSaveSearchName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleConfirmSaveSearch(); if (e.key === "Escape") setSaveSearchModalOpen(false); }}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 mb-4"
+              placeholder="Nom de la recherche"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setSaveSearchModalOpen(false)} className="btn-secondary text-sm">Annuler</button>
+              <button onClick={handleConfirmSaveSearch} disabled={!saveSearchName.trim()} className="btn-primary text-sm disabled:opacity-50">
+                {editingSavedSearchId ? "Mettre à jour" : "Enregistrer"}
+              </button>
+            </div>
           </div>
         </div>
       )}
