@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import DevicesPageContent from "@/components/DevicesPageContent";
 
 const ACTIONABLE_TYPES = [
@@ -11,13 +12,15 @@ const ACTIONABLE_TYPES = [
 
 export default function OpportunitiesNowPage() {
   return (
-    <DevicesPageContent
-      title="Opportunités à saisir maintenant"
-      lockedDeviceTypes={ACTIONABLE_TYPES}
-      availableDeviceTypes={ACTIONABLE_TYPES}
-      defaultSort="close_date"
-      showClosingFilter={true}
-      actionableNow={true}
-    />
+    <Suspense>
+      <DevicesPageContent
+        title="Opportunités à saisir maintenant"
+        lockedDeviceTypes={ACTIONABLE_TYPES}
+        availableDeviceTypes={ACTIONABLE_TYPES}
+        defaultSort="close_date"
+        showClosingFilter={true}
+        actionableNow={true}
+      />
+    </Suspense>
   );
 }

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import DevicesPageContent from "@/components/DevicesPageContent";
 
 // Types publics actionnables : tout sauf financement privé et projets institutionnels.
@@ -17,13 +18,15 @@ const PUBLIC_TYPES = [
 
 export default function PublicDevicesPage() {
   return (
-    <DevicesPageContent
-      title="Opportunités publiques à prioriser"
-      lockedDeviceTypes={PUBLIC_TYPES}
-      availableDeviceTypes={PUBLIC_TYPES}
-      defaultSort="updated_at"
-      showClosingFilter={true}
-      actionableNow={true}
-    />
+    <Suspense>
+      <DevicesPageContent
+        title="Opportunités publiques à prioriser"
+        lockedDeviceTypes={PUBLIC_TYPES}
+        availableDeviceTypes={PUBLIC_TYPES}
+        defaultSort="updated_at"
+        showClosingFilter={true}
+        actionableNow={true}
+      />
+    </Suspense>
   );
 }
