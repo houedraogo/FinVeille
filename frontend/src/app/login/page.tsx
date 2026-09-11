@@ -106,6 +106,10 @@ export default function LoginPage() {
     e.preventDefault();
     manualLoginModeRef.current = true;
     setDisableGoogleAuth(true);
+    if (!email.includes("@")) {
+      setError("Entrez une adresse email valide (ex : vous@exemple.com).");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
