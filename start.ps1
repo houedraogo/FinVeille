@@ -1,10 +1,10 @@
-# FinVeille — Script de demarrage (PowerShell)
+﻿# Kafundo - Script de demarrage (PowerShell)
 # Lancement : .\start.ps1  (ou clic droit > Executer avec PowerShell)
 
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "  FinVeille — Demarrage" -ForegroundColor Cyan
+Write-Host "  Kafundo - Demarrage" -ForegroundColor Cyan
 Write-Host "=================================================="
 
 # .env
@@ -46,16 +46,17 @@ docker compose exec backend python -m app.data.seed
 
 Write-Host ""
 Write-Host "=================================================="
-Write-Host "  FinVeille est pret !" -ForegroundColor Green
+Write-Host "  Kafundo est pret !" -ForegroundColor Green
 Write-Host "=================================================="
 Write-Host ""
 Write-Host "  Frontend   : http://localhost:3000" -ForegroundColor White
 Write-Host "  API docs   : http://localhost:8000/api/docs" -ForegroundColor White
 Write-Host "  Flower     : http://localhost:5555" -ForegroundColor White
 Write-Host ""
-Write-Host "  Admin      : admin@finveille.com" -ForegroundColor Yellow
+Write-Host "  Admin      : admin@kafundo.com" -ForegroundColor Yellow
 Write-Host "  Password   : Admin@2024!" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Changez le mot de passe apres connexion !" -ForegroundColor Red
 Write-Host ""
 Read-Host "Appuyez sur Entree pour fermer"
+

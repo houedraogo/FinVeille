@@ -103,6 +103,10 @@ def _has_rewrite(device: Device) -> bool:
 def _visible_filter():
     return and_(
         Device.validation_status.in_(list(PUBLIC_VALIDATION_STATUSES)),
+        or_(
+            Device.user_quality_decision.is_(None),
+            Device.user_quality_decision.in_(list(PUBLIC_USER_QUALITY_DECISIONS)),
+        ),
         Device.status.in_(list(ACTIONABLE_STATUSES)),
         Device.device_type.notin_(list(NON_ACTIONABLE_TYPES)),
     )

@@ -440,7 +440,7 @@ export default function DevicesPageContent({
     setClosingSoon(filters.closingSoon || "");
     setHasCloseDate(Boolean(filters.hasCloseDate));
     setSavedActionableNow(typeof filters.actionableNow === "boolean" ? filters.actionableNow : null);
-    setAdminFullCatalog(false);
+    setAdminFullCatalog(filters.adminFullCatalog ?? true);
     setSortBy(filters.sortBy || defaultSort);
     setPage(filters.page && filters.page > 0 ? filters.page : 1);
   }, [defaultSort, lockedDeviceTypes]);
@@ -646,6 +646,7 @@ export default function DevicesPageContent({
   };
 
   const clearFilters = () => {
+    setQ(""); setDebouncedQ("");
     setFilterCountries([]); setFilterTypes([]); setFilterSectors([]);
     setFilterStatuses([]); setFilterAiReadiness([]); setFilterUserQuality([]); setFilterValidationStatuses([]);
     setClosingSoon(""); setHasCloseDate(false); setPage(1);
@@ -989,7 +990,15 @@ export default function DevicesPageContent({
           </div>
           <button
             type="button"
-            onClick={() => { setAdminFullCatalog((value) => !value); setPage(1); setSelectedDevice(null); }}
+            onClick={() => {
+              if (adminFullCatalog) {
+                setAdminFullCatalog(false);
+                setPage(1);
+              } else {
+                clearFilters();
+              }
+              setSelectedDevice(null);
+            }}
             className={clsx(
               "inline-flex items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition",
               adminFullCatalog ? "bg-white text-slate-950 hover:bg-blue-50" : "bg-slate-950 text-white hover:bg-primary-700",
@@ -1227,7 +1236,7 @@ export default function DevicesPageContent({
             </div>
           ) : result?.items.length === 0 ? (
             <div className="flex items-center justify-center rounded-[26px] border border-slate-200 bg-white py-20 text-center text-gray-400 shadow">
-              <div><Search className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="font-medium">Aucun résultat trouvé</p><p className="text-sm mt-1">Essayez de modifier vos filtres</p></div>
+              <div><Search className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="font-medium">Aucun résultat trouvé</p><p className="text-sm mt-1">Essayez de modifier vos filtres</p><button type="button" onClick={clearFilters} className="mt-4 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white">{userIsStaff ? "Afficher le catalogue sans filtres" : "Réinitialiser les filtres"}</button></div>
             </div>
           ) : (
             <div
@@ -1297,7 +1306,7 @@ export default function DevicesPageContent({
           {loading ? (
             <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="card p-4 animate-pulse"><div className="h-4 bg-gray-200 rounded w-3/4 mb-2" /><div className="h-3 bg-gray-100 rounded w-1/2" /></div>)}</div>
           ) : result?.items.length === 0 ? (
-            <div className="text-center py-20 text-gray-400"><Search className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="font-medium">Aucun résultat trouvé</p><p className="text-sm">Essayez de modifier vos filtres</p></div>
+            <div className="text-center py-20 text-gray-400"><Search className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="font-medium">Aucun résultat trouvé</p><p className="text-sm">Essayez de modifier vos filtres</p><button type="button" onClick={clearFilters} className="mt-4 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white">{userIsStaff ? "Afficher le catalogue sans filtres" : "Réinitialiser les filtres"}</button></div>
           ) : (
             <>
               <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_14px_40px_-28px_rgba(15,23,42,0.35)]">

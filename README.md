@@ -27,6 +27,8 @@ L'application sera accessible sur :
 - **API** : http://localhost:8000/api/docs
 - **Workers** : http://localhost:5555 (Flower)
 
+Le stack Docker attendu est nommé `kafundo`. En cas de conteneurs hérités `finveille-*` ou `fasodata-*`, voir [docs/docker-stacks.md](docs/docker-stacks.md).
+
 Identifiants par défaut :
 - Email : `admin@kafundo.com`
 - Mot de passe : `Admin@2024!`
