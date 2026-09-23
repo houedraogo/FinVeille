@@ -16,13 +16,17 @@ if (-not (Test-Path ".env")) {
 
 # Docker Compose
 Write-Host ""
-Write-Host "Demarrage des conteneurs Docker..." -ForegroundColor Cyan
-docker compose up -d --build
+docker compose stop celery-worker celery-beat backend
+if ($LASTEXITCODE -ne 0) { exit 1 }
+Write-Host "Demarrage de PostgreSQL et Redis..." -ForegroundColor Cyan
+docker compose up -d postgres redis
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERREUR Docker. Verifiez que Docker Desktop est lance." -ForegroundColor Red
     Read-Host "Appuyez sur Entree pour quitter"
     exit 1
 }
+docker compose build backend
+if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # Attente PostgreSQL
 Write-Host ""
@@ -32,12 +36,13 @@ Start-Sleep -Seconds 12
 # Migrations
 Write-Host ""
 Write-Host "Application des migrations..." -ForegroundColor Cyan
-docker compose exec backend alembic upgrade head
+docker compose run --rm --no-deps backend python -m migrations.upgrade
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Retry migrations dans 5s..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 5
-    docker compose exec backend alembic upgrade head
+    Write-Host "Migration arretee. Pour une base existante, sauvegarder puis suivre la procedure Lot 2." -ForegroundColor Red
+    exit 1
 }
+docker compose up -d --build
+if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # Seed
 Write-Host ""

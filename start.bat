@@ -11,16 +11,20 @@ if not exist .env (
     echo .env cree. Editez-le si necessaire.
 )
 
-REM Build et démarrage des conteneurs
+REM PostgreSQL et Redis seuls avant toute migration ou démarrage des workers
+docker compose stop celery-worker celery-beat backend
+if %ERRORLEVEL% neq 0 exit /b 1
 echo.
-echo Demarrage des conteneurs Docker...
-docker compose up -d --build
+echo Demarrage de PostgreSQL et Redis...
+docker compose up -d postgres redis
 if %ERRORLEVEL% neq 0 (
     echo ERREUR : Docker compose a echoue.
     echo Verifiez que Docker Desktop est lance.
     pause
     exit /b 1
 )
+docker compose build backend
+if %ERRORLEVEL% neq 0 exit /b 1
 
 REM Attente base de données
 echo.
@@ -30,12 +34,13 @@ timeout /t 10 /nobreak >nul
 REM Migrations
 echo.
 echo Application des migrations Alembic...
-docker compose exec backend alembic upgrade head
+docker compose run --rm --no-deps backend python -m migrations.upgrade
 if %ERRORLEVEL% neq 0 (
-    echo AVERTISSEMENT : Les migrations ont echoue. Retry dans 5s...
-    timeout /t 5 /nobreak >nul
-    docker compose exec backend alembic upgrade head
+    echo Migration arretee. Sauvegarder une base existante puis suivre la procedure Lot 2.
+    exit /b 1
 )
+docker compose up -d --build
+if %ERRORLEVEL% neq 0 exit /b 1
 
 REM Seed
 echo.

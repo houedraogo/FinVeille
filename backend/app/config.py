@@ -100,14 +100,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_secrets(self):
-        import logging
         env = (self.APP_ENV or "").lower()
         if env not in {"production", "prod"}:
             return self
 
-        warnings: list[str] = []
+        errors: list[str] = []
         if _contains_insecure_marker(self.SECRET_KEY) or len(self.SECRET_KEY or "") < 32:
-            warnings.append("SECRET_KEY doit etre une valeur aleatoire forte en production.")
+            errors.append("SECRET_KEY doit etre une valeur aleatoire forte en production")
 
         for field_name in (
             "POSTGRES_PASSWORD",
@@ -116,20 +115,25 @@ class Settings(BaseSettings):
             "REDIS_PASSWORD",
             "REDIS_URL",
         ):
-            if _contains_insecure_marker(getattr(self, field_name, None)):
-                warnings.append(f"{field_name} contient encore une valeur par defaut ou placeholder.")
+            value = getattr(self, field_name, None)
+            if not value or _contains_insecure_marker(value):
+                errors.append(f"{field_name} est absent ou contient un placeholder")
 
         if self.DEBUG:
-            warnings.append("DEBUG doit etre false en production.")
-        if "localhost" in (self.PUBLIC_APP_URL or ""):
-            warnings.append("PUBLIC_APP_URL ne doit pas pointer vers localhost en production.")
-        if self.STRIPE_SECRET_KEY and _contains_insecure_marker(self.STRIPE_SECRET_KEY):
-            warnings.append("STRIPE_SECRET_KEY contient encore une valeur placeholder.")
+            errors.append("DEBUG doit etre false en production")
+        if not self.PUBLIC_APP_URL or "localhost" in self.PUBLIC_APP_URL or "127.0.0.1" in self.PUBLIC_APP_URL or _contains_insecure_marker(self.PUBLIC_APP_URL):
+            errors.append("PUBLIC_APP_URL doit pointer vers l'application publique")
 
-        if warnings:
-            logging.getLogger(__name__).warning(
-                "[Config] Avertissements production: %s", " | ".join(warnings)
-            )
+        if self.STRIPE_SECRET_KEY or self.STRIPE_WEBHOOK_SECRET:
+            if (not self.STRIPE_SECRET_KEY or _contains_insecure_marker(self.STRIPE_SECRET_KEY)
+                    or not self.STRIPE_SECRET_KEY.startswith(("sk_test_", "sk_live_"))):
+                errors.append("STRIPE_SECRET_KEY est absent ou invalide")
+            if (not self.STRIPE_WEBHOOK_SECRET or _contains_insecure_marker(self.STRIPE_WEBHOOK_SECRET)
+                    or not self.STRIPE_WEBHOOK_SECRET.startswith("whsec_")):
+                errors.append("STRIPE_WEBHOOK_SECRET est absent ou invalide")
+
+        if errors:
+            raise ValueError("Configuration de production invalide: " + " | ".join(errors))
         return self
 
 

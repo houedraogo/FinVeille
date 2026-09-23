@@ -8,7 +8,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from app.database import AsyncSessionLocal, create_tables
+from app.database import AsyncSessionLocal
+from app.schema_readiness import assert_schema_ready
 from app.models.source import Source
 from app.models.user import User
 from app.utils.auth_utils import hash_password
@@ -207,8 +208,8 @@ ADMIN_USER = {
 
 
 async def seed():
-    print("Creation des tables...")
-    await create_tables()
+    print("Vérification du schéma Alembic...")
+    await assert_schema_ready()
 
     async with AsyncSessionLocal() as db:
         from sqlalchemy import select

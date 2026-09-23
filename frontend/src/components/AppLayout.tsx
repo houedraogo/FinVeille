@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import { auth, relevance } from "@/lib/api";
+import { clearSensitiveBrowserData } from "@/lib/sensitive-storage";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
@@ -13,9 +14,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
+    const loginRedirect = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    const acceptingInvitation = pathname === "/settings/team" &&
+      new URLSearchParams(window.location.search).has("invitation_token");
     const token = localStorage.getItem("kafundo_token");
     if (!token) {
-      router.replace("/login");
+      router.replace(loginRedirect);
       return;
     }
 
@@ -25,6 +29,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (onboardingDone) {
       auth.me()
         .then(async (user: any) => {
+          if (acceptingInvitation) {
+            setReady(true);
+            return;
+          }
           const userRole = user.role === "admin" || user.platform_role === "super_admin"
             ? "admin"
             : "user";
@@ -66,11 +74,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         })
         .catch(() => {
           // Token invalide ou compte supprimé → tout vider et retour login
-          ["kafundo_token", "kafundo_onboarding_completed",
-           "kafundo_user_role", "kafundo_financing_scope"].forEach(
-            (k) => localStorage.removeItem(k)
-          );
-          router.replace("/login");
+          clearSensitiveBrowserData();
+          router.replace(loginRedirect);
         });
       return;
     }
@@ -78,6 +83,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // ── Chemin API : premier chargement ou nouvel appareil ─────────────────
     auth.me()
       .then(async (user: any) => {
+        if (acceptingInvitation) {
+          setReady(true);
+          return;
+        }
         // 1. L'admin (et super_admin) n'a jamais besoin de faire l'onboarding
         if (user.role === "admin" || user.platform_role === "super_admin") {
           localStorage.setItem("kafundo_onboarding_completed", "1");
@@ -131,8 +140,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       })
       .catch(() => {
         // Token invalide ou expiré → retour au login
-        localStorage.removeItem("kafundo_token");
-        router.replace("/login");
+        clearSensitiveBrowserData();
+        router.replace(loginRedirect);
       });
   }, [router]);
 

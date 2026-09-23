@@ -2,12 +2,13 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.schemas.user import UserResponse
 
 
 class OrganizationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=2, max_length=255)
 
 
@@ -35,6 +36,7 @@ class OrganizationMemberResponse(BaseModel):
 
 
 class OrganizationInvitationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     email: EmailStr
     role: str = Field("member", pattern="^(org_admin|member|viewer)$")
     organization_id: Optional[UUID] = None

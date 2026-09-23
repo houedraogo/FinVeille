@@ -1,6 +1,7 @@
 ﻿export const SAVED_SEARCHES_KEY = "kafundo_saved_searches";
 export const PENDING_SAVED_SEARCH_KEY = "kafundo_pending_saved_search";
 export const MATCH_STORAGE_KEY = "kafundo_match_state";
+import { scopedMatchStorageKey } from "@/lib/sensitive-storage";
 export const FAVORITE_DEVICES_KEY = "kafundo_favorite_devices";
 export const DEVICES_VIEW_MODE_KEY = "kafundo_devices_view_modes";
 export const DEVICE_PIPELINE_KEY = "kafundo_device_pipeline";
@@ -326,7 +327,8 @@ export async function syncWorkspace() {
 
   const latestMatch = Array.isArray(snapshot.match_projects) ? snapshot.match_projects[0] : null;
   if (latestMatch) {
-    safeSetJson(MATCH_STORAGE_KEY, {
+    const matchKey = scopedMatchStorageKey();
+    if (matchKey) safeSetJson(matchKey, {
       id: latestMatch.id ?? null,
       fileName: latestMatch.file_name ?? null,
       fileSize: latestMatch.file_size ?? null,
@@ -421,7 +423,9 @@ export function readLatestMatchSnapshot(): MatchWorkspaceSnapshot | null {
   if (!isBrowser()) return null;
 
   try {
-    const raw = localStorage.getItem(MATCH_STORAGE_KEY);
+    const matchKey = scopedMatchStorageKey();
+    if (!matchKey) return null;
+    const raw = localStorage.getItem(matchKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as any;
     const matches = Array.isArray(parsed?.result?.matches) ? parsed.result.matches : [];

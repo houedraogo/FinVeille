@@ -32,7 +32,8 @@ from app.schemas.workspace import (
     UserPreferencesResponse,
     WorkspaceSnapshotResponse,
 )
-from app.services.billing_service import ensure_limit
+from app.services.billing_service import ensure_feature, ensure_limit, get_billing_context
+from app.services.tenant_access import current_organization_id, require_tenant
 
 router = APIRouter(prefix="/api/v1/workspace", tags=["workspace"])
 
@@ -44,19 +45,7 @@ DEFAULT_PREFERENCES = {
 
 
 async def _current_organization_id(db: AsyncSession, user: User) -> UUID | None:
-    result = await db.execute(
-        select(OrganizationMember)
-        .where(OrganizationMember.user_id == user.id, OrganizationMember.is_active == True)
-        .order_by(OrganizationMember.joined_at.asc())
-    )
-    memberships = list(result.scalars().all())
-    if not memberships:
-        return None
-    if user.default_organization_id:
-        for membership in memberships:
-            if membership.organization_id == user.default_organization_id:
-                return membership.organization_id
-    return memberships[0].organization_id
+    return await current_organization_id(db, user)
 
 
 def _saved_search_response(item: SavedSearch) -> SavedSearchResponse:
@@ -139,9 +128,10 @@ async def list_saved_searches(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user)
     result = await db.execute(
         select(SavedSearch)
-        .where(SavedSearch.user_id == current_user.id)
+        .where(SavedSearch.user_id == current_user.id, SavedSearch.organization_id == org_id)
         .order_by(SavedSearch.updated_at.desc().nullslast(), SavedSearch.created_at.desc())
     )
     return [_saved_search_response(item) for item in result.scalars().all()]
@@ -153,14 +143,21 @@ async def create_saved_search(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization_id = await require_tenant(db, current_user, "write")
     existing = None
     if data.id:
         result = await db.execute(
-            select(SavedSearch).where(SavedSearch.id == data.id, SavedSearch.user_id == current_user.id)
+            select(SavedSearch).where(
+                SavedSearch.id == data.id, SavedSearch.user_id == current_user.id,
+                SavedSearch.organization_id == organization_id,
+            )
         )
         existing = result.scalar_one_or_none()
+        if existing is None:
+            occupied = await db.execute(select(SavedSearch.id).where(SavedSearch.id == data.id))
+            if occupied.scalar_one_or_none() is not None:
+                raise HTTPException(status_code=404, detail="Recherche sauvegardee introuvable.")
 
-    organization_id = await _current_organization_id(db, current_user)
     if existing:
         existing.name = data.name
         existing.title = data.title
@@ -196,8 +193,12 @@ async def update_saved_search(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
     result = await db.execute(
-        select(SavedSearch).where(SavedSearch.id == search_id, SavedSearch.user_id == current_user.id)
+        select(SavedSearch).where(
+            SavedSearch.id == search_id, SavedSearch.user_id == current_user.id,
+            SavedSearch.organization_id == org_id,
+        )
     )
     item = result.scalar_one_or_none()
     if not item:
@@ -222,8 +223,12 @@ async def delete_saved_search(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
     result = await db.execute(
-        select(SavedSearch).where(SavedSearch.id == search_id, SavedSearch.user_id == current_user.id)
+        select(SavedSearch).where(
+            SavedSearch.id == search_id, SavedSearch.user_id == current_user.id,
+            SavedSearch.organization_id == org_id,
+        )
     )
     item = result.scalar_one_or_none()
     if item:
@@ -237,9 +242,10 @@ async def list_favorites(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user)
     result = await db.execute(
         select(FavoriteDevice)
-        .where(FavoriteDevice.user_id == current_user.id)
+        .where(FavoriteDevice.user_id == current_user.id, FavoriteDevice.organization_id == org_id)
         .order_by(FavoriteDevice.created_at.desc())
     )
     return [_favorite_response(item) for item in result.scalars().all()]
@@ -251,19 +257,27 @@ async def upsert_favorite(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
     result = await db.execute(
         select(FavoriteDevice).where(
             FavoriteDevice.user_id == current_user.id,
             FavoriteDevice.device_id == data.device_id,
+            FavoriteDevice.organization_id == org_id,
         )
     )
     item = result.scalar_one_or_none()
+    if item is None:
+        occupied = await db.execute(select(FavoriteDevice.id).where(
+            FavoriteDevice.user_id == current_user.id, FavoriteDevice.device_id == data.device_id,
+        ))
+        if occupied.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=404, detail="Favori introuvable.")
     if item:
         item.snapshot = data.snapshot
     else:
         item = FavoriteDevice(
             user_id=current_user.id,
-            organization_id=await _current_organization_id(db, current_user),
+            organization_id=org_id,
             device_id=data.device_id,
             snapshot=data.snapshot,
         )
@@ -280,10 +294,12 @@ async def delete_favorite(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
     result = await db.execute(
         select(FavoriteDevice).where(
             FavoriteDevice.user_id == current_user.id,
             FavoriteDevice.device_id == device_id,
+            FavoriteDevice.organization_id == org_id,
         )
     )
     item = result.scalar_one_or_none()
@@ -298,9 +314,10 @@ async def list_pipeline(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user)
     result = await db.execute(
         select(DevicePipeline)
-        .where(DevicePipeline.user_id == current_user.id)
+        .where(DevicePipeline.user_id == current_user.id, DevicePipeline.organization_id == org_id)
         .order_by(DevicePipeline.updated_at.desc().nullslast(), DevicePipeline.created_at.desc())
     )
     return [_pipeline_response(item) for item in result.scalars().all()]
@@ -312,13 +329,29 @@ async def upsert_pipeline(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
+    if data.match_project_id:
+        match_result = await db.execute(select(MatchProject.id).where(
+            MatchProject.id == data.match_project_id,
+            MatchProject.user_id == current_user.id,
+            MatchProject.organization_id == org_id,
+        ))
+        if match_result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="Analyse de document introuvable.")
     result = await db.execute(
         select(DevicePipeline).where(
             DevicePipeline.user_id == current_user.id,
             DevicePipeline.device_id == data.device_id,
+            DevicePipeline.organization_id == org_id,
         )
     )
     item = result.scalar_one_or_none()
+    if item is None:
+        occupied = await db.execute(select(DevicePipeline.id).where(
+            DevicePipeline.user_id == current_user.id, DevicePipeline.device_id == data.device_id,
+        ))
+        if occupied.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=404, detail="Candidature introuvable.")
     if item:
         item.pipeline_status = data.pipeline_status
         item.priority = data.priority
@@ -332,7 +365,7 @@ async def upsert_pipeline(
         await ensure_limit(db, current_user, "pipeline_projects")
         item = DevicePipeline(
             user_id=current_user.id,
-            organization_id=await _current_organization_id(db, current_user),
+            organization_id=org_id,
             device_id=data.device_id,
             pipeline_status=data.pipeline_status,
             priority=data.priority,
@@ -354,10 +387,12 @@ async def delete_pipeline(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
     result = await db.execute(
         select(DevicePipeline).where(
             DevicePipeline.user_id == current_user.id,
             DevicePipeline.device_id == device_id,
+            DevicePipeline.organization_id == org_id,
         )
     )
     item = result.scalar_one_or_none()
@@ -372,7 +407,11 @@ async def get_preferences(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(UserPreferences).where(UserPreferences.user_id == current_user.id))
+    org_id = await require_tenant(db, current_user)
+    result = await db.execute(select(UserPreferences).where(
+        UserPreferences.user_id == current_user.id,
+        UserPreferences.organization_id == org_id,
+    ))
     return _preferences_response(result.scalar_one_or_none())
 
 
@@ -382,14 +421,21 @@ async def update_preferences(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(UserPreferences).where(UserPreferences.user_id == current_user.id))
+    org_id = await require_tenant(db, current_user, "write")
+    result = await db.execute(select(UserPreferences).where(
+        UserPreferences.user_id == current_user.id, UserPreferences.organization_id == org_id,
+    ))
     item = result.scalar_one_or_none()
+    if item is None:
+        occupied = await db.execute(select(UserPreferences.id).where(UserPreferences.user_id == current_user.id))
+        if occupied.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=409, detail="Préférences déjà associées à une autre organisation.")
     if item:
         item.preferences = {**DEFAULT_PREFERENCES, **data.preferences}
     else:
         item = UserPreferences(
             user_id=current_user.id,
-            organization_id=await _current_organization_id(db, current_user),
+            organization_id=org_id,
             preferences={**DEFAULT_PREFERENCES, **data.preferences},
         )
         db.add(item)
@@ -404,9 +450,12 @@ async def list_match_projects(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user)
+    if not (await get_billing_context(db, current_user)).plan.features.get("matching_ai"):
+        return []
     result = await db.execute(
         select(MatchProject)
-        .where(MatchProject.user_id == current_user.id)
+        .where(MatchProject.user_id == current_user.id, MatchProject.organization_id == org_id)
         .order_by(MatchProject.updated_at.desc().nullslast(), MatchProject.created_at.desc())
         .limit(10)
     )
@@ -419,9 +468,11 @@ async def create_match_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
+    await ensure_feature(db, current_user, "matching_ai")
     item = MatchProject(
         user_id=current_user.id,
-        organization_id=await _current_organization_id(db, current_user),
+        organization_id=org_id,
         file_name=data.file_name,
         file_size=data.file_size,
         result=data.result,
@@ -442,10 +493,12 @@ async def add_pipeline_document(
     current_user: User = Depends(get_current_user),
 ):
     """Attache un document (lien externe ou note) à une candidature pipeline."""
+    org_id = await require_tenant(db, current_user, "write")
     result = await db.execute(
         select(DevicePipeline).where(
             DevicePipeline.user_id == current_user.id,
             DevicePipeline.device_id == device_id,
+            DevicePipeline.organization_id == org_id,
         )
     )
     item = result.scalar_one_or_none()
@@ -477,10 +530,12 @@ async def remove_pipeline_document(
     current_user: User = Depends(get_current_user),
 ):
     """Supprime un document attaché à une candidature pipeline."""
+    org_id = await require_tenant(db, current_user, "write")
     result = await db.execute(
         select(DevicePipeline).where(
             DevicePipeline.user_id == current_user.id,
             DevicePipeline.device_id == device_id,
+            DevicePipeline.organization_id == org_id,
         )
     )
     item = result.scalar_one_or_none()
@@ -501,9 +556,7 @@ async def get_team_view(
     current_user: User = Depends(get_current_user),
 ):
     """Retourne le pipeline de tous les membres de l'organisation de l'utilisateur."""
-    org_id = await _current_organization_id(db, current_user)
-    if not org_id:
-        return TeamViewResponse(organization_id=None, organization_name=None, members=[])
+    org_id = await require_tenant(db, current_user)
 
     # Récupérer l'organisation
     org_result = await db.execute(select(Organization).where(Organization.id == org_id))
@@ -526,7 +579,7 @@ async def get_team_view(
         # Pipeline de ce membre
         pipeline_result = await db.execute(
             select(DevicePipeline)
-            .where(DevicePipeline.user_id == user.id)
+            .where(DevicePipeline.user_id == user.id, DevicePipeline.organization_id == org_id)
             .where(DevicePipeline.pipeline_status.not_in(["non_pertinent", "refuse"]))
             .order_by(DevicePipeline.updated_at.desc().nullslast())
             .limit(20)
@@ -568,12 +621,13 @@ async def get_activity_feed(
     limit: int = 40,
 ):
     """Flux d'activité unifié : pipeline, favoris, analyses de documents."""
+    org_id = await require_tenant(db, current_user)
     items: list[ActivityItem] = []
 
     # ── Pipeline entries ──
     pipeline_result = await db.execute(
         select(DevicePipeline)
-        .where(DevicePipeline.user_id == current_user.id)
+        .where(DevicePipeline.user_id == current_user.id, DevicePipeline.organization_id == org_id)
         .order_by(DevicePipeline.updated_at.desc().nullslast(), DevicePipeline.created_at.desc())
         .limit(limit)
     )
@@ -628,7 +682,7 @@ async def get_activity_feed(
     # ── Favoris ──
     fav_result = await db.execute(
         select(FavoriteDevice)
-        .where(FavoriteDevice.user_id == current_user.id)
+        .where(FavoriteDevice.user_id == current_user.id, FavoriteDevice.organization_id == org_id)
         .order_by(FavoriteDevice.created_at.desc())
         .limit(20)
     )
@@ -650,7 +704,7 @@ async def get_activity_feed(
     # ── Match projects ──
     match_result = await db.execute(
         select(MatchProject)
-        .where(MatchProject.user_id == current_user.id)
+        .where(MatchProject.user_id == current_user.id, MatchProject.organization_id == org_id)
         .order_by(MatchProject.created_at.desc())
         .limit(10)
     )
@@ -683,8 +737,12 @@ async def get_pipeline_reporting(
     current_user: User = Depends(get_current_user),
 ):
     """Stats pipeline : statuts, taux de soumission/refus, montant cumulé détecté."""
+    org_id = await require_tenant(db, current_user)
     result = await db.execute(
-        select(DevicePipeline).where(DevicePipeline.user_id == current_user.id)
+        select(DevicePipeline).where(
+            DevicePipeline.user_id == current_user.id,
+            DevicePipeline.organization_id == org_id,
+        )
     )
     pipeline_items = result.scalars().all()
 
@@ -711,7 +769,6 @@ async def get_pipeline_reporting(
     refusal_rate = round(refused / (submitted + refused) * 100, 1) if (submitted + refused) > 0 else 0.0
 
     # Org team stats if member of an org
-    org_id = await _current_organization_id(db, current_user)
     team_stats = None
     if org_id:
         team_result = await db.execute(
@@ -728,6 +785,7 @@ async def get_pipeline_reporting(
             .where(
                 OrganizationMember.organization_id == org_id,
                 OrganizationMember.is_active == True,
+                DevicePipeline.organization_id == org_id,
             )
         )
         team_items = team_pipeline_result.scalars().all()

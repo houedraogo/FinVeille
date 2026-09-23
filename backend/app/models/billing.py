@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -38,6 +38,9 @@ class Subscription(Base):
     stripe_subscription_id = Column(String(255))
     current_period_start = Column(DateTime(timezone=True))
     current_period_end = Column(DateTime(timezone=True))
+    cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    last_stripe_event_created = Column(BigInteger)
+    last_stripe_event_id = Column(String(255))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -67,3 +70,25 @@ class BillingCustomer(Base):
     metadata_json = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class StripeWebhookEvent(Base):
+    __tablename__ = "stripe_webhook_events"
+
+    id = Column(String(255), primary_key=True)
+    event_type = Column(String(120), nullable=False)
+    stripe_created = Column(BigInteger, nullable=False)
+    outcome = Column(String(40), nullable=False)
+    stripe_subscription_id = Column(String(255))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class BillingCheckout(Base):
+    __tablename__ = "billing_checkouts"
+
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False)
+    stripe_session_id = Column(String(255), nullable=False)
+    checkout_url = Column(Text, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

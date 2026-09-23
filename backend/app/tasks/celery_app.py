@@ -27,6 +27,12 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     result_expires=3600,
     worker_max_tasks_per_child=50,
+    task_default_queue="default",
+    task_routes={
+        "app.tasks.collect_tasks.*": {"queue": "collect"},
+        "app.tasks.alert_tasks.*": {"queue": "alerts"},
+        "app.tasks.quality_tasks.*": {"queue": "default"},
+    },
 )
 
 celery_app.conf.beat_schedule = {

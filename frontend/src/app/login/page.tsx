@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { auth, security, relevance } from "@/lib/api";
 import { isStoredAdmin } from "@/lib/auth";
+import { clearSensitiveBrowserData } from "@/lib/sensitive-storage";
 import { Chrome, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 
 declare global {
@@ -64,10 +65,16 @@ export default function LoginPage() {
   }, []);
 
   const finishAuth = async (result: { access_token: string; user: unknown }) => {
+    clearSensitiveBrowserData();
     localStorage.setItem("kafundo_token", result.access_token);
     if (result.user) localStorage.setItem("kafundo_user", JSON.stringify(result.user));
     const user = (result.user || {}) as any;
     const isAdmin = isStoredAdmin(user);
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next?.startsWith("/") && !next.startsWith("//")) {
+      router.push(next);
+      return;
+    }
     if (isAdmin) {
       localStorage.setItem("kafundo_onboarding_completed", "1");
       localStorage.setItem("kafundo_user_role", "admin");

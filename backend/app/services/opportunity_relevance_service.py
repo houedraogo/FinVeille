@@ -13,6 +13,8 @@ from app.models.device import Device
 from app.models.organization import OrganizationMember
 from app.models.relevance import DeviceRelevanceCache, FundingProject, OrganizationProfile
 from app.models.user import User
+from app.services.tenant_access import current_organization_id
+from fastapi import HTTPException
 
 
 @dataclass
@@ -35,19 +37,7 @@ class OpportunityRelevanceService:
         self.db = db
 
     async def get_current_organization_id(self, user: User) -> UUID | None:
-        result = await self.db.execute(
-            select(OrganizationMember)
-            .where(OrganizationMember.user_id == user.id, OrganizationMember.is_active == True)
-            .order_by(OrganizationMember.joined_at.asc())
-        )
-        memberships = list(result.scalars().all())
-        if not memberships:
-            return None
-        if user.default_organization_id:
-            for membership in memberships:
-                if membership.organization_id == user.default_organization_id:
-                    return membership.organization_id
-        return memberships[0].organization_id
+        return await current_organization_id(self.db, user)
 
     async def get_profile(self, organization_id: UUID) -> OrganizationProfile | None:
         result = await self.db.execute(
@@ -189,6 +179,8 @@ class OpportunityRelevanceService:
             return []
         profile = await self.get_profile(organization_id)
         project = await self.get_project(organization_id, project_id)
+        if project_id is not None and project is None:
+            raise HTTPException(status_code=404, detail="Projet de financement introuvable.")
         return [
             self.evaluate_device(device, organization_id=organization_id, profile=profile, project=project)
             for device in devices

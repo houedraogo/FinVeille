@@ -22,7 +22,7 @@ from app.models.relevance import OrganizationProfile
 from app.models.operations import AuditLog, DataExport, DeletionRequest, EmailEvent
 from app.models.saved_search import SavedSearch
 from app.models.workspace import DevicePipeline
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.user import AdminUserCreate, UserResponse, UserUpdate
 from app.schemas.organization import OrganizationResponse
 from app.dependencies import require_role
 from app.utils.auth_utils import hash_password
@@ -603,7 +603,7 @@ async def get_pending_devices(
     params = __import__("app.schemas.device", fromlist=["DeviceSearchParams"]).DeviceSearchParams(
         validation_status="pending_review", page=page, page_size=page_size
     )
-    return await DeviceService(db).search(params)
+    return await DeviceService(db).search(params, allow_unpublished=True)
 
 
 # --- Gestion utilisateurs ---
@@ -616,7 +616,7 @@ async def list_users(db: AsyncSession = Depends(get_db),
 
 
 @router.post("/users", response_model=UserResponse, status_code=201)
-async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db),
+async def create_user(data: AdminUserCreate, db: AsyncSession = Depends(get_db),
                        _=Depends(require_role(["admin"]))):
     from sqlalchemy import select as sel
     existing = await db.execute(sel(UserModel).where(UserModel.email == data.email))
@@ -684,6 +684,13 @@ async def delete_user(
             # Seul membre : supprimer l'organisation et ses données liées
             org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
             if org:
+                # Deleting the local customer would hide a still-billable Stripe
+                # subscription. Reconcile/cancel it before removing the tenant.
+                stripe_customer = (await db.execute(select(BillingCustomer.id).where(
+                    BillingCustomer.organization_id == org_id,
+                ))).scalar_one_or_none()
+                if stripe_customer is not None:
+                    raise HTTPException(status_code=409, detail="Client Stripe à réconcilier avant suppression de l'organisation.")
                 await db.delete(org)
 
     await db.delete(user)
@@ -716,6 +723,8 @@ async def assign_plan(
     )).scalar_one_or_none()
 
     if sub:
+        if sub.stripe_subscription_id:
+            raise HTTPException(status_code=409, detail="Abonnement géré par Stripe ; modifier le plan via Stripe.")
         sub.plan_id = plan.id
         sub.status = "active"
     else:

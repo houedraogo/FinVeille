@@ -1806,7 +1806,7 @@ async def insert_devices(items: list, source_name: str, source_id: Optional[str]
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 async def run():
-    from app.database import create_tables
+    from app.schema_readiness import assert_schema_ready
 
     print()
     print("=" * 60)
@@ -1816,7 +1816,7 @@ async def run():
     print(f"  Limite   : {args.limit} dispositifs / source")
     print()
 
-    await create_tables()
+    await assert_schema_ready()
 
     FETCHERS = {
         "worldbank": ("World Bank Open Data",             fetch_worldbank),

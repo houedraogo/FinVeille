@@ -1,4 +1,5 @@
 import logging
+import json
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -210,7 +211,9 @@ class CollectionPipeline:
 
         for raw_item in collection_result.items:
             try:
-                outcome = await self._process_item(raw_item)
+                async with self.db.begin_nested():
+                    outcome = await self._process_item(raw_item)
+                    await self.db.flush()
                 stats[outcome] += 1
             except Exception as exc:
                 logger.error(f"[Pipeline][{self.source_id}] Erreur item '{raw_item.title}': {exc}")
@@ -240,9 +243,16 @@ class CollectionPipeline:
         if not normalized or not normalized.get("title"):
             return "skipped"
 
-        content_hash = compute_content_hash(
-            (normalized.get("title") or "") + (normalized.get("short_description") or "")
+        business_fields = (
+            "title", "short_description", "close_date", "open_date", "amount_min",
+            "amount_max", "currency", "status", "organism", "country",
+            "source_url", "device_type", "sectors", "beneficiaries",
+            "eligibility_criteria", "funding_details",
         )
+        content_hash = compute_content_hash(json.dumps(
+            {field: normalized.get(field) for field in business_fields},
+            sort_keys=True, default=str, ensure_ascii=False,
+        ))
         normalized["source_hash"] = content_hash
 
         existing = await self.deduplicator.find_duplicate(normalized)
@@ -292,7 +302,7 @@ class CollectionPipeline:
                 if supplemental_fields:
                     supplemental_fields.update(self._ai_readiness_fields(existing, supplemental_fields))
                     supplemental_fields["source_hash"] = content_hash
-                    await self.device_service.update_raw(existing.id, supplemental_fields)
+                    await self.device_service.update_raw(existing.id, supplemental_fields, commit=False)
                     return "updated"
 
                 from sqlalchemy import update
@@ -302,7 +312,6 @@ class CollectionPipeline:
                     .where(type(existing).id == existing.id)
                     .values(last_verified_at=func.now())
                 )
-                await self.db.commit()
                 return "skipped"
 
             update_fields = {
@@ -311,7 +320,7 @@ class CollectionPipeline:
                 if value is not None and key not in ("created_at", "first_seen_at", "source_id")
             }
             update_fields.update(self._ai_readiness_fields(existing, update_fields))
-            await self.device_service.update_raw(existing.id, update_fields)
+            await self.device_service.update_raw(existing.id, update_fields, commit=False)
             return "updated"
 
         enriched = self.enricher.enrich(normalized, source_level=self.source_level)
@@ -333,5 +342,5 @@ class CollectionPipeline:
 
         create_data = {key: value for key, value in enriched.items() if key in DEVICE_CREATE_FIELDS}
         device_schema = DeviceCreate(**create_data)
-        await self.device_service.create(device_schema, created_by="system")
+        await self.device_service.create(device_schema, created_by="system", source_hash=content_hash, commit=False)
         return "new"

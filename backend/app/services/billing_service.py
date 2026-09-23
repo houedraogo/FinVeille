@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -8,13 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.alert import Alert
 from app.models.billing import Plan, Subscription, UsageEvent
-from app.models.organization import OrganizationMember
+from app.models.organization import Invitation, Organization, OrganizationMember
 from app.models.saved_search import SavedSearch
 from app.models.user import User
 from app.models.workspace import DevicePipeline
 from app.config import settings
+from app.services.tenant_access import current_organization_id
 
 PREMIUM_FEATURE_MESSAGE = "Cette fonctionnalité est disponible avec l’offre Pro, Team ou Expert."
+KNOWN_PLANS = frozenset({"free", "pro", "team", "expert", "enterprise"})
+ENTITLED_STATUSES = frozenset({"active", "trialing"})
+KNOWN_METRICS = frozenset({"users", "alerts", "saved_searches", "pipeline_projects"})
 
 DEFAULT_PLANS: list[dict[str, Any]] = [
     {
@@ -154,19 +159,7 @@ async def ensure_default_plans(db: AsyncSession) -> None:
 
 
 async def get_current_organization_id(db: AsyncSession, user: User) -> UUID | None:
-    result = await db.execute(
-        select(OrganizationMember)
-        .where(OrganizationMember.user_id == user.id, OrganizationMember.is_active == True)
-        .order_by(OrganizationMember.joined_at.asc())
-    )
-    memberships = list(result.scalars().all())
-    if not memberships:
-        return None
-    if user.default_organization_id:
-        for membership in memberships:
-            if membership.organization_id == user.default_organization_id:
-                return membership.organization_id
-    return memberships[0].organization_id
+    return await current_organization_id(db, user)
 
 
 async def _count(db: AsyncSession, statement) -> int:
@@ -183,14 +176,26 @@ async def get_usage(db: AsyncSession, user: User, organization_id: UUID | None) 
                 OrganizationMember.is_active == True,
             ),
         )
+        users += await _count(
+            db,
+            select(func.count(Invitation.id)).where(
+                Invitation.organization_id == organization_id,
+                Invitation.accepted_at.is_(None),
+                Invitation.expires_at > datetime.now(timezone.utc),
+            ),
+        )
     else:
         users = 1
 
     return {
         "users": users,
-        "alerts": await _count(db, select(func.count(Alert.id)).where(Alert.user_id == user.id)),
-        "saved_searches": await _count(db, select(func.count(SavedSearch.id)).where(SavedSearch.user_id == user.id)),
-        "pipeline_projects": await _count(db, select(func.count(DevicePipeline.id)).where(DevicePipeline.user_id == user.id)),
+        "alerts": await _count(db, select(func.count(Alert.id)).where(Alert.organization_id == organization_id)),
+        "saved_searches": await _count(db, select(func.count(SavedSearch.id)).where(
+            SavedSearch.organization_id == organization_id,
+        )),
+        "pipeline_projects": await _count(db, select(func.count(DevicePipeline.id)).where(
+            DevicePipeline.organization_id == organization_id,
+        )),
     }
 
 
@@ -199,18 +204,26 @@ async def get_billing_context(db: AsyncSession, user: User) -> BillingContext:
     subscription = None
 
     if organization_id:
-        sub_result = await db.execute(
-            select(Subscription).where(
-                Subscription.organization_id == organization_id,
-                Subscription.status.in_(["active", "trialing", "past_due"]),
-            )
-        )
+        sub_result = await db.execute(select(Subscription).where(Subscription.organization_id == organization_id))
         subscription = sub_result.scalar_one_or_none()
 
-    if subscription:
+    entitled = bool(
+        subscription
+        and subscription.status in ENTITLED_STATUSES
+        and (not subscription.stripe_subscription_id or (
+            subscription.current_period_end is not None
+            and subscription.current_period_end > datetime.now(timezone.utc)
+        ))
+    )
+    if entitled:
         plan_result = await db.execute(select(Plan).where(Plan.id == subscription.plan_id))
         plan = plan_result.scalar_one_or_none()
+        if plan and (not plan.is_active or plan.slug not in KNOWN_PLANS):
+            plan = None
     else:
+        plan = None
+
+    if not plan:
         plan_result = await db.execute(select(Plan).where(Plan.slug == "free"))
         plan = plan_result.scalar_one_or_none()
 
@@ -226,15 +239,23 @@ async def get_billing_context(db: AsyncSession, user: User) -> BillingContext:
 
 
 def limit_allows(plan: Plan, metric: str, current: int, increment: int = 1) -> bool:
+    if metric not in KNOWN_METRICS:
+        return False
     limit = (plan.limits or {}).get(metric)
     if limit is None:
-        return True
+        return False
     if int(limit) < 0:
         return True
     return current + increment <= int(limit)
 
 
 async def ensure_limit(db: AsyncSession, user: User, metric: str, increment: int = 1) -> BillingContext:
+    organization_id = await get_current_organization_id(db, user)
+    if organization_id is None:
+        raise HTTPException(status_code=403, detail="Organisation active requise.")
+    # Held by the caller's transaction until INSERT/commit. This serializes
+    # COUNT -> INSERT across processes and all members of the same tenant.
+    await db.execute(select(Organization.id).where(Organization.id == organization_id).with_for_update())
     context = await get_billing_context(db, user)
     if not limit_allows(context.plan, metric, context.usage.get(metric, 0), increment):
         raise HTTPException(

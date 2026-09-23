@@ -93,7 +93,7 @@ kafundo/
 # Backend uniquement (sans Docker)
 cd backend
 pip install -r requirements.txt
-alembic upgrade head
+python -m migrations.upgrade  # base vierge ; voir docs/postgres-migrations.md pour une base existante
 python -m app.data.seed
 uvicorn app.main:app --reload
 

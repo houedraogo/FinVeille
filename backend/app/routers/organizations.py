@@ -15,6 +15,7 @@ from app.config import settings
 from app.services.audit_service import record_audit, record_email_event
 from app.services.billing_service import ensure_limit
 from app.services.notification_service import NotificationService
+from app.services.tenant_access import current_membership, WRITE_ROLES
 from app.schemas.organization import (
     InvitationResponse,
     MeContextResponse,
@@ -57,14 +58,7 @@ async def _memberships(db: AsyncSession, user_id: UUID) -> list[OrganizationMemb
 
 
 async def _current_membership(db: AsyncSession, user: User) -> OrganizationMember | None:
-    memberships = await _memberships(db, user.id)
-    if not memberships:
-        return None
-    if user.default_organization_id:
-        for membership in memberships:
-            if membership.organization_id == user.default_organization_id:
-                return membership
-    return memberships[0]
+    return await current_membership(db, user)
 
 
 async def _get_current_organization(db: AsyncSession, user: User) -> tuple[Organization | None, OrganizationMember | None]:
@@ -82,11 +76,11 @@ def _permissions(user: User, membership: OrganizationMember | None) -> dict[str,
 
     return {
         "can_access_platform_admin": is_super,
-        "can_manage_billing": is_super or org_role == "org_owner",
-        "can_invite_users": is_super or is_org_admin,
-        "can_manage_workspace": bool(membership) or is_super,
-        "can_export": org_role in {"org_owner", "org_admin", "member"} or is_super,
-        "can_use_matching": org_role in {"org_owner", "org_admin", "member"} or is_super,
+        "can_manage_billing": org_role == "org_owner",
+        "can_invite_users": is_org_admin,
+        "can_manage_workspace": org_role in WRITE_ROLES,
+        "can_export": org_role in WRITE_ROLES,
+        "can_use_matching": org_role in WRITE_ROLES,
         "can_manage_sources": user.role in {"admin", "editor"} or is_super,
     }
 
@@ -115,6 +109,31 @@ async def get_current_organization(
     if not org:
         raise HTTPException(status_code=404, detail="Aucune organisation active pour cet utilisateur.")
     return org
+
+
+@router.post("/organizations/{organization_id}/select", response_model=OrganizationResponse)
+async def select_current_organization(
+    organization_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    membership = await db.execute(select(OrganizationMember).where(
+        OrganizationMember.organization_id == organization_id,
+        OrganizationMember.user_id == current_user.id,
+        OrganizationMember.is_active.is_(True),
+        OrganizationMember.role.in_({"org_owner", "org_admin", "member", "viewer"}),
+    ))
+    if membership.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Organisation introuvable.")
+    result = await db.execute(select(Organization).where(
+        Organization.id == organization_id, Organization.status == "active",
+    ))
+    organization = result.scalar_one_or_none()
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organisation introuvable.")
+    current_user.default_organization_id = organization_id
+    await db.commit()
+    return organization
 
 
 @router.post("/organizations", response_model=OrganizationResponse, status_code=201)
@@ -157,9 +176,8 @@ async def invite_to_organization(
     if not organization_id:
         raise HTTPException(status_code=404, detail="Aucune organisation disponible pour l'invitation.")
 
-    if not is_platform_super_admin(current_user):
-        if not current_membership or current_membership.organization_id != organization_id or current_membership.role not in ORG_ADMIN_ROLES:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invitation réservée aux administrateurs de l'organisation.")
+    if not current_membership or current_membership.organization_id != organization_id or current_membership.role not in ORG_ADMIN_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invitation réservée aux administrateurs de l'organisation.")
 
     await ensure_limit(db, current_user, "users")
 
@@ -218,7 +236,7 @@ async def accept_invitation(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Invitation).where(Invitation.token == token))
+    result = await db.execute(select(Invitation).where(Invitation.token == token).with_for_update())
     invitation = result.scalar_one_or_none()
     if not invitation:
         raise HTTPException(status_code=404, detail="Invitation introuvable.")
@@ -228,6 +246,11 @@ async def accept_invitation(
         raise HTTPException(status_code=400, detail="Invitation expirée.")
     if invitation.email.lower() != current_user.email.lower():
         raise HTTPException(status_code=403, detail="Cette invitation ne correspond pas à votre email.")
+    organization = (await db.execute(select(Organization).where(
+        Organization.id == invitation.organization_id, Organization.status == "active",
+    ))).scalar_one_or_none()
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organisation introuvable.")
 
     existing = await db.execute(
         select(OrganizationMember).where(

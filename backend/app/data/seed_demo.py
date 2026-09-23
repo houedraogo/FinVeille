@@ -9,7 +9,8 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from datetime import date, timedelta
-from app.database import AsyncSessionLocal, create_tables
+from app.database import AsyncSessionLocal
+from app.schema_readiness import assert_schema_ready
 from app.models.device import Device
 from app.models.source import Source
 from app.utils.text_utils import generate_slug, compute_completeness
@@ -618,7 +619,7 @@ DEMO_DEVICES = [
 
 async def seed_demo():
     print("⏳ Vérification des tables...")
-    await create_tables()
+    await assert_schema_ready()
 
     async with AsyncSessionLocal() as db:
         # Récupérer une source existante pour l'associer

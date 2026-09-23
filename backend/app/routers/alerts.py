@@ -8,7 +8,10 @@ from app.models.user import User
 from app.schemas.alert import AlertCreate, AlertUpdate, AlertResponse
 from app.dependencies import get_current_user
 from app.services.alert_service import AlertService
-from app.services.billing_service import ensure_limit
+from app.services.billing_service import ensure_feature, ensure_limit
+from app.services.tenant_access import require_tenant
+from app.models.alert import Alert
+from sqlalchemy import select
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -18,7 +21,11 @@ async def list_alerts(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await AlertService(db).get_user_alerts(current_user.id)
+    org_id = await require_tenant(db, current_user)
+    result = await db.execute(select(Alert).where(
+        Alert.user_id == current_user.id, Alert.organization_id == org_id,
+    ).order_by(Alert.created_at.desc()))
+    return list(result.scalars().all())
 
 
 @router.get("/{alert_id}", response_model=AlertResponse)
@@ -27,8 +34,9 @@ async def get_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user)
     alert = await AlertService(db).get_by_id(alert_id)
-    if not alert or alert.user_id != current_user.id:
+    if not alert or alert.user_id != current_user.id or alert.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Alerte introuvable")
     return alert
 
@@ -39,8 +47,11 @@ async def create_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
+    if data.criteria:
+        await ensure_feature(db, current_user, "custom_alerts")
     await ensure_limit(db, current_user, "alerts")
-    return await AlertService(db).create(data, current_user.id)
+    return await AlertService(db).create(data, current_user.id, org_id)
 
 
 @router.put("/{alert_id}", response_model=AlertResponse)
@@ -50,8 +61,11 @@ async def update_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
+    if data.criteria:
+        await ensure_feature(db, current_user, "custom_alerts")
     alert = await AlertService(db).get_by_id(alert_id)
-    if not alert or alert.user_id != current_user.id:
+    if not alert or alert.user_id != current_user.id or alert.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Alerte introuvable")
     updated = await AlertService(db).update(alert_id, data)
     return updated
@@ -63,8 +77,9 @@ async def delete_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
     alert = await AlertService(db).get_by_id(alert_id)
-    if not alert or alert.user_id != current_user.id:
+    if not alert or alert.user_id != current_user.id or alert.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Alerte introuvable")
     await AlertService(db).delete(alert_id)
 
@@ -76,8 +91,9 @@ async def preview_alert(
     current_user: User = Depends(get_current_user),
 ):
     """Prévisualise les dispositifs correspondant à une alerte."""
+    org_id = await require_tenant(db, current_user)
     alert = await AlertService(db).get_by_id(alert_id)
-    if not alert or alert.user_id != current_user.id:
+    if not alert or alert.user_id != current_user.id or alert.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Alerte introuvable")
     devices = await AlertService(db).match_devices(alert)
     return {"count": len(devices), "devices": [

@@ -305,29 +305,32 @@ async def get_dashboard(
 
     # ── Santé des sources ────────────────────────────────────────────────────────
 
-    r = await db.execute(select(func.count()).where(Source.is_active == True))
-    active_sources = r.scalar() or 0
+    active_sources = sources_in_error = 0
+    error_sources = []
+    last_log = None
+    if current_user.role in {"admin", "editor"}:
+        r = await db.execute(select(func.count()).where(Source.is_active == True))
+        active_sources = r.scalar() or 0
 
-    r = await db.execute(select(func.count()).where(Source.consecutive_errors >= 3))
-    sources_in_error = r.scalar() or 0
+        r = await db.execute(select(func.count()).where(Source.consecutive_errors >= 3))
+        sources_in_error = r.scalar() or 0
 
-    r = await db.execute(
-        select(Source)
-        .where(Source.consecutive_errors >= 3)
-        .order_by(Source.consecutive_errors.desc())
-        .limit(6)
-    )
-    error_sources = [
-        {"id": str(s.id), "name": s.name, "consecutive_errors": s.consecutive_errors}
-        for s in r.scalars().all()
-    ]
+        r = await db.execute(
+            select(Source)
+            .where(Source.consecutive_errors >= 3)
+            .order_by(Source.consecutive_errors.desc())
+            .limit(6)
+        )
+        error_sources = [
+            {"id": str(s.id), "name": s.name, "consecutive_errors": s.consecutive_errors}
+            for s in r.scalars().all()
+        ]
 
-    # ── Dernière collecte ────────────────────────────────────────────────────────
-
-    r = await db.execute(
-        select(CollectionLog).order_by(CollectionLog.started_at.desc()).limit(1)
-    )
-    last_log = r.scalar_one_or_none()
+        # Collection operations are restricted to the same internal roles.
+        r = await db.execute(
+            select(CollectionLog).order_by(CollectionLog.started_at.desc()).limit(1)
+        )
+        last_log = r.scalar_one_or_none()
 
     return {
         "total_active": total_active,

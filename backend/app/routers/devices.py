@@ -26,7 +26,10 @@ from app.schemas.device import (
 )
 from app.dependencies import get_current_user, get_optional_current_user, require_role
 from app.services.device_service import DeviceService
+from app.services.catalog_access import can_view_unpublished, may_view_device
 from app.services.opportunity_relevance_service import OpportunityRelevanceService
+from app.services.billing_service import ensure_feature, get_billing_context
+from app.services.tenant_access import require_tenant
 from app.utils.text_utils import localize_investment_text, looks_english_text
 
 logger = logging.getLogger(__name__)
@@ -279,9 +282,7 @@ router = APIRouter(prefix="/api/v1/devices", tags=["devices"])
 
 
 def _can_use_admin_catalog(current_user: User | None) -> bool:
-    if not current_user:
-        return False
-    return current_user.role == "admin" or getattr(current_user, "platform_role", "member") == "super_admin"
+    return can_view_unpublished(current_user)
 
 
 def _is_standard_user(current_user: User | None) -> bool:
@@ -477,8 +478,11 @@ async def list_devices(
         sort_desc=sort_desc, page=page, page_size=page_size,
     )
     service = DeviceService(db)
-    result = await service.search(params)
-    if current_user:
+    scoring_enabled = bool(current_user and (await get_billing_context(db, current_user)).plan.features.get("smart_scoring"))
+    result = await service.search(
+        params, allow_unpublished=_can_use_admin_catalog(current_user), include_scoring=scoring_enabled,
+    )
+    if scoring_enabled:
         await OpportunityRelevanceService(db).attach_runtime_relevance(result["items"], user=current_user)
     return result
 
@@ -690,9 +694,11 @@ async def export_csv(
     include_rejected: bool = Query(False),
     include_low_quality: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Export CSV streamé — BOM UTF-8 pour compatibilité Excel, max 5 000 lignes."""
+    await require_tenant(db, current_user, "export")
+    await ensure_feature(db, current_user, "exports")
     params = DeviceSearchParams(
         q=q, countries=countries, device_types=device_types,
         sectors=sectors, status=status, closing_soon_days=closing_soon_days,
@@ -720,7 +726,9 @@ async def export_csv(
         yield buf.getvalue().encode("utf-8")
 
         count = 0
-        async for device in service.stream_for_export(params, limit=5000):
+        async for device in service.stream_for_export(
+            params, limit=5000, allow_unpublished=_can_use_admin_catalog(current_user)
+        ):
             buf = io.StringIO()
             writer = csv.DictWriter(buf, fieldnames=EXPORT_FIELDS, extrasaction="ignore")
             writer.writerow(_device_to_row(device))
@@ -756,9 +764,11 @@ async def export_excel(
     include_rejected: bool = Query(False),
     include_low_quality: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Export Excel (.xlsx) avec formatage — max 5 000 lignes."""
+    await require_tenant(db, current_user, "export")
+    await ensure_feature(db, current_user, "exports")
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -786,7 +796,9 @@ async def export_excel(
 
     # ── Collecter les données ─────────────────────────────────────────────
     rows = []
-    async for device in service.stream_for_export(params, limit=5000):
+    async for device in service.stream_for_export(
+        params, limit=5000, allow_unpublished=_can_use_admin_catalog(current_user)
+    ):
         rows.append(_device_to_row(device))
 
     # ── Construire le classeur ────────────────────────────────────────────
@@ -917,10 +929,14 @@ async def get_device(
     current_user: User | None = Depends(get_optional_current_user),
 ):
     device = await DeviceService(db).get_by_id(device_id)
-    if not device:
+    if not device or not may_view_device(device, current_user):
         raise HTTPException(status_code=404, detail="Dispositif introuvable")
-    if current_user:
+    if current_user and (await get_billing_context(db, current_user)).plan.features.get("smart_scoring"):
         await OpportunityRelevanceService(db).attach_runtime_relevance([device], user=current_user)
+    else:
+        db.expunge(device)
+        device.relevance_score = 0
+        device.match_reasons = []
     return device
 
 
@@ -1071,12 +1087,14 @@ async def scrape_device_details(
 async def analyze_device(
     device_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(["admin", "editor"])),
 ):
     """
     Génère une analyse décisionnelle IA pour aider l'utilisateur à décider
     vite : go/no-go, pourquoi intéressant, pourquoi prudent, action conseillée.
     """
+    await require_tenant(db, current_user, "write")
+    await ensure_feature(db, current_user, "advanced_analysis")
     service = DeviceService(db)
     device = await service.get_by_id(device_id)
     if not device:

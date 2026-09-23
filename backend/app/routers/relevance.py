@@ -22,6 +22,9 @@ from app.schemas.relevance import (
 )
 from app.services.device_service import DeviceService
 from app.services.opportunity_relevance_service import OpportunityRelevanceService
+from app.services.tenant_access import require_tenant
+from app.services.catalog_access import may_view_device
+from app.services.billing_service import ensure_feature
 
 router = APIRouter(prefix="/api/v1", tags=["relevance"])
 
@@ -53,6 +56,7 @@ async def get_my_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user)
     service = OpportunityRelevanceService(db)
     organization_id = await service.get_current_organization_id(current_user)
     if not organization_id:
@@ -66,6 +70,7 @@ async def upsert_my_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
     service = OpportunityRelevanceService(db)
     organization_id = await service.get_current_organization_id(current_user)
     if not organization_id:
@@ -93,6 +98,7 @@ async def list_funding_projects(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user)
     service = OpportunityRelevanceService(db)
     organization_id = await service.get_current_organization_id(current_user)
     if not organization_id:
@@ -111,6 +117,7 @@ async def create_funding_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
     service = OpportunityRelevanceService(db)
     organization_id = await service.get_current_organization_id(current_user)
     if not organization_id:
@@ -141,6 +148,7 @@ async def update_funding_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
     service = OpportunityRelevanceService(db)
     organization_id = await service.get_current_organization_id(current_user)
     if not organization_id:
@@ -176,6 +184,7 @@ async def delete_funding_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
     service = OpportunityRelevanceService(db)
     organization_id = await service.get_current_organization_id(current_user)
     if not organization_id:
@@ -199,6 +208,8 @@ async def get_recommendations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user)
+    await ensure_feature(db, current_user, "smart_scoring")
     relevance_service = OpportunityRelevanceService(db)
     organization_id = await relevance_service.get_current_organization_id(current_user)
     if not organization_id:
@@ -206,6 +217,8 @@ async def get_recommendations(
 
     profile = await relevance_service.get_profile(organization_id)
     project = await relevance_service.get_project(organization_id, project_id)
+    if project_id is not None and project is None:
+        raise HTTPException(status_code=404, detail="Projet de financement introuvable.")
     if not profile and not project:
         raise HTTPException(
             status_code=400,
@@ -262,6 +275,8 @@ async def refresh_recommendations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
+    await ensure_feature(db, current_user, "smart_scoring")
     service = OpportunityRelevanceService(db)
     organization_id = await service.get_current_organization_id(current_user)
     if not organization_id:
@@ -269,6 +284,8 @@ async def refresh_recommendations(
 
     profile = await service.get_profile(organization_id)
     project = await service.get_project(organization_id, project_id)
+    if project_id is not None and project is None:
+        raise HTTPException(status_code=404, detail="Projet de financement introuvable.")
     params = DeviceSearchParams(
         countries=project.countries if project and project.countries else (profile.countries if profile else None),
         device_types=_recommendation_types(
@@ -308,8 +325,10 @@ async def get_device_relevance(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user)
+    await ensure_feature(db, current_user, "smart_scoring")
     device = await DeviceService(db).get_by_id(device_id)
-    if not device:
+    if not device or not may_view_device(device, current_user):
         raise HTTPException(status_code=404, detail="Opportunité introuvable.")
 
     service = OpportunityRelevanceService(db)
@@ -327,8 +346,10 @@ async def refresh_device_relevance(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
+    await ensure_feature(db, current_user, "smart_scoring")
     device = await DeviceService(db).get_by_id(device_id)
-    if not device:
+    if not device or not may_view_device(device, current_user):
         raise HTTPException(status_code=404, detail="Opportunité introuvable.")
 
     service = OpportunityRelevanceService(db)

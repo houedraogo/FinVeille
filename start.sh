@@ -15,10 +15,13 @@ if [ ! -f .env ]; then
   echo "✅  .env créé. Éditez-le avant de continuer si nécessaire."
 fi
 
-# Build et démarrage des conteneurs
+# Arrêter les processus existants avant toute migration.
+docker compose stop celery-worker celery-beat backend
+# La base et Redis démarrent seuls : aucun worker ne traite de tâches avant migration.
 echo ""
-echo "🐳 Démarrage des conteneurs Docker..."
-docker compose up -d --build
+echo "🐳 Démarrage de PostgreSQL et Redis..."
+docker compose up -d postgres redis
+docker compose build backend
 
 # Attente base de données
 echo ""
@@ -28,7 +31,10 @@ sleep 5
 # Migrations
 echo ""
 echo "📦 Application des migrations..."
-docker compose exec -T backend alembic upgrade head
+docker compose run --rm --no-deps backend python -m migrations.upgrade
+
+# L'API doit être prête avant les workers (depends_on: service_healthy).
+docker compose up -d --build
 
 # Seed
 echo ""

@@ -38,14 +38,14 @@ services:
     restart: unless-stopped
     env_file:
       - .env.production
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/ready"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -60,7 +60,7 @@ services:
       - .env.production
     command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q default,collect,alerts
     depends_on:
-      postgres:
+      backend:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
       - .env.production
     command: celery -A app.tasks.celery_app beat --loglevel=info
     depends_on:
-      postgres:
+      backend:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -121,7 +121,7 @@ services:
     volumes:
       - backups:/backups
       - ./scripts/backup-postgres.sh:/usr/local/bin/backup-postgres.sh:ro
-    command: sh -c "while true; do /usr/local/bin/backup-postgres.sh; sleep 86400; done"
+    command: sh -ec "while true; do sh /usr/local/bin/backup-postgres.sh; sleep 86400; done"
     depends_on:
       postgres:
         condition: service_healthy

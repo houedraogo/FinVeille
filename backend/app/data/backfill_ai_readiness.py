@@ -11,12 +11,13 @@ import json
 from collections import Counter
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.device import Device
 from app.models.source import Source
 from app.services.ai_readiness import compute_ai_readiness
+from app.schema_readiness import assert_schema_ready
 
 
 def _device_to_dict(device: Device) -> dict[str, Any]:
@@ -24,12 +25,7 @@ def _device_to_dict(device: Device) -> dict[str, Any]:
 
 
 async def ensure_columns() -> None:
-    async with AsyncSessionLocal() as db:
-        await db.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ai_readiness_score SMALLINT NOT NULL DEFAULT 0"))
-        await db.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ai_readiness_label VARCHAR(80) NULL"))
-        await db.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ai_readiness_reasons TEXT[] NULL"))
-        await db.execute(text("CREATE INDEX IF NOT EXISTS ix_devices_ai_readiness_label ON devices (ai_readiness_label)"))
-        await db.commit()
+    await assert_schema_ready()
 
 
 async def run(*, apply: bool = False, limit: int | None = None) -> dict[str, Any]:

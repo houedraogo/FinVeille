@@ -1,5 +1,5 @@
-﻿from datetime import datetime, timezone
-from uuid import UUID
+﻿from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user, require_role
-from app.models.billing import BillingCustomer, Plan, Subscription
+from app.models.billing import BillingCheckout, BillingCustomer, Plan, Subscription
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.billing import (
@@ -18,8 +18,9 @@ from app.schemas.billing import (
     PlanResponse,
     SubscriptionResponse,
 )
-from app.services.billing_service import get_billing_context, get_current_organization_id, record_usage
-from app.services.notification_service import NotificationService
+from app.services.billing_service import get_billing_context, record_usage
+from app.services.stripe_event_service import process_stripe_event, value
+from app.services.tenant_access import require_tenant
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
 
@@ -35,34 +36,13 @@ def _stripe():
     return stripe
 
 
-def _dt(timestamp: int | None) -> datetime | None:
-    if not timestamp:
-        return None
-    return datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
-
-
-def _obj_get(obj, key: str, default=None):
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
-
-
-def _uuid(value: str | None):
-    return UUID(str(value)) if value else None
-
-
-async def _get_plan_by_price(db: AsyncSession, price_id: str | None) -> Plan | None:
-    if not price_id:
-        return None
-    result = await db.execute(select(Plan).where(Plan.stripe_price_id == price_id))
-    return result.scalar_one_or_none()
-
-
 async def _get_or_create_customer(
     db: AsyncSession,
     stripe,
     organization_id,
     current_user: User,
+    *,
+    commit: bool = True,
 ) -> BillingCustomer:
     result = await db.execute(select(BillingCustomer).where(BillingCustomer.organization_id == organization_id))
     customer = result.scalar_one_or_none()
@@ -80,6 +60,7 @@ async def _get_or_create_customer(
             "user_id": str(current_user.id),
             "app": "kafundo",
         },
+        idempotency_key=f"kafundo-customer-{organization_id}",
     )
 
     if not customer:
@@ -93,58 +74,14 @@ async def _get_or_create_customer(
     else:
         customer.stripe_customer_id = stripe_customer.id
         customer.billing_email = current_user.email
-    await db.commit()
-    await db.refresh(customer)
+    if commit:
+        await db.commit()
+        await db.refresh(customer)
+    else:
+        await db.flush()
     return customer
 
 
-async def _upsert_subscription_from_stripe(db: AsyncSession, stripe_subscription) -> Subscription | None:
-    metadata = _obj_get(stripe_subscription, "metadata", {}) or {}
-    organization_id = metadata.get("organization_id")
-    customer_id = _obj_get(stripe_subscription, "customer", None)
-
-    if not organization_id and customer_id:
-        customer_result = await db.execute(
-            select(BillingCustomer).where(BillingCustomer.stripe_customer_id == customer_id)
-        )
-        customer = customer_result.scalar_one_or_none()
-        organization_id = str(customer.organization_id) if customer else None
-
-    if not organization_id:
-        return None
-
-    items = _obj_get(stripe_subscription, "items", None)
-    items_data = _obj_get(items, "data", []) if items else []
-    first_item = items_data[0] if items_data else None
-    price = _obj_get(first_item, "price", None) if first_item else None
-    price_id = _obj_get(price, "id", None) if price else None
-    plan = await _get_plan_by_price(db, price_id)
-    if not plan:
-        plan_result = await db.execute(select(Plan).where(Plan.slug == "free"))
-        plan = plan_result.scalar_one_or_none()
-    if not plan:
-        return None
-
-    result = await db.execute(select(Subscription).where(Subscription.organization_id == _uuid(organization_id)))
-    subscription = result.scalar_one_or_none()
-    values = {
-        "plan_id": plan.id,
-        "status": _obj_get(stripe_subscription, "status", "active"),
-        "stripe_subscription_id": _obj_get(stripe_subscription, "id"),
-        "current_period_start": _dt(_obj_get(stripe_subscription, "current_period_start", None)),
-        "current_period_end": _dt(_obj_get(stripe_subscription, "current_period_end", None)),
-    }
-
-    if subscription:
-        for field, value in values.items():
-            setattr(subscription, field, value)
-    else:
-        subscription = Subscription(organization_id=_uuid(organization_id), **values)
-        db.add(subscription)
-
-    await db.commit()
-    await db.refresh(subscription)
-    return subscription
 
 
 @router.get("/plans", response_model=list[PlanResponse])
@@ -158,6 +95,7 @@ async def get_subscription(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user)
     context = await get_billing_context(db, current_user)
     return SubscriptionResponse(
         plan=context.plan,
@@ -176,6 +114,7 @@ async def create_checkout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization_id = await require_tenant(db, current_user, "billing")
     result = await db.execute(select(Plan).where(Plan.slug == data.plan_slug, Plan.is_active == True))
     plan = result.scalar_one_or_none()
     if not plan:
@@ -189,12 +128,30 @@ async def create_checkout(
     if not plan.stripe_price_id:
         raise HTTPException(status_code=503, detail=f"stripe_price_id manquant pour le plan {plan.slug}.")
 
-    organization_id = await get_current_organization_id(db, current_user)
-    if not organization_id:
-        raise HTTPException(status_code=400, detail="Creez une organisation avant de souscrire a un plan.")
-
     stripe = _stripe()
-    customer = await _get_or_create_customer(db, stripe, organization_id, current_user)
+    await db.execute(select(Organization.id).where(Organization.id == organization_id).with_for_update())
+    existing = (await db.execute(select(Subscription).where(
+        Subscription.organization_id == organization_id,
+    ))).scalar_one_or_none()
+    if existing and existing.status not in {"canceled", "incomplete_expired"}:
+        current_plan = (await db.execute(select(Plan).where(Plan.id == existing.plan_id))).scalar_one_or_none()
+        if existing.stripe_subscription_id or not current_plan or current_plan.slug != "free":
+            raise HTTPException(status_code=409, detail="Un abonnement existe déjà ; utilisez le portail de facturation.")
+
+    pending = (await db.execute(select(BillingCheckout).where(
+        BillingCheckout.organization_id == organization_id,
+    ))).scalar_one_or_none()
+    customer = await _get_or_create_customer(db, stripe, organization_id, current_user, commit=False)
+    # A stale local row cannot authorize a second remote paid subscription.
+    remote = stripe.Subscription.list(customer=customer.stripe_customer_id, status="all", limit=100)
+    if value(remote, "has_more", False):
+        raise HTTPException(status_code=409, detail="Historique Stripe à réconcilier avant checkout.")
+    if any(value(item, "status") not in {"canceled", "incomplete_expired"} for item in (value(remote, "data", []) or [])):
+        raise HTTPException(status_code=409, detail="Un abonnement Stripe existe déjà ; utilisez le portail.")
+    if pending and pending.expires_at > datetime.now(timezone.utc):
+        if pending.plan_id != plan.id:
+            raise HTTPException(status_code=409, detail="Un checkout est déjà en cours pour un autre plan.")
+        return CheckoutResponse(checkout_url=pending.checkout_url, configured=True, message="Session Stripe Checkout existante.")
     session = stripe.checkout.Session.create(
         mode="subscription",
         customer=customer.stripe_customer_id,
@@ -205,7 +162,20 @@ async def create_checkout(
         allow_promotion_codes=True,
         metadata={"organization_id": str(organization_id), "plan_slug": plan.slug},
         subscription_data={"metadata": {"organization_id": str(organization_id), "plan_slug": plan.slug}},
+        idempotency_key=f"kafundo-{organization_id}-{plan.id}-{uuid4()}",
     )
+    expires = value(session, "expires_at")
+    expires_at = datetime.fromtimestamp(expires, timezone.utc) if expires else datetime.now(timezone.utc) + timedelta(minutes=30)
+    if pending:
+        pending.plan_id = plan.id
+        pending.stripe_session_id = session.id
+        pending.checkout_url = session.url
+        pending.expires_at = expires_at
+    else:
+        db.add(BillingCheckout(
+            organization_id=organization_id, plan_id=plan.id,
+            stripe_session_id=session.id, checkout_url=session.url, expires_at=expires_at,
+        ))
 
     await record_usage(
         db,
@@ -222,9 +192,7 @@ async def open_billing_portal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    organization_id = await get_current_organization_id(db, current_user)
-    if not organization_id:
-        raise HTTPException(status_code=400, detail="Aucune organisation active.")
+    organization_id = await require_tenant(db, current_user, "billing")
 
     stripe = _stripe()
     customer = await _get_or_create_customer(db, stripe, organization_id, current_user)
@@ -274,65 +242,15 @@ async def sync_stripe_products(
 
 @router.post("/webhook/stripe")
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    stripe = _stripe()
-    payload = await request.body()
+    if not settings.STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook Stripe non configuré.")
     signature = request.headers.get("stripe-signature")
-
-    if settings.STRIPE_WEBHOOK_SECRET:
-        try:
-            event = stripe.Webhook.construct_event(payload, signature, settings.STRIPE_WEBHOOK_SECRET)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Signature Stripe invalide : {exc}") from exc
-    else:
-        event = await request.json()
-
-    event_type = event.get("type", "unknown")
-    data = event.get("data", {}).get("object", {})
-
-    if event_type == "checkout.session.completed":
-        customer_id = data.get("customer")
-        subscription_id = data.get("subscription")
-        organization_id = (data.get("metadata") or {}).get("organization_id") or data.get("client_reference_id")
-        if customer_id and organization_id:
-            result = await db.execute(select(BillingCustomer).where(BillingCustomer.organization_id == _uuid(organization_id)))
-            customer = result.scalar_one_or_none()
-            if not customer:
-                db.add(BillingCustomer(organization_id=_uuid(organization_id), stripe_customer_id=customer_id, metadata_json={"created_from": "webhook"}))
-            else:
-                customer.stripe_customer_id = customer_id
-            await db.commit()
-
-            # Notifier l'admin du nouvel abonnement
-            try:
-                org_result = await db.execute(
-                    select(Organization).where(Organization.id == _uuid(organization_id))
-                )
-                org = org_result.scalar_one_or_none()
-                plan_name = (data.get("metadata") or {}).get("plan", "inconnu")
-                user_email = data.get("customer_email") or data.get("customer_details", {}).get("email", "—")
-                user_name = org.name if org else ""
-                NotificationService.notify_admin_new_subscription(
-                    user_email=user_email,
-                    user_name=user_name,
-                    plan=plan_name,
-                )
-            except Exception:
-                pass
-
-        if subscription_id:
-            stripe_subscription = stripe.Subscription.retrieve(subscription_id)
-            await _upsert_subscription_from_stripe(db, stripe_subscription)
-
-    if event_type in {"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"}:
-        await _upsert_subscription_from_stripe(db, data)
-
-    if event_type == "invoice.payment_failed":
-        subscription_id = data.get("subscription")
-        if subscription_id:
-            result = await db.execute(select(Subscription).where(Subscription.stripe_subscription_id == subscription_id))
-            subscription = result.scalar_one_or_none()
-            if subscription:
-                subscription.status = "past_due"
-                await db.commit()
-
-    return {"received": True, "type": event_type}
+    if not signature:
+        raise HTTPException(status_code=400, detail="Signature Stripe requise.")
+    stripe = _stripe()
+    try:
+        event = stripe.Webhook.construct_event(await request.body(), signature, settings.STRIPE_WEBHOOK_SECRET)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Signature Stripe invalide.") from exc
+    outcome = await process_stripe_event(db, stripe, event)
+    return {"received": True, "type": value(event, "type", "unknown"), "outcome": outcome}

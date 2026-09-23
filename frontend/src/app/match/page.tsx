@@ -9,10 +9,10 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { billing } from "@/lib/api";
+import { scopedMatchStorageKey } from "@/lib/sensitive-storage";
 import { formatDate, hasReliableCloseDate } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const MATCH_STORAGE_KEY = "kafundo_match_state";
 
 const DEVICE_TYPE_LABELS: Record<string, string> = {
   subvention: "Subvention", pret: "Prêt", aap: "Appel à projets",
@@ -107,11 +107,13 @@ export default function MatchPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const persistMatchState = useCallback((nextState: MatchPageState | null) => {
+    const matchKey = scopedMatchStorageKey();
+    if (!matchKey) return;
     if (!nextState || (!nextState.fileName && !nextState.result && !nextState.error && nextState.step === "idle")) {
-      localStorage.removeItem(MATCH_STORAGE_KEY);
+      localStorage.removeItem(matchKey);
       return;
     }
-    localStorage.setItem(MATCH_STORAGE_KEY, JSON.stringify(nextState));
+    localStorage.setItem(matchKey, JSON.stringify(nextState));
   }, []);
 
   useEffect(() => {
@@ -119,7 +121,8 @@ export default function MatchPage() {
       .then((subscription: any) => setMatchingAllowed(!!subscription?.features?.matching_ai))
       .catch(() => setMatchingAllowed(true));
 
-    const rawState = localStorage.getItem(MATCH_STORAGE_KEY);
+    const matchKey = scopedMatchStorageKey();
+    const rawState = matchKey ? localStorage.getItem(matchKey) : null;
     if (!rawState) return;
 
     try {
@@ -130,7 +133,7 @@ export default function MatchPage() {
       setError(savedState.error);
       setStep(isMatchResult(savedState.result) ? savedState.step : "idle");
     } catch {
-      localStorage.removeItem(MATCH_STORAGE_KEY);
+      if (matchKey) localStorage.removeItem(matchKey);
     }
   }, []);
 
@@ -165,7 +168,8 @@ export default function MatchPage() {
     setResult(null);
     setError(null);
     setStep("idle");
-    localStorage.removeItem(MATCH_STORAGE_KEY);
+    const matchKey = scopedMatchStorageKey();
+    if (matchKey) localStorage.removeItem(matchKey);
   };
 
   const onDrop = useCallback((e: React.DragEvent) => {

@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.device import DeviceResponse
 
@@ -36,6 +36,7 @@ class OrganizationProfileResponse(OrganizationProfilePayload):
 
 
 class FundingProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=2, max_length=255)
     summary: Optional[str] = None
     countries: Optional[list[str]] = None

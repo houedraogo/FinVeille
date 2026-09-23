@@ -1,0 +1,2686 @@
+{
+  "alerts": {
+    "columns": {
+      "alert_types": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "channels": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "criteria": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "frequency": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(20)"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "is_active": {
+        "nullable": true,
+        "server_default": null,
+        "type": "BOOLEAN"
+      },
+      "last_triggered_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "name": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_alerts_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_alerts_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "audit_logs": {
+    "columns": {
+      "action": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(160)"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "ip_address": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(80)"
+      },
+      "metadata_json": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "resource_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(160)"
+      },
+      "resource_type": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(120)"
+      },
+      "user_agent": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "user_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "action"
+        ],
+        "name": "ix_audit_logs_action",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "created_at"
+        ],
+        "name": "ix_audit_logs_created_at",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_audit_logs_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_audit_logs_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "billing_customers": {
+    "columns": {
+      "billing_email": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "metadata_json": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "organization_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "stripe_customer_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_billing_customers_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "stripe_customer_id"
+        ],
+        "name": "ix_billing_customers_stripe_customer_id",
+        "unique": true,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "uq_billing_customer_organization"
+      }
+    ]
+  },
+  "collection_logs": {
+    "columns": {
+      "details": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "ended_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "error_message": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "items_error": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "items_found": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "items_new": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "items_skipped": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "items_updated": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "source_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "started_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "source_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "sources"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "source_id"
+        ],
+        "name": "ix_collection_logs_source_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "started_at"
+        ],
+        "name": "ix_collection_logs_started_at",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "data_exports": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "download_token": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "expires_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "export_type": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(80)"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "payload": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "created_at"
+        ],
+        "name": "ix_data_exports_created_at",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "download_token"
+        ],
+        "name": "ix_data_exports_download_token",
+        "unique": true,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_data_exports_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "deletion_requests": {
+    "columns": {
+      "completed_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "reason": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "scheduled_for": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "created_at"
+        ],
+        "name": "ix_deletion_requests_created_at",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_deletion_requests_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "device_history": {
+    "columns": {
+      "change_type": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "changed_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "changed_by": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "device_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "diff": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "source_hash": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(64)"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "device_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "devices"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "changed_at"
+        ],
+        "name": "ix_device_history_changed_at",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "device_id"
+        ],
+        "name": "ix_device_history_device_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "device_pipeline": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "device_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "documents": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "match_project_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "note": {
+        "nullable": false,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "pipeline_status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(80)"
+      },
+      "priority": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(20)"
+      },
+      "reminder_date": {
+        "nullable": true,
+        "server_default": null,
+        "type": "DATE"
+      },
+      "snapshot": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "device_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "devices"
+      },
+      {
+        "column": "match_project_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "match_projects"
+      },
+      {
+        "column": "organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "device_id"
+        ],
+        "name": "ix_device_pipeline_device_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "match_project_id"
+        ],
+        "name": "ix_device_pipeline_match_project_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_device_pipeline_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_device_pipeline_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "user_id",
+          "device_id"
+        ],
+        "name": "uq_device_pipeline_user_device"
+      }
+    ]
+  },
+  "device_relevance_cache": {
+    "columns": {
+      "computed_at": {
+        "nullable": false,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "decision_hint": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "device_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "eligibility_confidence": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(40)"
+      },
+      "funding_project_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "priority_level": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(40)"
+      },
+      "reason_codes": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "reason_texts": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "relevance_label": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(120)"
+      },
+      "relevance_score": {
+        "nullable": false,
+        "server_default": null,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "device_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "devices"
+      },
+      {
+        "column": "funding_project_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "funding_projects"
+      },
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "device_id"
+        ],
+        "name": "ix_device_relevance_cache_device_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "funding_project_id"
+        ],
+        "name": "ix_device_relevance_cache_funding_project_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_device_relevance_cache_organization_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "device_id",
+          "organization_id",
+          "funding_project_id"
+        ],
+        "name": "uq_device_relevance_cache_scope"
+      }
+    ]
+  },
+  "devices": {
+    "columns": {
+      "ai_readiness_label": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(80)"
+      },
+      "ai_readiness_reasons": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "ai_readiness_score": {
+        "nullable": true,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "ai_rewrite_checked_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "ai_rewrite_model": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(120)"
+      },
+      "ai_rewrite_status": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "ai_rewritten_sections_json": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "aid_nature": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "amount_max": {
+        "nullable": true,
+        "server_default": null,
+        "type": "NUMERIC(15, 2)"
+      },
+      "amount_min": {
+        "nullable": true,
+        "server_default": null,
+        "type": "NUMERIC(15, 2)"
+      },
+      "auto_summary": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "beneficiaries": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "close_date": {
+        "nullable": true,
+        "server_default": null,
+        "type": "DATE"
+      },
+      "completeness_score": {
+        "nullable": true,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "confidence_score": {
+        "nullable": true,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "content_sections_json": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "country": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "currency": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(10)"
+      },
+      "decision_analysis": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "decision_analyzed_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "device_type": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "eligibility_criteria": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "eligible_expenses": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "first_seen_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "full_description": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "funding_details": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "funding_rate": {
+        "nullable": true,
+        "server_default": null,
+        "type": "NUMERIC(5, 2)"
+      },
+      "geographic_scope": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "is_recurring": {
+        "nullable": true,
+        "server_default": null,
+        "type": "BOOLEAN"
+      },
+      "keywords": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "language": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(10)"
+      },
+      "last_verified_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "open_date": {
+        "nullable": true,
+        "server_default": null,
+        "type": "DATE"
+      },
+      "organism": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "organism_type": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "recurrence_notes": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "region": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(200)"
+      },
+      "relevance_score": {
+        "nullable": true,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "required_documents": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "search_vector": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TSVECTOR"
+      },
+      "sectors": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "short_description": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "slug": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(300)"
+      },
+      "source_hash": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(64)"
+      },
+      "source_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "source_raw": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "source_url": {
+        "nullable": false,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "specific_conditions": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "tags": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "title": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(500)"
+      },
+      "title_normalized": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(500)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "user_quality_decision": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "user_quality_reasons": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "user_quality_score": {
+        "nullable": true,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "validated_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "validated_by": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "validation_status": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "zone": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(200)"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "source_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "sources"
+      },
+      {
+        "column": "validated_by",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "beneficiaries"
+        ],
+        "name": "idx_devices_beneficiaries",
+        "unique": false,
+        "using": "gin"
+      },
+      {
+        "columns": [
+          "keywords"
+        ],
+        "name": "idx_devices_keywords",
+        "unique": false,
+        "using": "gin"
+      },
+      {
+        "columns": [
+          "search_vector"
+        ],
+        "name": "idx_devices_search_vector",
+        "unique": false,
+        "using": "gin"
+      },
+      {
+        "columns": [
+          "sectors"
+        ],
+        "name": "idx_devices_sectors",
+        "unique": false,
+        "using": "gin"
+      },
+      {
+        "columns": [
+          "ai_rewrite_status"
+        ],
+        "name": "ix_devices_ai_rewrite_status",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "close_date"
+        ],
+        "name": "ix_devices_close_date",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "country"
+        ],
+        "name": "ix_devices_country",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "device_type"
+        ],
+        "name": "ix_devices_device_type",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "source_id"
+        ],
+        "name": "ix_devices_source_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "status"
+        ],
+        "name": "ix_devices_status",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "validation_status"
+        ],
+        "name": "ix_devices_validation_status",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "slug"
+        ],
+        "name": null
+      }
+    ]
+  },
+  "email_events": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "email": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "error_message": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "metadata_json": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "provider_message_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "subject": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "template": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(120)"
+      },
+      "user_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "user_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "created_at"
+        ],
+        "name": "ix_email_events_created_at",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "email"
+        ],
+        "name": "ix_email_events_email",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_email_events_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "favorite_devices": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "device_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "snapshot": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "device_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "devices"
+      },
+      {
+        "column": "organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "device_id"
+        ],
+        "name": "ix_favorite_devices_device_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_favorite_devices_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_favorite_devices_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "user_id",
+          "device_id"
+        ],
+        "name": "uq_favorite_device_user_device"
+      }
+    ]
+  },
+  "funding_projects": {
+    "columns": {
+      "beneficiaries": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "budget_max": {
+        "nullable": true,
+        "server_default": null,
+        "type": "NUMERIC(15, 2)"
+      },
+      "budget_min": {
+        "nullable": true,
+        "server_default": null,
+        "type": "NUMERIC(15, 2)"
+      },
+      "countries": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "created_by_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "is_primary": {
+        "nullable": false,
+        "server_default": null,
+        "type": "BOOLEAN"
+      },
+      "name": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "organization_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "sectors": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "summary": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "target_funding_types": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "timeline_months": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "created_by_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "users"
+      },
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "created_by_id"
+        ],
+        "name": "ix_funding_projects_created_by_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_funding_projects_organization_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "invitations": {
+    "columns": {
+      "accepted_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "email": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "expires_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "invited_by_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "role": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "token": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "invited_by_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "users"
+      },
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "email"
+        ],
+        "name": "ix_invitations_email",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_invitations_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "token"
+        ],
+        "name": "ix_invitations_token",
+        "unique": true,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "match_projects": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "file_name": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(500)"
+      },
+      "file_size": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "result": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_match_projects_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_match_projects_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "organization_members": {
+    "columns": {
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "is_active": {
+        "nullable": false,
+        "server_default": null,
+        "type": "BOOLEAN"
+      },
+      "joined_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "organization_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "role": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_organization_members_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_organization_members_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "organization_id",
+          "user_id"
+        ],
+        "name": "uq_organization_member_user"
+      }
+    ]
+  },
+  "organization_profiles": {
+    "columns": {
+      "annual_budget_range": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(80)"
+      },
+      "countries": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "currency": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(10)"
+      },
+      "description": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "development_stage": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "legal_form": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(120)"
+      },
+      "organization_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_type": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(80)"
+      },
+      "preferred_ticket_max": {
+        "nullable": true,
+        "server_default": null,
+        "type": "NUMERIC(15, 2)"
+      },
+      "preferred_ticket_min": {
+        "nullable": true,
+        "server_default": null,
+        "type": "NUMERIC(15, 2)"
+      },
+      "regions": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "sectors": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "strategic_priorities": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "target_funding_types": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT[]"
+      },
+      "team_size": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "website": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(500)"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_organization_profiles_organization_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "uq_organization_profile_organization"
+      }
+    ]
+  },
+  "organizations": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "created_by_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "name": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "plan": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "slug": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "created_by_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "slug"
+        ],
+        "name": "ix_organizations_slug",
+        "unique": true,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "password_reset_tokens": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "expires_at": {
+        "nullable": false,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "token_hash": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "used_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "token_hash"
+        ],
+        "name": "ix_password_reset_tokens_token_hash",
+        "unique": true,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_password_reset_tokens_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "plans": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "currency": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(10)"
+      },
+      "description": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "features": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "is_active": {
+        "nullable": false,
+        "server_default": null,
+        "type": "BOOLEAN"
+      },
+      "limits": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "name": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(120)"
+      },
+      "price_monthly_eur": {
+        "nullable": false,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "slug": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(80)"
+      },
+      "sort_order": {
+        "nullable": false,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "stripe_price_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      }
+    },
+    "foreign_keys": [],
+    "indexes": [
+      {
+        "columns": [
+          "slug"
+        ],
+        "name": "ix_plans_slug",
+        "unique": true,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "saved_searches": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "name": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "path": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "query": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "result_count": {
+        "nullable": true,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "title": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_saved_searches_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_saved_searches_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "sources": {
+    "columns": {
+      "category": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(20)"
+      },
+      "check_frequency": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "collection_mode": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "config": {
+        "nullable": true,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "consecutive_errors": {
+        "nullable": true,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "country": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "is_active": {
+        "nullable": false,
+        "server_default": null,
+        "type": "BOOLEAN"
+      },
+      "last_checked_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "last_success_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "level": {
+        "nullable": false,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "name": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "notes": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TEXT"
+      },
+      "organism": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "region": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "reliability": {
+        "nullable": false,
+        "server_default": null,
+        "type": "SMALLINT"
+      },
+      "source_type": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "url": {
+        "nullable": false,
+        "server_default": null,
+        "type": "TEXT"
+      }
+    },
+    "foreign_keys": [],
+    "indexes": [
+      {
+        "columns": [
+          "category"
+        ],
+        "name": "ix_sources_category",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "country"
+        ],
+        "name": "ix_sources_country",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "is_active"
+        ],
+        "name": "ix_sources_is_active",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "level"
+        ],
+        "name": "ix_sources_level",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "subscriptions": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "current_period_end": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "current_period_start": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "plan_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "status": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "stripe_subscription_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "plan_id",
+        "ondelete": "RESTRICT",
+        "target_column": "id",
+        "target_table": "plans"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_subscriptions_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "plan_id"
+        ],
+        "name": "ix_subscriptions_plan_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "uq_subscription_organization"
+      }
+    ]
+  },
+  "usage_events": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "event_metadata": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "event_type": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(120)"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "quantity": {
+        "nullable": false,
+        "server_default": null,
+        "type": "INTEGER"
+      },
+      "user_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "event_type"
+        ],
+        "name": "ix_usage_events_event_type",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_usage_events_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_usage_events_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": []
+  },
+  "user_preferences": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "preferences": {
+        "nullable": false,
+        "server_default": null,
+        "type": "JSON"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "user_id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      },
+      {
+        "column": "user_id",
+        "ondelete": "CASCADE",
+        "target_column": "id",
+        "target_table": "users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "organization_id"
+        ],
+        "name": "ix_user_preferences_organization_id",
+        "unique": false,
+        "using": false
+      },
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "ix_user_preferences_user_id",
+        "unique": false,
+        "using": false
+      }
+    ],
+    "uniques": [
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "uq_user_preferences_user"
+      }
+    ]
+  },
+  "users": {
+    "columns": {
+      "country": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(100)"
+      },
+      "created_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "default_organization_id": {
+        "nullable": true,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "email": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "full_name": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "server_default": null,
+        "type": "UUID"
+      },
+      "is_active": {
+        "nullable": false,
+        "server_default": null,
+        "type": "BOOLEAN"
+      },
+      "last_login_at": {
+        "nullable": true,
+        "server_default": null,
+        "type": "TIMESTAMP WITH TIME ZONE"
+      },
+      "password_hash": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(255)"
+      },
+      "platform_role": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "role": {
+        "nullable": false,
+        "server_default": null,
+        "type": "VARCHAR(50)"
+      },
+      "sectors": {
+        "nullable": true,
+        "server_default": null,
+        "type": "VARCHAR(500)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "server_default": "now()",
+        "type": "TIMESTAMP WITH TIME ZONE"
+      }
+    },
+    "foreign_keys": [
+      {
+        "column": "default_organization_id",
+        "ondelete": "SET NULL",
+        "target_column": "id",
+        "target_table": "organizations"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "email"
+        ],
+        "name": "ix_users_email",
+        "unique": true,
+        "using": false
+      }
+    ],
+    "uniques": []
+  }
+}

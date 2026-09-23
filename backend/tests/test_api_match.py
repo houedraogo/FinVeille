@@ -7,6 +7,9 @@ def bypass_feature_gate(monkeypatch):
         return None
 
     monkeypatch.setattr("app.routers.match.ensure_feature", allow_feature)
+    # These unit tests exercise upload validation and response shaping. Tenant
+    # authorization is covered with real memberships in the PostgreSQL suite.
+    monkeypatch.setattr("app.routers.match.require_tenant", allow_feature)
 
 
 def test_match_rejects_unsupported_extension(client):

@@ -12,13 +12,22 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.device import Device
+from app.models.alert import AlertDelivery
+from app.models.device_history import DeviceHistory
+from app.models.relevance import DeviceRelevanceCache
+from app.models.workspace import DevicePipeline, FavoriteDevice
 from app.utils.text_utils import normalize_title
 
 logger = logging.getLogger(__name__)
+
+_DEVICE_REFERENCE_TABLES = {
+    "device_pipeline", "favorite_devices", "device_history", "device_relevance_cache",
+    "alert_deliveries",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +77,54 @@ def _merge_fields(canonical: Device, dup: Device) -> bool:
 class DedupService:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def _transfer_references(self, canonical_id, duplicate_ids):
+        """Move every known FK; refuse ambiguous unique-key collisions before changing data."""
+        # Check the *live* schema too: a newly added FK must never be silently cascaded.
+        tables = set((await self.db.execute(text("""
+            SELECT DISTINCT conrelid::regclass::text
+            FROM pg_constraint
+            WHERE contype = 'f' AND confrelid = 'devices'::regclass
+        """))).scalars())
+        if tables != _DEVICE_REFERENCE_TABLES:
+            raise ValueError(f"Relations de dispositif non prises en charge: {sorted(tables ^ _DEVICE_REFERENCE_TABLES)}")
+
+        all_ids = [canonical_id, *duplicate_ids]
+        for model, scope in (
+            (DevicePipeline, lambda row: row.user_id),
+            (FavoriteDevice, lambda row: row.user_id),
+            (DeviceRelevanceCache, lambda row: (row.organization_id, row.funding_project_id)),
+        ):
+            rows = (await self.db.execute(
+                select(model).where(model.device_id.in_(all_ids)).with_for_update()
+            )).scalars().all()
+            seen = set()
+            for row in rows:
+                key = scope(row)
+                if key in seen:
+                    raise ValueError(
+                        f"Fusion reportée: deux relations {model.__tablename__} partagent le même périmètre {key}"
+                    )
+                seen.add(key)
+
+        for model in (DevicePipeline, FavoriteDevice, DeviceHistory, DeviceRelevanceCache):
+            await self.db.execute(
+                update(model).where(model.device_id.in_(duplicate_ids)).values(device_id=canonical_id)
+            )
+        # Preserve confirmation even when both copies were already sent for
+        # the same alert; the composite key permits only one canonical row.
+        deliveries = (await self.db.execute(select(AlertDelivery).where(
+            AlertDelivery.device_id.in_(all_ids),
+        ).with_for_update())).scalars().all()
+        canonical_alerts = {row.alert_id for row in deliveries if row.device_id == canonical_id}
+        for row in deliveries:
+            if row.device_id == canonical_id:
+                continue
+            if row.alert_id not in canonical_alerts:
+                self.db.add(AlertDelivery(alert_id=row.alert_id, device_id=canonical_id, sent_at=row.sent_at))
+                canonical_alerts.add(row.alert_id)
+            await self.db.delete(row)
+        await self.db.flush()
 
     # ------------------------------------------------------------------ #
     # Détection                                                            #
@@ -152,11 +209,14 @@ class DedupService:
         - Supprime les doublons
         """
         # Charger toutes les fiches avec leurs données complètes
-        result = await self.db.execute(select(Device))
-        devices: List[Device] = list(result.scalars().all())
+        result = await self.db.execute(select(
+            Device.id, Device.title_normalized, Device.country,
+            Device.completeness_score, Device.created_at,
+        ))
+        devices = result.all()
 
         # Groupement
-        groups: Dict[str, List[Device]] = defaultdict(list)
+        groups: Dict[str, List] = defaultdict(list)
         for d in devices:
             key = _device_key(d.title_normalized, d.country)
             if key == "|":
@@ -166,7 +226,7 @@ class DedupService:
         merged_groups = 0
         deleted_count = 0
         enriched_count = 0
-        ids_to_delete: List = []
+        skipped_groups = 0
 
         for key, devs in groups.items():
             if len(devs) < 2:
@@ -179,33 +239,21 @@ class DedupService:
             canonical = devs[0]
             duplicates = devs[1:]
 
-            enriched = False
-            for dup in duplicates:
-                if _merge_fields(canonical, dup):
-                    enriched = True
-                ids_to_delete.append(dup.id)
-                deleted_count += 1
-
-            if enriched:
-                canonical.updated_at = datetime.now(timezone.utc)
-                enriched_count += 1
-
+            try:
+                result = await self.merge_group(str(canonical.id), [str(d.id) for d in duplicates])
+            except ValueError as exc:
+                skipped_groups += 1
+                logger.warning("[Dedup] Groupe %s conservé: %s", key, exc)
+                continue
             merged_groups += 1
-
-        if ids_to_delete:
-            await self.db.execute(
-                delete(Device).where(Device.id.in_(ids_to_delete))
-            )
-            await self.db.commit()
-            logger.info(
-                f"[Dedup] {deleted_count} doublons supprimés "
-                f"({merged_groups} groupes, {enriched_count} fiches enrichies)"
-            )
+            deleted_count += result["deleted"]
+            enriched_count += int(result["enriched"])
 
         return {
             "merged_groups":  merged_groups,
             "deleted":        deleted_count,
             "enriched":       enriched_count,
+            "skipped_groups": skipped_groups,
             "message": (
                 f"{deleted_count} doublon(s) supprimé(s) "
                 f"dans {merged_groups} groupe(s) — "
@@ -222,27 +270,31 @@ class DedupService:
         Fusionne manuellement : conserve `canonical_id`, supprime `duplicate_ids`.
         Transfère les champs utiles avant suppression.
         """
-        # Charger le canonical
-        r = await self.db.execute(select(Device).where(Device.id == canonical_id))
-        canonical = r.scalar_one_or_none()
-        if not canonical:
-            raise ValueError(f"Dispositif {canonical_id} introuvable")
-
-        enriched = False
-        deleted = 0
-        for dup_id in duplicate_ids:
-            r2 = await self.db.execute(select(Device).where(Device.id == dup_id))
-            dup = r2.scalar_one_or_none()
-            if dup and str(dup.id) != canonical_id:
+        try:
+            ids = list(dict.fromkeys([canonical_id, *(d for d in duplicate_ids if d != canonical_id)]))
+            rows = (await self.db.execute(
+                select(Device).where(Device.id.in_(ids)).order_by(Device.id).with_for_update()
+            )).scalars().all()
+            by_id = {str(device.id): device for device in rows}
+            canonical = by_id.get(canonical_id)
+            if canonical is None:
+                raise ValueError(f"Dispositif {canonical_id} introuvable")
+            duplicates = [by_id[device_id] for device_id in ids[1:] if device_id in by_id]
+            if duplicates:
+                await self._transfer_references(canonical.id, [device.id for device in duplicates])
+            enriched = False
+            for dup in duplicates:
                 if _merge_fields(canonical, dup):
                     enriched = True
+            if enriched:
+                canonical.updated_at = datetime.now(timezone.utc)
+            for dup in duplicates:
                 await self.db.delete(dup)
-                deleted += 1
-
-        if enriched:
-            canonical.updated_at = datetime.now(timezone.utc)
-
-        await self.db.commit()
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        deleted = len(duplicates)
         return {
             "canonical_id": canonical_id,
             "deleted":      deleted,

@@ -38,3 +38,13 @@ class Alert(Base):
     last_triggered_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AlertDelivery(Base):
+    """One confirmed email delivery of a device for an instant alert."""
+
+    __tablename__ = "alert_deliveries"
+
+    alert_id = Column(UUID(as_uuid=True), ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True)
+    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    sent_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

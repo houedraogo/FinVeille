@@ -1,8 +1,9 @@
 from datetime import date, timedelta, timezone, datetime
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +12,9 @@ from app.dependencies import get_current_user
 from app.models.device import Device
 from app.models.project import UserProject
 from app.models.user import User
+from app.services.catalog_access import public_device_condition
+from app.services.tenant_access import require_tenant
+from app.services.billing_service import ensure_feature, get_billing_context
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
@@ -19,6 +23,8 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 # ---------------------------------------------------------------------------
 
 class ProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     description: Optional[str] = None
     sectors: List[str] = []
@@ -31,6 +37,8 @@ class ProjectCreate(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = None
     description: Optional[str] = None
     sectors: Optional[List[str]] = None
@@ -105,7 +113,7 @@ async def _run_match(db: AsyncSession, project: UserProject) -> dict:
         select(Device).where(
             and_(
                 Device.status == "open",
-                Device.validation_status != "rejected",
+                public_device_condition(),
             )
         ).limit(500)
     )
@@ -221,6 +229,39 @@ def _serialize(p: UserProject) -> dict:
     }
 
 
+async def _safe_matches(db: AsyncSession, project: UserProject) -> list[dict]:
+    """Old cached matches may contain unpublished devices; verify at read time."""
+    cached = list(project.cached_matches or [])
+    parsed = []
+    for match in cached:
+        try:
+            parsed.append((match, UUID(str(match.get("id")))))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    if not parsed:
+        return []
+    result = await db.execute(select(Device.id).where(
+        Device.id.in_([device_id for _, device_id in parsed]), public_device_condition()
+    ))
+    visible = set(result.scalars().all())
+    return [match for match, device_id in parsed if device_id in visible]
+
+
+async def _serialize_safe(db: AsyncSession, project: UserProject, *, matching_enabled: bool = True) -> dict:
+    output = _serialize(project)
+    if not matching_enabled:
+        output["cached_matches"] = []
+        output["match_score"] = 0.0
+        output["matched_at"] = None
+        return output
+    output["cached_matches"] = await _safe_matches(db, project)
+    # Legacy scores may have been computed from private devices. Recompute the
+    # displayed value from the visible cache instead of exposing that signal.
+    top = output["cached_matches"][:5]
+    output["match_score"] = round(sum(float(match.get("score") or 0) for match in top) / len(top), 1) if top else 0.0
+    return output
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -230,12 +271,14 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user)
     result = await db.execute(
         select(UserProject)
-        .where(UserProject.user_id == current_user.id)
+        .where(UserProject.user_id == current_user.id, UserProject.organization_id == org_id)
         .order_by(UserProject.updated_at.desc())
     )
-    return [_serialize(p) for p in result.scalars().all()]
+    matching_enabled = bool((await get_billing_context(db, current_user)).plan.features.get("matching_ai"))
+    return [await _serialize_safe(db, p, matching_enabled=matching_enabled) for p in result.scalars().all()]
 
 
 @router.post("/", status_code=201)
@@ -244,9 +287,11 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = await require_tenant(db, current_user, "write")
+    matching_enabled = bool((await get_billing_context(db, current_user)).plan.features.get("matching_ai"))
     project = UserProject(
         user_id=current_user.id,
-        organization_id=getattr(current_user, "organization_id", None),
+        organization_id=org_id,
         **body.model_dump(),
     )
     db.add(project)
@@ -254,14 +299,17 @@ async def create_project(
     await db.refresh(project)
 
     # Lance le matching immédiatement
-    match_result = await _run_match(db, project)
+    match_result = await _run_match(db, project) if matching_enabled else {
+        "matches": [], "global_score": 0.0, "total_compatible": 0,
+        "potential_funding": 0, "next_actions": [],
+    }
     project.cached_matches = match_result["matches"]
     project.match_score = match_result["global_score"]
     project.matched_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(project)
 
-    out = _serialize(project)
+    out = await _serialize_safe(db, project, matching_enabled=matching_enabled)
     out["match_summary"] = match_result
     return out
 
@@ -273,17 +321,18 @@ async def get_project(
     current_user: User = Depends(get_current_user),
 ):
     project = await _get_or_404(db, project_id, current_user)
-    out = _serialize(project)
+    matching_enabled = bool((await get_billing_context(db, current_user)).plan.features.get("matching_ai"))
+    out = await _serialize_safe(db, project, matching_enabled=matching_enabled)
 
     # Reconstruit les actions depuis le cache
     out["match_summary"] = {
-        "matches": project.cached_matches or [],
-        "global_score": float(project.match_score) if project.match_score else 0,
-        "total_compatible": len(project.cached_matches or []),
+        "matches": out["cached_matches"],
+        "global_score": out["match_score"],
+        "total_compatible": len(out["cached_matches"]),
         "potential_funding": sum(
-            m["amount_max"] for m in (project.cached_matches or [])[:5] if m.get("amount_max")
+            m["amount_max"] for m in out["cached_matches"][:5] if m.get("amount_max")
         ),
-        "next_actions": _build_next_actions(project, project.cached_matches or []),
+        "next_actions": _build_next_actions(project, out["cached_matches"]),
     }
     return out
 
@@ -295,12 +344,14 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
     project = await _get_or_404(db, project_id, current_user)
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(project, field, value)
     await db.commit()
     await db.refresh(project)
-    return _serialize(project)
+    matching_enabled = bool((await get_billing_context(db, current_user)).plan.features.get("matching_ai"))
+    return await _serialize_safe(db, project, matching_enabled=matching_enabled)
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -309,6 +360,7 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
     project = await _get_or_404(db, project_id, current_user)
     await db.delete(project)
     await db.commit()
@@ -321,6 +373,8 @@ async def refresh_match(
     current_user: User = Depends(get_current_user),
 ):
     """Relance le matching et met à jour le cache."""
+    await require_tenant(db, current_user, "write")
+    await ensure_feature(db, current_user, "matching_ai")
     project = await _get_or_404(db, project_id, current_user)
     match_result = await _run_match(db, project)
     project.cached_matches = match_result["matches"]
@@ -336,11 +390,13 @@ async def refresh_match(
 # ---------------------------------------------------------------------------
 
 async def _get_or_404(db: AsyncSession, project_id: str, user: User) -> UserProject:
+    org_id = await require_tenant(db, user)
     result = await db.execute(
         select(UserProject).where(
             and_(
                 UserProject.id == project_id,
                 UserProject.user_id == user.id,
+                UserProject.organization_id == org_id,
             )
         )
     )

@@ -6,6 +6,7 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.services.billing_service import ensure_feature
 from app.services.match_service import match_project
+from app.services.tenant_access import require_tenant
 
 router = APIRouter(prefix="/api/v1/match", tags=["match"])
 
@@ -25,6 +26,7 @@ async def match_from_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await require_tenant(db, current_user, "write")
     await ensure_feature(db, current_user, "matching_ai")
 
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()

@@ -10,13 +10,14 @@ import asyncio
 import json
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.device import Device
 from app.models.source import Source
 from app.services.content_section_builder import build_content_sections, render_sections_markdown
 from app.utils.text_utils import compute_completeness
+from app.schema_readiness import assert_schema_ready
 
 
 def _device_to_dict(device: Device) -> dict[str, Any]:
@@ -38,16 +39,7 @@ def _source_to_dict(source: Source | None) -> dict[str, Any] | None:
 
 
 async def ensure_column() -> None:
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            text(
-                """
-                ALTER TABLE devices
-                ADD COLUMN IF NOT EXISTS content_sections_json JSON NULL
-                """
-            )
-        )
-        await db.commit()
+    await assert_schema_ready()
 
 
 async def run(

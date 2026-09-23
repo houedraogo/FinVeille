@@ -1,9 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import settings
-from app.database import create_tables
+from app.schema_readiness import assert_schema_ready
 from app.routers import auth, devices, sources, alerts, dashboard, admin, match, organizations, workspace, billing, security, relevance, projects
 
 if settings.SENTRY_DSN:
@@ -21,8 +21,7 @@ if settings.SENTRY_DSN:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup — crée les tables si elles n'existent pas, puis installe les triggers
-    await create_tables()
+    # Schema mutations are an explicit Alembic deployment step.
     yield
     # Shutdown (nettoyage si besoin)
 
@@ -68,6 +67,15 @@ async def health_check():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
+
+
+@app.get("/api/ready", tags=["health"])
+async def readiness_check():
+    try:
+        await assert_schema_ready()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Schéma PostgreSQL non prêt: {exc}") from exc
+    return {"status": "ready", "schema_revision": "e910b53f2c64"}
 
 
 @app.get("/api/health/detailed", tags=["health"])

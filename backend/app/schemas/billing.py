@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PlanResponse(BaseModel):
@@ -30,6 +30,7 @@ class SubscriptionResponse(BaseModel):
 
 
 class CheckoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     plan_slug: str = Field(..., min_length=2, max_length=80)
 
 

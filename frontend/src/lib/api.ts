@@ -1,5 +1,7 @@
 ﻿const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+import { clearSensitiveBrowserData } from "@/lib/sensitive-storage";
+
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("kafundo_token");
@@ -22,13 +24,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
         // Vider toute la session (token + onboarding + rôle + scope)
         // pour qu'un utilisateur supprimé ou dont le token est expiré
         // soit traité comme un nouvel utilisateur à la reconnexion.
-        const keysToRemove = [
-          "kafundo_token",
-          "kafundo_onboarding_completed",
-          "kafundo_user_role",
-          "kafundo_financing_scope",
-        ];
-        keysToRemove.forEach((k) => localStorage.removeItem(k));
+        clearSensitiveBrowserData();
         // Rediriger vers le login sans laisser de reliquat
         window.location.replace("/login");
       }
@@ -90,6 +86,8 @@ export const organizations = {
     }),
   acceptInvitation: (token: string) =>
     apiFetch<any>(`/api/v1/organizations/invitations/${token}/accept`, { method: "POST" }),
+  select: (organizationId: string) =>
+    apiFetch<any>(`/api/v1/organizations/${organizationId}/select`, { method: "POST" }),
 };
 
 // Billing

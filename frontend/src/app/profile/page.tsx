@@ -21,6 +21,7 @@ import {
 import AppLayout from "@/components/AppLayout";
 import { auth, billing, organizations } from "@/lib/api";
 import { getCurrentRole, type AppRole } from "@/lib/auth";
+import { clearSensitiveBrowserData, scopedMatchStorageKey } from "@/lib/sensitive-storage";
 import {
   DEVICES_VIEW_MODE_KEY,
   FAVORITE_DEVICES_KEY,
@@ -139,8 +140,9 @@ export default function ProfilePage() {
       FAVORITE_DEVICES_KEY,
       DEVICE_PIPELINE_KEY,
       MATCH_STORAGE_KEY,
+      scopedMatchStorageKey(),
       DEVICES_VIEW_MODE_KEY,
-    ].forEach((key) => localStorage.removeItem(key));
+    ].forEach((key) => { if (key) localStorage.removeItem(key); });
 
     setSavedCount(0);
     setFavoriteCount(0);
@@ -150,8 +152,7 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("kafundo_token");
-    localStorage.removeItem("kafundo_user");
+    clearSensitiveBrowserData();
     window.location.href = "/login";
   };
 

@@ -410,7 +410,7 @@ def enrich_missing_fields(self, batch_size: int = 50):
 async def _enrich_missing_async(batch_size: int = 50):
     import httpx
     from bs4 import BeautifulSoup
-    from sqlalchemy import select, or_, and_, update, delete
+    from sqlalchemy import select, or_, and_, update
     from datetime import datetime, timezone
     from app.models.device import Device
     from app.services.device_service import DeviceService
@@ -477,7 +477,7 @@ async def _enrich_missing_async(batch_size: int = 50):
             return
 
         logger.info(f"[Enrich] {len(rows)} dispositifs à enrichir")
-        enriched = skipped = errors = deleted = 0
+        enriched = skipped = errors = 0
 
         for row in rows:
             (
@@ -494,14 +494,10 @@ async def _enrich_missing_async(batch_size: int = 50):
                 eligible_expenses,
             ) = row
             current_short = (short_desc or "").strip()
-            is_thin_before = DeviceService.has_thin_description(current_short)
             scraped = await fetch_page_content(url)
             text = (scraped.get("text") or "").strip()
             if not text:
-                if is_thin_before:
-                    await db.execute(delete(Device).where(Device.id == device_id))
-                    deleted += 1
-                    continue
+                logger.warning("[Enrich] Source inexploitable pour le dispositif %s (%s); fiche conservée", device_id, url)
                 errors += 1
                 continue
 
@@ -556,8 +552,8 @@ async def _enrich_missing_async(batch_size: int = 50):
 
             new_short = updates.get("short_description", current_short)
             if DeviceService.has_thin_description(new_short):
-                await db.execute(delete(Device).where(Device.id == device_id))
-                deleted += 1
+                logger.warning("[Enrich] Description toujours insuffisante pour le dispositif %s; fiche conservée", device_id)
+                errors += 1
                 continue
 
             if changed:

@@ -12,11 +12,15 @@ from sqlalchemy.orm import load_only
 from unidecode import unidecode
 
 from app.models.device import Device
+from app.models.alert import AlertDelivery
 from app.models.device_history import DeviceHistory
+from app.models.relevance import DeviceRelevanceCache
+from app.models.workspace import DevicePipeline, FavoriteDevice
 from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceSearchParams
 from app.utils.text_utils import normalize_title, generate_slug, compute_completeness, extract_keywords
 from app.utils.hash_utils import compute_content_hash, compute_fingerprint
 from app.services.user_quality import compute_user_quality
+from app.services.catalog_access import public_device_condition
 
 
 WEST_AFRICA_COUNTRIES = {
@@ -433,12 +437,14 @@ class DeviceService:
         result = await self.db.execute(select(Device).where(Device.id == device_id))
         return result.scalar_one_or_none()
 
-    def _build_filter_query(self, params: DeviceSearchParams):
+    def _build_filter_query(self, params: DeviceSearchParams, *, allow_unpublished: bool = False):
         """
         Construit la requête SQLAlchemy avec tous les filtres actifs,
         sans pagination ni tri. Réutilisée par search() et stream_for_export().
         """
         query = select(Device)
+        if not allow_unpublished:
+            query = query.where(public_device_condition())
         if not params.include_rejected:
             query = query.where(Device.validation_status != "rejected")
         if not params.include_low_quality and not params.user_quality_decisions:
@@ -479,8 +485,10 @@ class DeviceService:
             query = query.where(self._default_public_status_filter())
         if params.validation_status:
             query = query.where(Device.validation_status == params.validation_status)
+        elif not params.include_all_statuses:
+            query = query.where(public_device_condition())
         elif not params.include_rejected:
-            query = query.where(Device.validation_status.in_(["auto_published", "approved", "validated"]))
+            query = query.where(Device.validation_status != "rejected")
         if params.closing_soon_days:
             deadline = date.today() + timedelta(days=params.closing_soon_days)
             query = query.where(
@@ -684,8 +692,8 @@ class DeviceService:
         score += min(10, int((device.completeness_score or 0) / 10))
         return max(0, min(100, score))
 
-    async def search(self, params: DeviceSearchParams) -> dict:
-        query = self._build_filter_query(params)
+    async def search(self, params: DeviceSearchParams, *, allow_unpublished: bool = False, include_scoring: bool = False) -> dict:
+        query = self._build_filter_query(params, allow_unpublished=allow_unpublished)
 
         # Comptage
         count_q = select(func.count()).select_from(query.with_only_columns(Device.id).order_by(None).subquery())
@@ -734,8 +742,8 @@ class DeviceService:
         items = result.scalars().all()
         for item in items:
             self.db.expunge(item)
-            item.match_reasons = self.build_match_reasons(item, params)
-            item.relevance_score = self.runtime_relevance_score(item, params)
+            item.match_reasons = self.build_match_reasons(item, params) if include_scoring else []
+            item.relevance_score = self.runtime_relevance_score(item, params) if include_scoring else 0
 
         return {
             "items": items,
@@ -745,7 +753,7 @@ class DeviceService:
             "pages": max(1, math.ceil(total / params.page_size)),
         }
 
-    async def stream_for_export(self, params: DeviceSearchParams, limit: int = 5000):
+    async def stream_for_export(self, params: DeviceSearchParams, limit: int = 5000, *, allow_unpublished: bool = False):
         """
         Générateur async qui produit les dispositifs un par un pour l'export CSV.
 
@@ -755,14 +763,17 @@ class DeviceService:
         yield-dependency get_db() de FastAPI.
         """
         query = (
-            self._build_filter_query(params)
+            self._build_filter_query(params, allow_unpublished=allow_unpublished)
             .order_by(Device.updated_at.desc())
             .limit(limit)
             .execution_options(yield_per=200)
         )
         stream = await self.db.stream_scalars(query)
-        async for device in stream:
-            yield device
+        try:
+            async for device in stream:
+                yield device
+        finally:
+            await stream.close()
 
     async def get_history(self, device_id: UUID) -> list:
         result = await self.db.execute(
@@ -781,19 +792,24 @@ class DeviceService:
 
         stats = {}
 
-        r = await self.db.execute(select(func.count()).select_from(Device).where(Device.status == "open"))
+        r = await self.db.execute(select(func.count()).select_from(Device).where(
+            public_device_condition(), Device.status == "open"
+        ))
         stats["total_active"] = r.scalar() or 0
 
-        r = await self.db.execute(select(func.count()).select_from(Device))
+        r = await self.db.execute(select(func.count()).select_from(Device).where(public_device_condition()))
         stats["total"] = r.scalar() or 0
 
         r = await self.db.execute(
-            select(func.count()).select_from(Device).where(Device.first_seen_at >= week_ago)
+            select(func.count()).select_from(Device).where(
+                public_device_condition(), Device.first_seen_at >= week_ago
+            )
         )
         stats["new_last_7_days"] = r.scalar() or 0
 
         r = await self.db.execute(
             select(func.count()).select_from(Device).where(
+                public_device_condition(),
                 and_(Device.close_date <= closing_30, Device.close_date >= today, Device.status == "open")
             )
         )
@@ -801,18 +817,17 @@ class DeviceService:
 
         r = await self.db.execute(
             select(func.count()).select_from(Device).where(
+                public_device_condition(),
                 and_(Device.close_date <= closing_7, Device.close_date >= today, Device.status == "open")
             )
         )
         stats["closing_soon_7d"] = r.scalar() or 0
 
-        r = await self.db.execute(
-            select(func.count()).select_from(Device).where(Device.validation_status == "pending_review")
-        )
-        stats["pending_validation"] = r.scalar() or 0
+        stats["pending_validation"] = 0
 
         r = await self.db.execute(
             select(Device.country, func.count().label("count"))
+            .where(public_device_condition())
             .group_by(Device.country)
             .order_by(func.count().desc())
             .limit(15)
@@ -821,6 +836,7 @@ class DeviceService:
 
         r = await self.db.execute(
             select(Device.device_type, func.count().label("count"))
+            .where(public_device_condition())
             .group_by(Device.device_type)
             .order_by(func.count().desc())
         )
@@ -828,11 +844,14 @@ class DeviceService:
 
         r = await self.db.execute(
             select(Device.status, func.count().label("count"))
+            .where(public_device_condition())
             .group_by(Device.status)
         )
         stats["by_status"] = [{"status": row[0], "count": row[1]} for row in r]
 
-        r = await self.db.execute(select(func.avg(Device.confidence_score)).select_from(Device))
+        r = await self.db.execute(select(func.avg(Device.confidence_score)).select_from(Device).where(
+            public_device_condition()
+        ))
         avg = r.scalar()
         stats["avg_confidence"] = round(float(avg), 1) if avg else 0
 
@@ -842,11 +861,11 @@ class DeviceService:
     # Écriture
     # ------------------------------------------------------------------
 
-    async def create(self, data: DeviceCreate, created_by: str = "system") -> Device:
+    async def create(self, data: DeviceCreate, created_by: str = "system", *, source_hash: str | None = None, commit: bool = True) -> Device:
         device_dict = data.model_dump(exclude_none=False)
         device_dict["title_normalized"] = normalize_title(data.title)
         device_dict["slug"] = await self._unique_slug(data.title)
-        device_dict["source_hash"] = compute_content_hash(
+        device_dict["source_hash"] = source_hash or compute_content_hash(
             (data.title or "") + (data.short_description or "")
         )
         device_dict["completeness_score"] = compute_completeness(device_dict)
@@ -872,7 +891,10 @@ class DeviceService:
             diff={"action": "initial_import"},
         )
         self.db.add(history)
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         await self.db.refresh(device)
         return device
 
@@ -946,7 +968,7 @@ class DeviceService:
 
         return device
 
-    async def update_raw(self, device_id: UUID, fields: dict, updated_by: str = "system"):
+    async def update_raw(self, device_id: UUID, fields: dict, updated_by: str = "system", *, commit: bool = True):
         """Mise à jour directe depuis le pipeline de collecte."""
         device = await self.get_by_id(device_id)
         if not device:
@@ -973,13 +995,16 @@ class DeviceService:
             source_hash=fields.get("source_hash"),
         )
         self.db.add(history)
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
 
         # Recalcul search_vector si champs texte impactés
         text_fields = {"title", "organism", "country", "short_description",
                        "full_description", "eligibility_criteria", "keywords"}
         if text_fields & set(fields.keys()):
-            await self.refresh_search_vector(device_id)
+            await self.refresh_search_vector(device_id, commit=commit)
 
     async def validate(self, device_id: UUID, validator_id: UUID) -> Optional[Device]:
         device = await self.get_by_id(device_id)
@@ -1058,6 +1083,8 @@ class DeviceService:
             .order_by(Device.updated_at.asc().nullslast(), Device.created_at.asc().nullslast())
             .limit(limit)
         )
+        if not dry_run:
+            query = query.with_for_update()
         result = await self.db.execute(query)
         devices = result.scalars().all()
 
@@ -1071,12 +1098,22 @@ class DeviceService:
             )
         ]
 
+        protected_ids = set()
+        if candidates:
+            candidate_ids = [device.id for device in candidates]
+            for model in (DevicePipeline, FavoriteDevice, DeviceHistory, DeviceRelevanceCache, AlertDelivery):
+                linked = await self.db.execute(
+                    select(model.device_id).where(model.device_id.in_(candidate_ids))
+                )
+                protected_ids.update(linked.scalars().all())
+
         preview = [
             {
                 "id": str(device.id),
                 "title": device.title,
                 "source_url": device.source_url,
                 "short_description": device.short_description,
+                "protected": device.id in protected_ids,
             }
             for device in candidates[:25]
         ]
@@ -1086,11 +1123,23 @@ class DeviceService:
                 "dry_run": dry_run,
                 "matched": len(candidates),
                 "deleted": 0,
+                "protected": len(protected_ids),
                 "preview": preview,
             }
 
         deleted = 0
+        # A schema change must not make this quality purge cascade into a new table.
+        incoming = set((await self.db.execute(text("""
+            SELECT DISTINCT conrelid::regclass::text
+            FROM pg_constraint
+            WHERE contype = 'f' AND confrelid = 'devices'::regclass
+        """))).scalars().all())
+        known = {"device_pipeline", "favorite_devices", "device_history", "device_relevance_cache", "alert_deliveries"}
+        if incoming != known:
+            raise ValueError(f"Relations de dispositif non prises en charge: {sorted(incoming ^ known)}")
         for device in candidates:
+            if device.id in protected_ids:
+                continue
             self.db.add(
                 DeviceHistory(
                     device_id=device.id,
@@ -1111,6 +1160,7 @@ class DeviceService:
             "dry_run": False,
             "matched": len(candidates),
             "deleted": deleted,
+            "protected": len(protected_ids),
             "preview": preview,
         }
 
@@ -1219,7 +1269,7 @@ class DeviceService:
     # Helpers
     # ------------------------------------------------------------------
 
-    async def refresh_search_vector(self, device_id: UUID) -> None:
+    async def refresh_search_vector(self, device_id: UUID, *, commit: bool = True) -> None:
         """
         Recalcule le search_vector PostgreSQL pour un dispositif donné.
         Utile après une mise à jour manuelle ou un import en masse.
@@ -1241,7 +1291,10 @@ class DeviceService:
             """),
             {"device_id": str(device_id)},
         )
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
 
     async def _unique_slug(self, title: str) -> str:
         base = generate_slug(title)

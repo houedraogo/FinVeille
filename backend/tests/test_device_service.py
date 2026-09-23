@@ -32,8 +32,16 @@ class FakeDB:
         self.deleted = []
         self.commits = 0
 
-    async def execute(self, _query):
-        return FakeExecuteResult(self.devices)
+    async def execute(self, query):
+        sql = str(query)
+        if "FROM pg_constraint" in sql:
+            return FakeExecuteResult([
+                "device_pipeline", "favorite_devices", "device_history", "device_relevance_cache",
+                "alert_deliveries",
+            ])
+        if "FROM devices" in sql:
+            return FakeExecuteResult(self.devices)
+        return FakeExecuteResult([])
 
     def add(self, item):
         self.added.append(item)

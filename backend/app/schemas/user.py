@@ -1,14 +1,14 @@
-from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from typing import Literal, Optional
 from uuid import UUID
 from datetime import datetime
 
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     email: EmailStr
     password: str
     full_name: Optional[str] = None
-    role: str = "reader"
 
     @field_validator("password")
     @classmethod
@@ -20,8 +20,12 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[Literal["reader", "editor", "admin"]] = None
     is_active: Optional[bool] = None
+
+
+class AdminUserCreate(UserCreate):
+    role: Literal["reader", "editor", "admin"] = "reader"
 
 
 class UserProfileUpdate(BaseModel):

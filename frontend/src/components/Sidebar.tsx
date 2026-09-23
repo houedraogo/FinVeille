@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { clearSensitiveBrowserData } from "@/lib/sensitive-storage";
 import {
   LayoutDashboard,
   Database,
@@ -337,8 +338,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </div>
         <button
           onClick={() => {
-            localStorage.removeItem("kafundo_token");
-            localStorage.removeItem("kafundo_user");
+            clearSensitiveBrowserData();
             window.location.href = "/login";
           }}
           className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm text-primary-300 hover:bg-primary-800 hover:text-white transition-colors"

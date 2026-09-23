@@ -232,6 +232,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 from pydantic import BaseModel as _PydanticBaseModel
 
 class UpdateMeRequest(_PydanticBaseModel):
+    model_config = {"extra": "forbid"}
     country: str | None = None
     sectors: str | None = None
     full_name: str | None = None
