@@ -94,7 +94,7 @@ def fake_stripe(monkeypatch):
 
     class SubscriptionAPI:
         @staticmethod
-        def retrieve(subscription_id):
+        def retrieve(subscription_id, **_):
             calls["retrieve"] += 1
             return snapshots[subscription_id]
 
@@ -346,3 +346,55 @@ async def test_quota_is_shared_by_tenant_members(client, scenario):
     assert [response.status_code for response in responses].count(402) == 5
     async with AsyncSessionLocal() as db:
         assert (await db.execute(select(func.count(Alert.id)).where(Alert.organization_id == scenario.org.id))).scalar_one() == 3
+
+
+async def test_checkout_entitlement_requires_valid_period(client, scenario, fake_stripe):
+    """FAIL CLOSED: current_period_end absent → premium not granted; present and future → granted."""
+    base = int(time.time()) + 2000
+    entitlement_sub_id = f"sub_entitlement_{scenario.nonce}"
+
+    # Put current subscription in terminal state to allow a new one
+    cancel_r = await post_event(client, scenario, created=base,
+                                data=snapshot(scenario, status="canceled",
+                                              subscription_id=scenario.subscription))
+    assert cancel_r.json()["outcome"] in ("applied", "stale", "terminal_reuse", "duplicate")
+
+    # Retrieve mock returns snapshot WITHOUT current_period_end — simulates API v2025 behavior
+    snap_no_period = {
+        "id": entitlement_sub_id,
+        "customer": scenario.customer,
+        "metadata": {"organization_id": str(scenario.org.id)},
+        "status": "active",
+        "items": {"data": [{"price": {"id": scenario.plans["pro"].stripe_price_id}}]},
+        "cancel_at_period_end": False,
+        # current_period_start and current_period_end intentionally absent
+    }
+    fake_stripe.snapshots[entitlement_sub_id] = snap_no_period
+
+    completed_no_period = {
+        "id": f"cs_entitlement_nop_{scenario.nonce}", "customer": scenario.customer,
+        "subscription": entitlement_sub_id,
+        "metadata": {"organization_id": str(scenario.org.id)},
+        "client_reference_id": str(scenario.org.id),
+    }
+    r = await post_event(client, scenario, event_type="checkout.session.completed",
+                         created=base + 1, data=completed_no_period)
+    assert r.json()["outcome"] == "applied"
+
+    # FAIL CLOSED: no current_period_end → billing service denies premium
+    resp = await client.get("/api/v1/billing/subscription", headers=auth(scenario.users["owner"]))
+    assert resp.json()["plan"]["slug"] == "free"
+
+    # Now send a subscription event with a valid future current_period_end
+    now = int(time.time())
+    snap_with_period = snapshot(scenario, status="active", price="pro",
+                                subscription_id=entitlement_sub_id, period_end=now + 86400)
+    r2 = await post_event(client, scenario, event_type="customer.subscription.updated",
+                          created=base + 2, data=snap_with_period)
+    assert r2.json()["outcome"] == "applied"
+
+    # Valid period → premium granted
+    resp2 = await client.get("/api/v1/billing/subscription", headers=auth(scenario.users["owner"]))
+    assert resp2.json()["plan"]["slug"] == "pro"
+
+    scenario.subscription = entitlement_sub_id

@@ -39,6 +39,11 @@ async def process_stripe_event(db: AsyncSession, stripe, event) -> str:
     event_id = value(event, "id")
     event_created = value(event, "created")
     event_type = value(event, "type", "unknown")
+    # Use the event's own API version for retrieve calls so the returned object
+    # matches the schema that produced the event (e.g. current_period_end exists
+    # in the account's pinned version but is absent in newer SDK defaults).
+    _event_api_version = value(event, "api_version") or None
+    _rv = {"stripe_version": _event_api_version} if _event_api_version else {}
     if not event_id or not isinstance(event_created, int) or event_created <= 0:
         raise HTTPException(status_code=400, detail="Événement Stripe incomplet.")
     if event_type not in RELEVANT_EVENTS:
@@ -87,7 +92,7 @@ async def process_stripe_event(db: AsyncSession, stripe, event) -> str:
         # Stripe timestamps have one-second precision. For a tie, never trust
         # arrival order or lexicographic event IDs: read current Stripe state.
         try:
-            canonical = stripe.Subscription.retrieve(stripe_sub_id) if same_second else None
+            canonical = stripe.Subscription.retrieve(stripe_sub_id, **_rv) if same_second else None
         except Exception:
             canonical = None
         if same_second and canonical is None:
@@ -99,7 +104,7 @@ async def process_stripe_event(db: AsyncSession, stripe, event) -> str:
             else:
                 subscription.status = "past_due"
         else:
-            snapshot = canonical if same_second else (data if event_type in SUBSCRIPTION_EVENTS else stripe.Subscription.retrieve(stripe_sub_id))
+            snapshot = canonical if same_second else (data if event_type in SUBSCRIPTION_EVENTS else stripe.Subscription.retrieve(stripe_sub_id, **_rv))
             if value(snapshot, "id") != stripe_sub_id or value(snapshot, "customer") != customer_id:
                 outcome = "ignored_subscription"
             else:
