@@ -220,6 +220,41 @@ def test_historical_baseline_with_preexisting_user_projects(disposable_database)
     engine.dispose()
 
 
+def test_historical_baseline_with_invalid_user_projects_is_refused(disposable_database):
+    """Security: user_projects with a missing required column must cause alembic upgrade to FAIL.
+    The baseline tolerates any pre-existing user_projects (column validation is Alembic's job),
+    but migration d742f48a3c19 must detect the structural mismatch and raise — without silently
+    dropping, recreating, or modifying the table, and without advancing alembic_version to HEAD."""
+    name = disposable_database()
+    _legacy_with_user_projects(name)
+    engine = create_engine(_database_url(name))
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE user_projects DROP COLUMN match_score"))
+        rows_before = connection.execute(text("SELECT count(*) FROM user_projects")).scalar_one()
+        cols_before = {c["name"] for c in inspect(connection).get_columns("user_projects")}
+    engine.dispose()
+    # Baseline accepts user_projects with allow_post_baseline_tables=True (no column check here)
+    assert "columns" in _run(name, "-m", "migrations.baseline_legacy")
+    _run(name, "-m", "migrations.baseline_legacy", "--stamp", "--backup-confirmed")
+    # Upgrade must fail: d742f48a3c19 detects missing column and raises RuntimeError
+    output = _run(name, "-m", "alembic", "upgrade", "head", expected=1)
+    assert "colonnes manquantes" in output
+    assert "match_score" in output
+    engine = create_engine(_database_url(name))
+    with engine.connect() as connection:
+        # Must NOT have reached HEAD — upgrade was blocked
+        assert _version(connection) != HEAD
+        # user_projects must still exist, untouched
+        assert "user_projects" in inspect(connection).get_table_names()
+        # Data preserved
+        assert connection.execute(text("SELECT count(*) FROM user_projects")).scalar_one() == rows_before
+        # Column structure unchanged (no silent reconstruction)
+        cols_after = {c["name"] for c in inspect(connection).get_columns("user_projects")}
+        assert cols_after == cols_before
+        assert "match_score" not in cols_after
+    engine.dispose()
+
+
 def test_failed_repair_rolls_back_and_does_not_advance_version(disposable_database):
     name = disposable_database()
     _legacy(name)
