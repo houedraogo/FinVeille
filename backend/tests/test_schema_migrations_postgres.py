@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(
     reason="Dedicated disposable PostgreSQL admin URL and KAFUNDO_MIGRATION_TESTS=1 required",
 )
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "f54e3b706d18"
+HEAD = "3f8e2d1c9a05"
 COUNTS = (
     "users", "organizations", "devices", "device_pipeline", "favorite_devices",
     "alerts", "funding_projects", "match_projects", "subscriptions", "billing_customers",
@@ -80,6 +80,15 @@ def _counts(connection):
 def _legacy(name):
     _run(name, "-m", "alembic", "upgrade", BASELINE_REVISION)
     sql = (ROOT / "tests" / "fixtures" / "legacy_schema_lot2.sql").read_text(encoding="utf-8")
+    engine = create_engine(_database_url(name), isolation_level="AUTOCOMMIT")
+    with engine.connect() as connection:
+        connection.exec_driver_sql(sql)
+    engine.dispose()
+
+
+def _legacy_with_user_projects(name):
+    _run(name, "-m", "alembic", "upgrade", BASELINE_REVISION)
+    sql = (ROOT / "tests" / "fixtures" / "legacy_schema_lot2_with_user_projects.sql").read_text(encoding="utf-8")
     engine = create_engine(_database_url(name), isolation_level="AUTOCOMMIT")
     with engine.connect() as connection:
         connection.exec_driver_sql(sql)
@@ -183,6 +192,32 @@ def test_incompatible_type_refused_before_stamp(disposable_database):
         connection.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(10)"))
     engine.dispose()
     assert "Type incompatible" in _run(name, "-m", "migrations.baseline_legacy", expected=1)
+
+
+def test_historical_baseline_with_preexisting_user_projects(disposable_database):
+    """Production scenario: user_projects pre-exists baseline (0 rows); baseline must accept it and
+    alembic upgrade head must skip recreation without error."""
+    name = disposable_database()
+    _legacy_with_user_projects(name)
+    engine = create_engine(_database_url(name))
+    with engine.connect() as connection:
+        before = _counts(connection)
+        assert before == {table: 1 for table in COUNTS}
+        assert "alembic_version" not in inspect(connection).get_table_names()
+        assert "user_projects" in inspect(connection).get_table_names()
+        assert connection.execute(text("SELECT count(*) FROM user_projects")).scalar_one() == 0
+    engine.dispose()
+    assert "columns" in _run(name, "-m", "migrations.baseline_legacy")
+    _run(name, "-m", "migrations.baseline_legacy", "--stamp", "--backup-confirmed")
+    _run(name, "-m", "alembic", "upgrade", "head")
+    engine = create_engine(_database_url(name))
+    with engine.connect() as connection:
+        assert _version(connection) == HEAD
+        assert _counts(connection) == before
+        assert "user_projects" in inspect(connection).get_table_names()
+        assert connection.execute(text("SELECT count(*) FROM user_projects")).scalar_one() == 0
+        assert not any(inspect_legacy(connection, allow_post_baseline_tables=True).values())
+    engine.dispose()
 
 
 def test_failed_repair_rolls_back_and_does_not_advance_version(disposable_database):

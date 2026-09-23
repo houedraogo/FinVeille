@@ -31,7 +31,7 @@ def main() -> None:
                 versions = connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
                 if versions:
                     raise RuntimeError(f"Base déjà versionnée ({versions}); utiliser alembic upgrade head")
-            plan = inspect_legacy(connection)
+            plan = inspect_legacy(connection, allow_post_baseline_tables=True)
             print(json.dumps({key: len(value) for key, value in plan.items()}, sort_keys=True))
             if args.stamp:
                 config = Config("alembic.ini")

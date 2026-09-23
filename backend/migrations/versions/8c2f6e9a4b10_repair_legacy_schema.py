@@ -19,9 +19,9 @@ depends_on = None
 
 def upgrade() -> None:
     connection = op.get_bind()
-    plan = inspect_legacy(connection)  # Checks types, nullability, orphans and duplicates before DDL.
+    plan = inspect_legacy(connection, allow_post_baseline_tables=True)
     apply_additions(connection, plan)
-    remaining = inspect_legacy(connection)
+    remaining = inspect_legacy(connection, allow_post_baseline_tables=True)
     if any(remaining.values()):
         raise RuntimeError(f"Réparation du schéma incomplète: {remaining}")
 

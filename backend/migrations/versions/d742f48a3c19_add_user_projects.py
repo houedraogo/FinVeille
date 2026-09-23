@@ -14,8 +14,19 @@ depends_on = None
 
 
 def upgrade() -> None:
-    if "user_projects" in sa.inspect(op.get_bind()).get_table_names(schema="public"):
-        raise RuntimeError("user_projects existe déjà: vérifier sa structure et ses données avant toute baseline")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "user_projects" in inspector.get_table_names(schema="public"):
+        existing_cols = {c["name"] for c in inspector.get_columns("user_projects", schema="public")}
+        expected_cols = {
+            "id", "user_id", "organization_id", "name", "description", "sectors",
+            "countries", "stage", "budget_min", "budget_max", "currency", "keywords",
+            "cached_matches", "match_score", "matched_at", "created_at", "updated_at",
+        }
+        missing = expected_cols - existing_cols
+        if missing:
+            raise RuntimeError(f"user_projects existe mais colonnes manquantes: {missing}")
+        return
     op.create_table(
         "user_projects",
         sa.Column("id", sa.UUID(), primary_key=True, nullable=False),
