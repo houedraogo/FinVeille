@@ -4,7 +4,7 @@ from sqlalchemy import text
 from app.database import engine
 
 
-HEAD_REVISION = "f54e3b706d18"
+HEAD_REVISION = "3f8e2d1c9a05"
 REQUIRED_COLUMNS = {
     ("users", "country"),
     ("users", "sectors"),
