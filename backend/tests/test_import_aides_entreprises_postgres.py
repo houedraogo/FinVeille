@@ -170,6 +170,36 @@ async def test_archived_row_is_never_touched_by_the_import(use_db):
 
 
 @pytest.mark.asyncio
+async def test_updates_follow_a_merged_duplicate_to_the_kept_device(use_db):
+    """Le doublon archivé garde le slug stable : la fiche conservée doit tout de même être mise à jour."""
+    from app.models.catalog_cleanup import DeviceArchiveLog
+
+    async with use_db() as db:
+        src = Source(id=uuid4(), name=importer.SOURCE_NAME, organism=importer.SOURCE_ORGANISM, country="France",
+                     source_type="portail_officiel", level=1, url=importer.CSV_URL, collection_mode="csv_import",
+                     reliability=5, category="financement", is_active=True)
+        db.add(src)
+        await db.flush()
+        keeper = make_device(title="Aide à la modernisation des commerces", slug="fr-ae-aide-modernisation-ancien", source_id=src.id,
+                             source_url="https://region-a.fr/aide-modernisation", funding_details="Ancien montant")
+        dup = make_device(title="Aide à la modernisation des commerces", slug="fr-ae-101", source_id=src.id,
+                          source_url="https://region-a.fr/aide-modernisation", validation_status="archived")
+        db.add_all([keeper, dup])
+        await db.flush()
+        db.add(DeviceArchiveLog(run_id="r", batch="C_doublons_certains", device_id=dup.id, action="archive",
+                                merged_into_id=keeper.id, previous_validation_status="auto_published"))
+        await db.commit()
+        keeper_id = keeper.id
+    counts = await importer.main(csv_text=csv_text(
+        {"id_aid": "101", "aid_nom": "Aide à la modernisation des commerces", "aid_montant": "Jusqu'à 99 000 euros",
+         "complements_sources": "https://region-a.fr/aide-modernisation"}))
+    assert counts["update_keeper"] == 1 and counts["insert"] == 0 and counts["skip_archived"] == 0
+    rows = {d.id: d for d in await _all(use_db)}
+    assert "99 000" in rows[keeper_id].funding_details
+    assert len(rows) == 2 and any(d.validation_status == "archived" for d in rows.values())
+
+
+@pytest.mark.asyncio
 async def test_manual_qualification_status_survives_a_reimport(use_db):
     row = {"id_aid": "301", "aid_nom": "Programme régional de soutien", "complements_sources": "https://region-c.fr/programme"}
     await importer.main(csv_text=csv_text(row))

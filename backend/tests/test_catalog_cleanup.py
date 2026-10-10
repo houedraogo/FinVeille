@@ -277,3 +277,27 @@ async def test_quality_evaluation_is_report_only_unless_applied_and_never_change
         await db.refresh(device)
         assert applied["applied"] is True and device.user_quality_decision is not None
         assert device.validation_status == "auto_published"
+
+
+@pg
+@pytest.mark.asyncio
+async def test_listings_hide_archived_devices_by_default_and_show_them_on_explicit_request(pg_session_factory):
+    from sqlalchemy import func
+    from app.schemas.device import DeviceSearchParams
+    from app.services.device_service import DeviceService
+
+    async def count(db, allow_unpublished, **params):
+        query = DeviceService(db)._build_filter_query(DeviceSearchParams(**params), allow_unpublished=allow_unpublished)
+        return (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
+
+    async with pg_session_factory() as db:
+        db.add_all([
+            make_device(title="Aide publique ouverte", status="open", user_quality_decision="publish"),
+            make_device(title="Aide archivée", status="open", validation_status="archived", user_quality_decision="publish"),
+            make_device(title="Aide admin", status="open", validation_status="admin_only"),
+        ])
+        await db.commit()
+        everything = dict(include_all_statuses=True, include_rejected=True, include_low_quality=True)
+        assert await count(db, False) == 1                                         # public : l'archivée n'apparaît pas
+        assert await count(db, True, **everything) == 2                            # admin : sans les archivées
+        assert await count(db, True, **everything, include_archived=True) == 3     # sur demande explicite

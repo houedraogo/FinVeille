@@ -244,7 +244,7 @@ def build_device_fields(row: dict, now: Optional[datetime] = None) -> Optional[d
 
 @dataclass
 class ImportDecision:
-    action: str                       # insert | update | adopt | skip_duplicate | skip_archived
+    action: str                       # insert | update | adopt | update_keeper | skip_duplicate | skip_archived
     device_id: Optional[Any] = None   # fiche existante concernée (update / adopt / skip_*)
     reason: str = ""
     candidates: list = field(default_factory=list)  # (autre fiche, Assessment) PROBABLES
@@ -253,8 +253,11 @@ class ImportDecision:
 class ImportIndex:
     """Fiches connues, pour décider sans requête par ligne."""
 
-    def __init__(self, devices: list[dict], source_id: Any):
+    def __init__(self, devices: list[dict], source_id: Any, merges: Optional[dict] = None):
         self.source_id = str(source_id)
+        #: doublon archivé (id) -> fiche conservée (id), d'après le journal d'archivage
+        self.merged_into = {str(k): v for k, v in (merges or {}).items()}
+        self.by_id = {str(d["id"]): d for d in devices}
         self.by_slug = {d["slug"]: d for d in devices if d.get("slug")}
         self.by_hash = {
             d["source_hash"]: d for d in devices
@@ -273,17 +276,30 @@ class ImportIndex:
         self.similarity = DuplicateIndex(list(self.by_slug.values()))
 
 
+def _archived_decision(index: ImportIndex, archived: dict, reason: str) -> ImportDecision:
+    """Fiche archivée : si c'est un doublon fusionné, on met à jour la fiche conservée.
+
+    Sans cela, la fiche conservée (qui porte un autre slug) ne recevrait plus jamais les
+    mises à jour de la source, puisque le slug stable appartient au doublon archivé.
+    """
+    keeper_id = index.merged_into.get(str(archived["id"]))
+    keeper = index.by_id.get(str(keeper_id)) if keeper_id else None
+    if keeper is not None and keeper.get("validation_status") != "archived":
+        return ImportDecision("update_keeper", keeper["id"], "follow_merge")
+    return ImportDecision("skip_archived", archived["id"], reason)
+
+
 def plan_import_row(fields: dict, index: ImportIndex) -> ImportDecision:
     existing = index.by_slug.get(fields["slug"])
     if existing is not None:
         if existing.get("validation_status") == "archived":
-            return ImportDecision("skip_archived", existing["id"], "slug_archived")
+            return _archived_decision(index, existing, "slug_archived")
         return ImportDecision("update", existing["id"], "stable_slug")
 
     legacy = index.by_hash.get(fields["source_hash"])
     if legacy is not None:
         if legacy.get("validation_status") == "archived":
-            return ImportDecision("skip_archived", legacy["id"], "legacy_hash_archived")
+            return _archived_decision(index, legacy, "legacy_hash_archived")
         return ImportDecision("adopt", legacy["id"], "legacy_hash")
 
     probable = []
@@ -292,7 +308,7 @@ def plan_import_row(fields: dict, index: ImportIndex) -> ImportDecision:
         if assessment.tier is DuplicateTier.CERTAIN:
             if str(other.get("source_id")) == index.source_id:
                 if other.get("validation_status") == "archived":
-                    return ImportDecision("skip_archived", other["id"], "twin_archived")
+                    return _archived_decision(index, other, "twin_archived")
                 return ImportDecision("adopt", other["id"], "same_source_certain_twin")
             twin_other_source = twin_other_source or other
         elif assessment.tier is DuplicateTier.PROBABLE:
@@ -336,7 +352,13 @@ async def _load_index(db: AsyncSession, source_id) -> ImportIndex:
         SELECT id, slug, title, organism, country, source_url, source_hash, source_id, validation_status
         FROM devices
     """))).mappings().all()
-    return ImportIndex([dict(row) for row in rows], source_id)
+    merges = {
+        row[0]: row[1] for row in (await db.execute(text(
+            "SELECT device_id, merged_into_id FROM device_archive_log "
+            "WHERE action = 'archive' AND merged_into_id IS NOT NULL AND restored_at IS NULL"
+        ))).all()
+    }
+    return ImportIndex([dict(row) for row in rows], source_id, merges)
 
 
 _UPSERT = text("""
@@ -371,6 +393,17 @@ _UPSERT = text("""
 """)
 
 
+_UPDATE_KEEPER = text("""
+    UPDATE devices SET
+        title=:title, title_normalized=:title_normalized, short_description=:short_description,
+        full_description=:full_description, eligibility_criteria=:eligibility_criteria,
+        funding_details=:funding_details, close_date=:close_date,
+        status=CASE WHEN status IN ('standby', 'recurring', 'pending_review') THEN status ELSE :status END,
+        updated_at=NOW()
+    WHERE id = :id AND validation_status IS DISTINCT FROM 'archived'
+""")
+
+
 def _quality(fields: dict):
     return compute_user_quality({
         **fields, "status": "open", "validation_status": "auto_published",
@@ -394,7 +427,7 @@ async def main(dry_run: bool = False, csv_text: Optional[str] = None):
     active_rows = [r for r in rows if (r.get("status") or "").strip().lower() in ("1", "actif", "active", "")]
     print(f"{len(active_rows)} lignes actives", flush=True)
 
-    counts = {"insert": 0, "update": 0, "adopt": 0, "skip_duplicate": 0, "skip_archived": 0,
+    counts = {"insert": 0, "update": 0, "adopt": 0, "update_keeper": 0, "skip_duplicate": 0, "skip_archived": 0,
               "ignored": 0, "errors": 0, "candidates": 0}
 
     async with AsyncSessionLocal() as db:
@@ -419,6 +452,12 @@ async def main(dry_run: bool = False, csv_text: Optional[str] = None):
                         text("UPDATE devices SET slug = :slug WHERE id = :id AND validation_status IS DISTINCT FROM 'archived'"),
                         {"slug": fields["slug"], "id": str(decision.device_id)},
                     )
+
+                if decision.action == "update_keeper":
+                    await db.execute(_UPDATE_KEEPER, {
+                        **{k: v for k, v in fields.items() if k not in ("aid_id", "slug")}, "id": str(decision.device_id),
+                    })
+                    continue
 
                 quality = _quality(fields)
                 publishable = quality.decision in ("publish", "publish_with_caution")
