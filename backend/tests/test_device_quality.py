@@ -12,7 +12,7 @@ def make_device(**overrides):
         ),
         "eligibility_criteria": "PME implantee en France avec projet innovant eligible, situation reguliere et dossier complet.",
         "funding_details": "Subvention jusqu'a 30 000 EUR. Montant a confirmer selon le projet.",
-        "close_date": "2026-06-30",
+        "close_date": "2099-12-31",
         "status": "open",
         "is_recurring": False,
     }

@@ -1,0 +1,31 @@
+# Fins de ligne : LF dans le dépôt ET dans l'arbre de travail, quel que soit core.autocrlf de la machine.
+#
+# Pourquoi : un checkout Windows (core.autocrlf=true) convertissait les fichiers en CRLF ; une image Docker
+# construite depuis cet arbre embarquait donc du CRLF (inoffensif pour Python, FATAL pour un script shell :
+# "set: pipefail: invalid option name", "bad interpreter"), et `git archive` produisait des scripts d'exploitation
+# inutilisables sous Linux. Les scripts d'exploitation (scripts/ops) sont exécutés sur le serveur Linux.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.sql  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.conf text eol=lf
+Dockerfile* text eol=lf
+
+# Scripts Windows : CRLF attendu par les interpréteurs Windows.
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binaires : jamais convertis.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.dump binary
+*.gz   binary

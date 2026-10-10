@@ -1,8 +1,10 @@
 import os
 from datetime import date, datetime, timezone
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
@@ -13,14 +15,30 @@ POSTGRES_TEST_URL = os.getenv("TEST_POSTGRES_DATABASE_URL")
 
 pytestmark = pytest.mark.postgres_smoke
 
+# Databases explicitly recognised as disposable test databases. Anything else is refused.
+DISPOSABLE_DATABASE_PREFIXES = ("kafundo_smoke_", "kafundo_test_", "kafundo_mig_", "kafundo_lot")
+
 
 @pytest.mark.skipif(not POSTGRES_TEST_URL, reason="TEST_POSTGRES_DATABASE_URL non defini")
 @pytest.mark.asyncio
 async def test_postgres_matching_sql_prefers_high_quality_source():
-    engine = create_async_engine(POSTGRES_TEST_URL, future=True)
+    database = make_url(POSTGRES_TEST_URL).database or ""
+    assert database.startswith(DISPOSABLE_DATABASE_PREFIXES), (
+        f"Refusing to run the smoke test on {database!r}: not a recognised disposable test database"
+    )
+
+    # The test builds its schema with Base.metadata.create_all and removes it afterwards. It does so in a private
+    # scratch schema (search_path = that schema only), so it can never touch the tables of the database itself, and
+    # cleanup is DROP SCHEMA ... CASCADE rather than Base.metadata.drop_all (which cannot order the users <->
+    # organizations foreign-key cycle).
+    schema = f"smoke_{uuid4().hex[:12]}"
+    admin_engine = create_async_engine(POSTGRES_TEST_URL, future=True)
+    engine = create_async_engine(POSTGRES_TEST_URL, future=True, connect_args={"server_settings": {"search_path": schema}})
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     try:
+        async with admin_engine.begin() as conn:
+            await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
@@ -134,6 +152,7 @@ async def test_postgres_matching_sql_prefers_high_quality_source():
             assert matches
             assert str(matches[0]["id"]) == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     finally:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
         await engine.dispose()
+        async with admin_engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await admin_engine.dispose()

@@ -236,7 +236,7 @@ def test_normalizer_applies_data_aides_entreprises_profile_sections():
             "aid_operations_el": "Depenses de tresorerie et besoins de financement court terme.",
             "aid_conditions": "Entreprise de plus d'un an, sans procedure collective, avec activite eligible.",
             "aid_montant": "Pret de 5 000 EUR a 50 000 EUR sur 36 mois.",
-            "date_fin": "2026-04-30",
+            "date_fin": "2099-04-30",
             "status": "1",
         },
     )
@@ -245,7 +245,7 @@ def test_normalizer_applies_data_aides_entreprises_profile_sections():
 
     assert normalized is not None
     assert normalized["title"] == "Pret Flash Carburant"
-    assert normalized["close_date"] == date(2026, 4, 30)
+    assert normalized["close_date"] == date(2099, 4, 30)
     assert normalized["status"] == "open"
     assert normalized["short_description"].startswith("Soutenir rapidement la tresorerie")
     assert "## Criteres d'eligibilite" in normalized["full_description"]

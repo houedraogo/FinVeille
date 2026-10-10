@@ -13,7 +13,7 @@ import httpx
 import pytest
 import pytest_asyncio
 import stripe
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
@@ -42,8 +42,9 @@ def auth(user):
     return {"Authorization": f"Bearer {create_access_token(str(user.id), user.role)}"}
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
+@pytest_asyncio.fixture(loop_scope="module")
 async def scenario():
+    """A brand-new tenant (users, organizations, plans wiring) for every test."""
     assert engine.url.database.startswith("kafundo_lot4_")
     nonce = uuid4().hex[:12]
     async with AsyncSessionLocal() as db:
@@ -84,6 +85,64 @@ async def client():
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as value:
         yield value
     await engine.dispose()
+
+
+def _isolation_specs():
+    """(table, scoped_to_scenario_orgs) — everything a billing test may create or mutate."""
+    return (
+        (Alert.__table__, True),
+        (BillingCheckout.__table__, True),
+        (StripeWebhookEvent.__table__, False),
+        (Subscription.__table__, True),
+        (BillingCustomer.__table__, True),
+        (Plan.__table__, False),
+    )
+
+
+async def _capture_state(scenario):
+    org_ids = [scenario.org.id, scenario.quota_org.id]
+    state = {}
+    async with AsyncSessionLocal() as db:
+        for table, scoped in _isolation_specs():
+            stmt = select(table)
+            if scoped:
+                stmt = stmt.where(table.c.organization_id.in_(org_ids))
+            rows = (await db.execute(stmt)).mappings().all()
+            state[table] = {tuple(row[c.name] for c in table.primary_key.columns): dict(row) for row in rows}
+    return state
+
+
+async def _restore_state(scenario, state):
+    org_ids = [scenario.org.id, scenario.quota_org.id]
+    async with AsyncSessionLocal() as db:
+        for table, scoped in _isolation_specs():
+            snapshot = state[table]
+            pk = list(table.primary_key.columns)
+            stmt = select(table)
+            if scoped:
+                stmt = stmt.where(table.c.organization_id.in_(org_ids))
+            current = {tuple(row[c.name] for c in pk): dict(row) for row in (await db.execute(stmt)).mappings().all()}
+            # Table order matters: subscriptions are restored before the extra plans they may reference are removed.
+            for key, row in current.items():
+                if key not in snapshot:
+                    await db.execute(delete(table).where(*[c == v for c, v in zip(pk, key)]))
+                elif row != snapshot[key]:
+                    await db.execute(update(table).where(*[c == v for c, v in zip(pk, key)]).values(**snapshot[key]))
+            for key, row in snapshot.items():
+                if key not in current:
+                    await db.execute(table.insert().values(**row))
+        await db.commit()
+
+
+@pytest_asyncio.fixture(autouse=True, loop_scope="module")
+async def isolated_tenant_state(scenario):
+    """Whatever a test creates or changes in tenant billing tables, plans or Stripe events is undone afterwards,
+    even when the test aborts halfway, so nothing leaks into the next test."""
+    state = await _capture_state(scenario)
+    try:
+        yield
+    finally:
+        await _restore_state(scenario, state)
 
 
 @pytest.fixture
@@ -212,6 +271,8 @@ async def test_order_duplicates_cancellation_and_recovery(client, scenario, fake
 async def test_foreign_subscription_unknown_event_and_status_matrix(client, scenario, fake_stripe):
     base = int(time.time()) + 200
     other = snapshot(scenario, subscription_id=f"sub_foreign_{scenario.nonce}")
+    # Precondition (formerly inherited from the previous test): the organization is bound to its own subscription.
+    assert (await post_event(client, scenario, created=base - 1, data=snapshot(scenario))).json()["outcome"] == "applied"
     assert (await post_event(client, scenario, created=base, data=other)).json()["outcome"] == "subscription_conflict"
     assert (await post_event(client, scenario, event_type="some.unknown.event", created=base + 1)).json()["outcome"] == "ignored_type"
     fake_stripe.snapshots[scenario.subscription] = snapshot(scenario, status="past_due")
@@ -398,3 +459,25 @@ async def test_checkout_entitlement_requires_valid_period(client, scenario, fake
     assert resp2.json()["plan"]["slug"] == "pro"
 
     scenario.subscription = entitlement_sub_id
+
+
+async def test_isolation_probe_a_mutates_tenant_state_and_leaves_it_dirty(client, scenario):
+    """Deliberately leaves the plan on 'expert' with alerts created; the fixture must undo it."""
+    async with AsyncSessionLocal() as db:
+        sub = (await db.execute(select(Subscription).where(Subscription.organization_id == scenario.org.id))).scalar_one()
+        sub.plan_id = scenario.plans["expert"].id
+        await db.commit()
+    created = [
+        (await client.post("/api/v1/alerts/", headers=auth(scenario.users["owner"]), json={"name": f"probe {i}", "criteria": {}})).status_code
+        for i in range(5)
+    ]
+    assert created == [201] * 5
+
+
+async def test_isolation_probe_b_starts_from_the_free_plan_with_no_alerts(client, scenario):
+    """Runs after (or before) probe A: must always see the pristine Free state."""
+    async with AsyncSessionLocal() as db:
+        sub = (await db.execute(select(Subscription).where(Subscription.organization_id == scenario.org.id))).scalar_one()
+        assert sub.plan_id == scenario.plans["free"].id
+        alerts = (await db.execute(select(func.count(Alert.id)).where(Alert.organization_id == scenario.org.id))).scalar_one()
+        assert alerts == 0
