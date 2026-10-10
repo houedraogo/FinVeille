@@ -6,7 +6,7 @@ from typing import Any
 
 from unidecode import unidecode
 
-from app.utils.text_utils import has_recurrence_evidence, sanitize_text
+from app.utils.text_utils import has_recurrence_evidence, looks_like_provider_call, sanitize_text
 
 
 @dataclass(frozen=True)
@@ -29,9 +29,14 @@ _RULES: tuple[tuple[str, tuple[str, ...], int], ...] = (
             "private equity",
             "prise de participation",
             "equity",
-            "amorçage",
-            "amorcage",
-            "seed",
+            "fonds d'amorçage",
+            "fonds d'amorcage",
+            "capital d'amorçage",
+            "capital d'amorcage",
+            "seed fund",
+            "seed funding",
+            "seed round",
+            "pre-seed",
             "series a",
             "series b",
             "business angel",
@@ -222,6 +227,16 @@ def classify_taxonomy(device: dict[str, Any], source: dict[str, Any] | None = No
             taxonomy_tag="taxonomy:projet_institutionnel",
             reason="Source ou type identifie comme projet institutionnel.",
             confidence=95,
+        )
+
+    if looks_like_provider_call(text) and not re.search(
+        r"(?:subvention|aide\s+financiere|pret|bourse|dotation|financement)\s+(?:de|d')\s*\d", normalized
+    ):
+        return TaxonomyClassification(
+            device_type="autre",
+            taxonomy_tag="taxonomy:appel_prestataires",
+            reason="Appel adresse a des experts / prestataires : marche de prestation, pas un financement pour le candidat.",
+            confidence=85,
         )
 
     if "fonds_prive" in source_text or any(

@@ -115,7 +115,14 @@ def build_sectors(row: dict) -> list[str]:
 
 
 def make_slug(title: str, aid_id: str) -> str:
-    base = slugify(title, max_length=60) or f"aide-{aid_id}"
+    # aid_id is the CSV's own stable government identifier: prefer it over the title. Truncating a
+    # slugified title to max_length can cut mid multi-byte accented character, and the two halves the
+    # transliteration library produces for that cut are not guaranteed stable run to run - that produced
+    # a different slug for the same aid between two imports (e.g. "...exon-rat" vs "...exonerat" for
+    # "Exonération"), so ON CONFLICT missed it and inserted a duplicate device instead of updating it.
+    if aid_id:
+        return f"fr-ae-{aid_id}"
+    base = slugify(title, max_length=60) or "aide-sans-titre"
     return f"fr-ae-{base}"
 
 
@@ -245,6 +252,7 @@ async def main():
                         funding_details, close_date, status, is_recurring,
                         source_id, source_url, source_hash, language,
                         keywords, tags, confidence_score, completeness_score,
+                        ai_readiness_score, user_quality_score,
                         validation_status, created_at, updated_at
                     ) VALUES (
                         :id, :slug, :title, :title_normalized, :organism, 'France', :region,
@@ -253,6 +261,7 @@ async def main():
                         :funding, :close_date, :status, false,
                         :source_id, :source_url, :source_hash, 'fr',
                         :keywords, :tags, 75, 70,
+                        0, 0,
                         'auto_published', NOW(), NOW()
                     ) ON CONFLICT (slug) DO UPDATE SET
                         title=EXCLUDED.title, short_description=EXCLUDED.short_description,

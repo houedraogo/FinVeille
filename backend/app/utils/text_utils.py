@@ -48,7 +48,8 @@ def clean_editorial_text(text: str) -> str:
     value = re.sub(r"(?<=[A-Za-zÀ-ÿ])(?=\d)", " ", value)
     value = re.sub(r"(?<=\d)(?=[A-Za-zÀ-ÿ])", " ", value)
     value = re.sub(r"\s+([,.;:!?])", r"\1", value)
-    value = re.sub(r"([,.;:!?])(?=[^\s])", r"\1 ", value)
+    # A space follows punctuation glued to the next word, but never inside a number ("20,000", "3.5", "12:30").
+    value = re.sub(r"(?<!\d)([,.;:!?])(?=\S)|(?<=\d)([,.;:!?])(?=[^\s\d])", lambda m: (m.group(1) or m.group(2)) + " ", value)
     value = re.sub(r"\(\s+", "(", value)
     value = re.sub(r"\s+\)", ")", value)
     value = re.sub(r"\s{2,}", " ", value).strip()
@@ -323,7 +324,7 @@ def build_contextual_funding(
                 amount_str = f"{int(amount):,}".replace(",", " ")
             else:
                 amount_str = f"{amount:,.2f}".replace(",", " ").replace(".", ",")
-            return f"{amount_str} {(currency or 'EUR').strip()}".strip()
+            return f"{amount_str} {(currency or '').strip()}".strip()
 
         if amount_min and amount_max and amount_min != amount_max:
             return f"Montant indicatif compris entre {_format_amount(amount_min)} et {_format_amount(amount_max)}."
@@ -702,3 +703,40 @@ def extract_keywords(title: str, max_keywords: int = 10) -> list:
     }
     words = re.findall(r"\b[a-zA-ZÀ-ÿ]{4,}\b", title.lower())
     return list({w for w in words if w not in STOP_WORDS})[:max_keywords]
+
+# Calls addressed to suppliers / experts ("référencer des experts", "appel à consultants", "marché de prestations"):
+# what is on offer is a contract for the applicant's services, not a financing for the applicant.
+_PROVIDER_CALL_RE = re.compile(
+    r"appels?\s+a\s+(?:experts?|consultants?|prestataires?|cabinets?|fournisseurs?|formateurs?)"
+    r"|appels?\s+a\s+(?:candidatures?|manifestations?\s+d'interet|projets?)[^.]{0,90}?"
+    r"(?:referenc|selectionn|recrut)\w*\s+(?:des\s+|de\s+)?(?:experts?|consultants?|prestataires?|cabinets?|fournisseurs?)"
+    r"|referenc\w+\s+(?:des\s+|de\s+|d')?(?:experts?|consultants?|prestataires?|cabinets?|fournisseurs?)"
+    r"|call\s+for\s+(?:experts?|consultants?|vendors?|providers?|suppliers?)"
+    r"|expressions?\s+of\s+interest\s+from\s+(?:experts?|consultants?|providers?|vendors?)"
+    r"|marches?\s+de\s+(?:prestations?|services|fournitures|travaux)"
+    r"|accord[- ]cadre|titulaire\s+du\s+marche"
+    # English RFP/tender phrasing where an organisation seeks its own provider, not a financing call:
+    # "Provision of ... services", "Consultancy for/to ...", "Request for Proposals/Quotations" absent any
+    # mention of grants/funding being offered (the caller already requires `not offered`).
+    r"|provision\s+of[^.]{0,60}?(?:services?|goods|works)"
+    r"|consultanc(?:y|ies)\s+(?:for|to)\b"
+    r"|request\s+for\s+(?:proposals?|quotations?)\b"
+    r"|invitation\s+(?:for|to)\s+bids?\b"
+    r"|local\s+service\s+provider\b"
+    # French tender reference codes (BOAD etc.): "AMI N°001/2026/...", "AOON N°041/...", "AOOI N°002/...",
+    # "AOOR N°2026-005/...", "AOI N°2026-001/...", "AAOP N°0004/2026/...". Text is unidecoded before
+    # matching, so "N°" becomes "ndeg" - the digit (possibly after "Ouvert National/International", a
+    # project acronym, etc.) is what the pattern anchors on.
+    r"|\b(?:ami|aoon|aooi|aoor|aoi|aaop)\b[^0-9]{0,20}\d"
+    r"|recrutement\s+d(?:e\s+|'(?:un|une)\s+)(?:consultants?|bureaux?|cabinets?)\b"
+    r"|fournitures?\s+d(?:e\b|')"
+    r"|pre[- ]?qualification\b|appel\s+d'?offres?\s+ouvert\b"
+    # Bare English tender-reference abbreviations: "RFQ AGRA-NB-1252", "RFP-AGRA-NB-1443", "(RFQ) AGRA-ML14".
+    # Still gated by `not offered and not beneficiary_amount`, so a grant call that happens to use "RFP"
+    # loosely but states an amount offered to applicants stays FINANCING_OPPORTUNITY.
+    r"|\b(?:rfp|rfq|rfi)\b[^0-9]{0,20}\d"
+)
+
+
+def looks_like_provider_call(text: str) -> bool:
+    return bool(_PROVIDER_CALL_RE.search(unidecode((text or "").lower())))

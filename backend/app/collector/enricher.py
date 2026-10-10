@@ -79,9 +79,9 @@ class Enricher:
 
         amount_max = d.get("amount_max")
         if amount_max:
-            currency = d.get("currency", "EUR")
+            currency = d.get("currency") or ""
             try:
-                parts.append(f"jusqu'à {float(amount_max):,.0f} {currency}".replace(",", " "))
+                parts.append(f"jusqu'à {float(amount_max):,.0f} {currency}".replace(",", " ").strip())
             except (ValueError, TypeError):
                 pass
 

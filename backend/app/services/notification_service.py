@@ -74,13 +74,26 @@ def _email_wrapper(content: str, preheader: str = "") -> str:
 </table>
 </body></html>"""
 
+def _format_device_amount(d: Any) -> str:
+    """"jusqu'à 5,000,000 EUR" for a device (object or dict); the currency only when the source stated one.
+
+    A missing currency is never replaced by a guess and never printed as "None": a NULL currency renders the bare amount.
+    """
+    if isinstance(d, dict):
+        amount_max, currency = d.get("amount_max"), d.get("currency")
+    else:
+        amount_max, currency = getattr(d, "amount_max", None), getattr(d, "currency", None)
+    if not amount_max:
+        return ""
+    currency = str(currency).strip() if currency else ""
+    if currency.lower() in ("none", "null"):
+        currency = ""
+    return f"jusqu'à {float(amount_max):,.0f} {currency}".strip()
+
+
 def _device_row(d: Any, *, base_url: str = "https://app.kafundo.com") -> str:
     """Ligne HTML pour un dispositif dans un email."""
-    amount = ""
-    if getattr(d, "amount_max", None):
-        amount = f"jusqu'à {d.amount_max:,.0f} {getattr(d, 'currency', 'EUR')}"
-    elif isinstance(d, dict) and d.get("amount_max"):
-        amount = f"jusqu'à {d['amount_max']:,.0f} {d.get('currency', 'EUR')}"
+    amount = _format_device_amount(d)
 
     close_date = getattr(d, "close_date", None) or (d.get("close_date") if isinstance(d, dict) else None)
     if close_date and hasattr(close_date, "strftime"):
@@ -427,9 +440,7 @@ class NotificationService:
             status_label = {"open": "Ouvert", "closed": "Fermé", "recurring": "Récurrent"}.get(
                 d.status, d.status
             )
-            amount = ""
-            if d.amount_max:
-                amount = f"jusqu'à {d.amount_max:,.0f} {d.currency}"
+            amount = _format_device_amount(d)
             close = f"Clôture : {d.close_date.strftime('%d/%m/%Y')}" if d.close_date else ""
 
             rows += f"""

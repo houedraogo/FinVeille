@@ -53,7 +53,8 @@ class Device(Base):
     # --- Financement ---
     amount_min = Column(Numeric(15, 2))
     amount_max = Column(Numeric(15, 2))
-    currency = Column(String(10), default="EUR")
+    # Currency written in the source, NULL otherwise: no client-side default that would turn a missing currency into EUR.
+    currency = Column(String(10))
     funding_rate = Column(Numeric(5, 2))
     funding_details = Column(Text)
 

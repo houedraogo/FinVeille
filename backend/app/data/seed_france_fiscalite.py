@@ -244,6 +244,7 @@ async def main():
                     short_description, full_description, eligibility_criteria,
                     funding_details, source_url, status, is_recurring,
                     language, confidence_score, completeness_score,
+                    ai_readiness_score, user_quality_score,
                     validation_status, created_at, updated_at
                 ) VALUES (
                     :id, :slug, :title, :title_norm, :organism, 'France',
@@ -251,6 +252,7 @@ async def main():
                     :short, :full, :elig,
                     :funding, :url, :status, :recurring,
                     'fr', 95, 95,
+                    0, 0,
                     'auto_published', NOW(), NOW()
                 )
             """), {

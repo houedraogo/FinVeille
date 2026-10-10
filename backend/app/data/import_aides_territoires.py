@@ -309,6 +309,7 @@ async def main():
                         funding_details, open_date, close_date, status, is_recurring,
                         source_id, source_url, source_hash, language,
                         keywords, tags, confidence_score, completeness_score,
+                        ai_readiness_score, user_quality_score,
                         validation_status, created_at, updated_at
                     ) VALUES (
                         :id, :slug, :title, :title_norm, :organism, 'France', :region,
@@ -317,6 +318,7 @@ async def main():
                         :funding, :open_date, :close_date, :status, :recurring,
                         :source_id, :source_url, :hash, 'fr',
                         :keywords, :tags, 85, 80,
+                        0, 0,
                         'auto_published', NOW(), NOW()
                     ) ON CONFLICT (slug) DO UPDATE SET
                         title=EXCLUDED.title, short_description=EXCLUDED.short_description,

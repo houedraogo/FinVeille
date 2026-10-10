@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from unidecode import unidecode
 
 from app.database import AsyncSessionLocal
@@ -294,8 +294,47 @@ def _classify_by_pattern(title: str) -> tuple[str, str, list[str], list[str]] | 
     return None
 
 
+# Every type prefix this module (or the normalizer's own localizer) can have put in front of a title.
+# Stripped in a loop before a new one is added, so re-running the requalifier on an already-prefixed
+# title never stacks "Subvention - Subvention - Subvention - ...".
+_KNOWN_TITLE_PREFIXES = (
+    "Subvention",
+    "Concours",
+    "Appel à projets",
+    "Appel a projets",
+    "Appel à manifestation d'intérêt",
+    "Appel a manifestation d'interet",
+    "Programme d'accompagnement",
+    "Opportunité d'investissement",
+    "Opportunite d'investissement",
+    "Investissement",
+    "Opportunité",
+    "Opportunite",
+    "Bourse",
+    "Prêt",
+    "Pret",
+    "Garantie",
+    "Equity",
+)
+
+
+def _strip_known_title_prefixes(title: str) -> str:
+    cleaned = title
+    stripped = True
+    while stripped:
+        stripped = False
+        for prefix in _KNOWN_TITLE_PREFIXES:
+            marker = f"{prefix} - "
+            if cleaned.lower().startswith(marker.lower()):
+                cleaned = cleaned[len(marker):].strip()
+                stripped = True
+                break
+    return cleaned
+
+
 def _fallback_title(title: str, device_type: str) -> str:
     cleaned = clean_editorial_text(title)
+    cleaned = _strip_known_title_prefixes(cleaned)
     cleaned = re.sub(r"^\s*(applications?\s+(?:are\s+)?(?:now\s+)?open(?:\s+for)?|apply\s+now\s+for|call\s+for\s+applications?)\s*[:\-]?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\s*\|\s*.*$", "", cleaned).strip()
     prefix = {
@@ -460,6 +499,10 @@ async def requalify_editorial_auto_sources(days: int = 21, batch_size: int = 80)
                     Device.source_id.in_(list(source_by_id.keys())),
                     Device.created_at >= now - timedelta(days=days),
                     Device.validation_status.in_(("admin_only", "auto_published")),
+                    # This task runs every 2h for up to `days` days: without this guard it reprocesses
+                    # a device it already requalified on every run, re-running _fallback_title on its
+                    # own previous output and stacking "Subvention - Subvention - ..." prefixes.
+                    or_(Device.ai_rewrite_model.is_(None), Device.ai_rewrite_model != "editorial_requalifier_v1"),
                 )
                 .order_by(Device.created_at.desc())
                 .limit(batch_size)

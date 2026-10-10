@@ -33,7 +33,7 @@ class DeviceCreate(BaseModel):
     required_documents: Optional[str] = None
     amount_min: Optional[Decimal] = None
     amount_max: Optional[Decimal] = None
-    currency: str = "EUR"
+    currency: Optional[str] = None
     funding_rate: Optional[Decimal] = None
     funding_details: Optional[str] = None
     open_date: Optional[date] = None
@@ -117,7 +117,7 @@ class DeviceResponse(BaseModel):
     required_documents: Optional[str]
     amount_min: Optional[Decimal]
     amount_max: Optional[Decimal]
-    currency: str = "EUR"
+    currency: Optional[str] = None
     funding_rate: Optional[Decimal]
     funding_details: Optional[str]
     open_date: Optional[date]
@@ -155,12 +155,12 @@ class DeviceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("currency", "source_url", "language", mode="before")
+    @field_validator("source_url", "language", mode="before")
     @classmethod
     def coerce_str_defaults(cls, v, info):
         if v is not None:
             return v
-        return {"currency": "EUR", "source_url": "", "language": "fr"}.get(info.field_name, "")
+        return {"source_url": "", "language": "fr"}.get(info.field_name, "")
 
     @field_validator("content_sections_json", "ai_rewritten_sections_json", mode="before")
     @classmethod
@@ -204,7 +204,7 @@ class DeviceListItemResponse(BaseModel):
     eligibility_criteria: Optional[str]
     amount_min: Optional[Decimal]
     amount_max: Optional[Decimal]
-    currency: str = "EUR"
+    currency: Optional[str] = None
     funding_rate: Optional[Decimal]
     funding_details: Optional[str]
     open_date: Optional[date]
@@ -240,12 +240,12 @@ class DeviceListItemResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("currency", "source_url", "language", mode="before")
+    @field_validator("source_url", "language", mode="before")
     @classmethod
     def coerce_str_defaults(cls, v, info):
         if v is not None:
             return v
-        return {"currency": "EUR", "source_url": "", "language": "fr"}.get(info.field_name, "")
+        return {"source_url": "", "language": "fr"}.get(info.field_name, "")
 
     model_config = {"from_attributes": True}
 

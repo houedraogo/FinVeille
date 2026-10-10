@@ -71,31 +71,40 @@ COUNTRY_MAP = {
 }
 
 DEVICE_TYPE_RULES = {
-    "subvention": ["subvention", "aide directe", "dotation", "fonds perdus", "grant", "aide non remboursable"],
-    "pret": ["prêt", "loan", "crédit public", "emprunt"],
-    "avance_remboursable": ["avance remboursable", "avance récupérable"],
-    "garantie": ["garantie", "cautionnement", "contre-garantie"],
-    "credit_impot": ["crédit d'impôt", "cir ", "cii ", "jei", "tax credit"],
-    "exoneration": ["exonération", "abattement fiscal", "réduction de charges"],
-    "aap": ["appel à projets", "appel a projets", "aap", "call for projects", "appel à candidatures"],
+    # Une fiche ne doit jamais être classée subvention uniquement parce qu'elle
+    # provient d'un catalogue d'aides — la source doit mentionner explicitement
+    # la nature de l'instrument.
+    "subvention": ["subvention", "aide directe", "dotation", "fonds perdus", "grant", "aide non remboursable", "aide a fonds perdu", "aide à fonds perdu"],
+    "pret": ["prêt d'honneur", "prêt à taux zéro", "prêt participatif", "prêt ", "loan ", "crédit public", "emprunt ", "crédit d'amorçage"],
+    "avance_remboursable": ["avance remboursable", "avance récupérable", "avance conditionnellement remboursable"],
+    "garantie": ["garantie ", "cautionnement", "contre-garantie", "garantie bancaire"],
+    "credit_impot": ["crédit d'impôt", "cir ", "cii ", "jei", "tax credit", "jeune entreprise innovante"],
+    "exoneration": ["exonération", "abattement fiscal", "réduction de charges", "dégrèvement"],
+    "equity": [
+        "capital-risque", "venture capital", "fonds d'investissement",
+        "prise de participation", "equity", "capital-développement",
+        "capital investissement", "seed fund", "series a", "series b",
+        "amorçage", "investisseur", "business angel",
+    ],
+    "bourse": [
+        "bourse d'études", "bourse de recherche", "bourse de mobilité",
+        "fellowship", "scholarship", "bourse doctorale",
+    ],
+    "concours": ["concours", "prix ", "trophée", "award", "compétition", "challenge innovation"],
+    "aap": ["appel à projets", "appel a projets", "aap ", "call for projects", "call for proposals"],
     "ami": ["appel à manifestation", "appel a manifestation", " ami ", "expression d'intérêt"],
-    "accompagnement": ["accompagnement", "incubation", "accélération", "mentorat", "coaching public"],
-    "concours": ["concours", "prix ", "trophée", "award", "compétition"],
-    "investissement": [
-        "capital-risque",
-        "venture capital",
-        "fonds d'investissement",
-        "business angel",
-        "prise de participation",
-        "equity",
-        "capital-développement",
-        "capital investissement",
-        "seed fund",
-        "series a",
-        "series b",
-        "amorçage",
-        "love money",
-        "investisseur",
+    "accompagnement_finance": [
+        "accompagnement financé", "programme d'incubation", "programme d'accélération",
+        "programme d'appui", "accompagnement et financement",
+    ],
+    "diagnostic": [
+        "diagnostic ", "audit financé", "audit gratuit", "bilan gratuit",
+        "conseil gratuit", "diag ", "diag-",
+    ],
+    "aap_sans_financement": ["appel à candidatures", "call for applications", "appel à expressions d'intérêt"],
+    "accompagnement": [
+        "accompagnement ", "incubation", "accélération", "mentorat",
+        "coaching public", "coaching gratuit",
     ],
 }
 
@@ -210,6 +219,8 @@ UNUSABLE_CONTENT_MARKERS = (
     "not found",
 )
 
+
+_AMOUNT_OWNED_FIELDS = frozenset({"amount_min", "amount_max", "funding_rate", "currency"})
 
 class Normalizer:
     def __init__(self, source: dict):
@@ -427,10 +438,35 @@ class Normalizer:
             device_type = str(profile_device_type)
 
         source_raw = self._build_source_raw(item)
+        detected_country = self._detect_country(text) or self.default_country
+
+        from app.services.amount_engine import AmountEngine
+        from app.services.content_classifier import ContentClassifier, ContentType
+
+        # Amounts of a multilateral / government project (total cost, credits, financing lines) are not amounts a
+        # company can obtain: decided from the source-provided type, else from the content itself (not a source name).
+        institutional = device_type == "institutional_project"
+        if not institutional:
+            nature = ContentClassifier().classify(
+                {"title": normalized_title, "short_description": short_description, "full_description": text[:8000],
+                 "device_type": device_type, "country": detected_country}
+            )
+            institutional = nature.content_type == ContentType.INSTITUTIONAL_PROJECT and nature.confidence >= 0.70
+        amount_result = AmountEngine().extract(text, country=detected_country, institutional_project=institutional)
+
+        # Build amount tags for transparency
+        amount_tags: list[str] = []
+        if amount_result.amount_type.value != "unknown":
+            amount_tags.append(f"amount_type:{amount_result.amount_type.value}")
+        if amount_result.program_budget is not None:
+            amount_tags.append("amount:has_program_budget")
+        if amount_result.funding_rate is not None:
+            amount_tags.append(f"amount:rate:{int(amount_result.funding_rate)}pct")
+
         payload = {
             "title": normalized_title,
             "organism": self.organism,
-            "country": self._detect_country(text) or self.default_country,
+            "country": detected_country,
             "source_url": item.url,
             "source_raw": source_raw,
             "device_type": device_type,
@@ -441,22 +477,36 @@ class Normalizer:
             "eligibility_criteria": eligibility_criteria,
             "close_date": close_date,
             "open_date": open_date,
-            "amount_min": self._extract_amount(text, "min"),
-            "amount_max": self._extract_amount(text, "max"),
-            "currency": self._detect_currency(text),
+            "amount_min": amount_result.amount_min,
+            "amount_max": amount_result.amount_max,
+            "funding_rate": amount_result.funding_rate,
+            "currency": amount_result.currency,
             "keywords": extract_keywords(normalized_title),
             "status": derive_device_status(close_date, initial_status),
             "is_recurring": is_recurring,
             "recurrence_notes": recurrence_notes,
             "language": self.source.get("language", "fr"),
             "source_id": self.source.get("id"),
-            "tags": [taxonomy.taxonomy_tag],
+            "tags": sorted(set([taxonomy.taxonomy_tag] + amount_tags)),
+            # Internal fields used by quality gate / pipeline (not stored in DeviceCreate)
+            "_program_budget": amount_result.program_budget,
+            "_program_budget_currency": amount_result.program_budget_currency,
+            "_eligible_expense_cap": amount_result.eligible_expense_cap,
+            "_eligible_expense_cap_currency": amount_result.eligible_expense_cap_currency,
+            "_eligible_expense_floor": amount_result.eligible_expense_floor,
+            "_project_cost": amount_result.project_cost,
+            "_currency_inferred": amount_result.currency_inferred,
+            "_amount_type": amount_result.amount_type.value,
+            "_amount_source_text": amount_result.amount_source_text,
+            "_amount_confidence": amount_result.amount_confidence,
         }
         if funding_details:
             payload["funding_details"] = funding_details
         for key, value in extra_fields.items():
             if key in {"full_description", "funding_details", "eligibility_criteria"}:
                 continue
+            if key in _AMOUNT_OWNED_FIELDS:
+                continue  # money fields belong to the AmountEngine role layer, never to a source-specific parser
             payload[key] = value
         sections = build_content_sections(payload, self.source)
         payload["content_sections_json"] = sections
@@ -1472,9 +1522,12 @@ class Normalizer:
             opportunity_type = "concours"
         country = self._detect_country((normalized_title + " " + body).lower()) or "International"
         amount_label = self._extract_amount_label(body)
-        amount_value, amount_currency = self._extract_amount_value_and_currency(f"{normalized_title} {body}")
+        from app.services.amount_engine import AmountEngine
+
+        amounts = AmountEngine().extract(f"{normalized_title} {body}", country=country)
+        amount_value = amounts.amount_max or amounts.amount_min
         if amount_value:
-            amount_label = self._format_amount_label(amount_value, amount_currency)
+            amount_label = self._format_amount_label(amount_value, amounts.currency)
         localized_title = self._localize_global_south_title(normalized_title, opportunity_type, country, amount_label)
 
         close_sentence = (
@@ -1542,9 +1595,6 @@ class Normalizer:
             "geographic_scope": "international" if country == "International" else "national",
             "keywords": extract_keywords(localized_title),
         }
-        if amount_value:
-            result["amount_max"] = amount_value
-            result["currency"] = amount_currency or self._detect_currency(f"{normalized_title} {body}".lower())
         return result
 
     def _localize_global_south_title(
@@ -1556,7 +1606,9 @@ class Normalizer:
     ) -> str:
         cleaned = clean_editorial_text(title)
         normalized = unidecode(cleaned.lower())
-        for existing_prefix in (
+        # Strip ALL existing type prefixes (loop handles repeated prefixes from
+        # previous re-ingestions: "Subvention - Subvention - Subvention - Title")
+        known_prefixes = (
             "Subvention - ",
             "Concours - ",
             "Investissement - ",
@@ -1565,11 +1617,21 @@ class Normalizer:
             "Programme d'accompagnement - ",
             "Opportunite - ",
             "Opportunité - ",
-        ):
-            if cleaned.lower().startswith(existing_prefix.lower()):
-                cleaned = cleaned[len(existing_prefix):].strip()
-                normalized = unidecode(cleaned.lower())
-                break
+            "Bourse - ",
+            "Prêt - ",
+            "Pret - ",
+            "Garantie - ",
+            "Equity - ",
+        )
+        stripped = True
+        while stripped:
+            stripped = False
+            for existing_prefix in known_prefixes:
+                if cleaned.lower().startswith(existing_prefix.lower()):
+                    cleaned = cleaned[len(existing_prefix):].strip()
+                    normalized = unidecode(cleaned.lower())
+                    stripped = True
+                    break
         country_suffix = "" if country == "International" else f" - {country}"
         amount_suffix = f" - jusqu'à {amount_label}" if amount_label else ""
 
@@ -1632,7 +1694,7 @@ class Normalizer:
 
     def _format_amount_label(self, amount: float, currency: Optional[str]) -> str:
         amount_text = f"{amount:,.0f}".replace(",", " ") if amount.is_integer() else f"{amount:,.2f}".replace(",", " ")
-        return f"{amount_text} {currency or 'EUR'}"
+        return f"{amount_text} {currency}".strip() if currency else amount_text
 
     def _extract_global_south_sections(self, raw_body: str) -> dict[str, str]:
         soup = BeautifulSoup(raw_body or "", "lxml")
@@ -1703,80 +1765,28 @@ class Normalizer:
         parts.append("Les informations detaillees doivent etre confirmees sur le site officiel avant candidature.")
         return " ".join(dict.fromkeys(parts))
 
+    # number + multiplier + currency form ONE unit: "€2 Million", "2 M€", "2,5 milliards d'euros", "500 000 FCFA", "1.5M USD"
+    _LABEL_NUM = r"\d(?:[\d\s,.]*\d)?"
+    _LABEL_MULT = r"(?:\s?(?:milliards?|millions?|billions?|bn|mn|md|m|k)(?![a-z]))?"
+    _LABEL_CUR_WORD = r"(?:\s?(?:d['’]\s?euros?|euros?|usd|eur|cad|gbp|fcfa|xof|xaf|cfa)(?![a-z]))"
+    _LABEL_CUR_SYMBOL = r"(?:\s?[€$£])"
+
     def _extract_amount_label(self, text: str) -> Optional[str]:
         cleaned = sanitize_text(text or "")
+        num, mult = self._LABEL_NUM, self._LABEL_MULT
+        cur = f"(?:{self._LABEL_CUR_WORD}|{self._LABEL_CUR_SYMBOL})"
         match = re.search(
-            r"(?:up to|jusqu(?:'|’)a|jusqu(?:'|’)à)\s*(?:cad\s*)?([$€£]?\s?\d[\d\s,.]*(?:\s?(?:usd|eur|cad|gbp|€|\$|£))?)",
+            rf"(?:up to|jusqu(?:'|’)a|jusqu(?:'|’)à)\s*(?:cad\s*)?([$€£]?\s?{num}{mult}{cur}?)",
             cleaned,
             re.IGNORECASE,
         )
         if not match:
             match = re.search(
-                r"([$€£]\s?\d[\d\s,.]*|\d[\d\s,.]*\s?(?:usd|eur|cad|gbp|€|\$|£))",
+                rf"([$€£]\s?{num}{mult}{cur}?|{num}{mult}{cur})",
                 cleaned,
                 re.IGNORECASE,
             )
         return clean_editorial_text(match.group(1)) if match else None
-
-    def _extract_amount_value_and_currency(self, text: str) -> tuple[Optional[float], Optional[str]]:
-        label = self._extract_amount_label(text)
-        cleaned_text = sanitize_text(text or "")
-        if not label:
-            fallback = re.search(
-                r"(?:[$\u20ac\u00a3]\s?\d[\d\s,.]*(?:\s?(?:m|million|millions|k|thousand))?|\d[\d\s,.]*(?:\s?(?:m|million|millions|k|thousand))?\s?(?:usd|eur|cad|gbp|[$\u20ac\u00a3]))",
-                cleaned_text,
-                re.IGNORECASE,
-            )
-            if not fallback:
-                return None, None
-            label = fallback.group(0)
-        range_match = re.search(
-            r"([$\u20ac\u00a3]?\s?\d[\d\s,.]*)\s*(?:-|–|to|à)\s*([$\u20ac\u00a3]?\s?\d[\d\s,.]*)",
-            cleaned_text,
-            re.IGNORECASE,
-        )
-        value_source = " ".join(range_match.groups()) if range_match else label
-        numeric_source = re.sub(r"([,.])\s+", r"\1", value_source)
-        value_matches = re.findall(r"\d+(?:[,\s]\d{3})*(?:\.\d+)?|\d+(?:,\d+)?", numeric_source)
-        if not value_matches:
-            return None, None
-        parsed_values: list[float] = []
-        for value_match in value_matches:
-            raw_value = value_match.replace(" ", "")
-            if "," in raw_value and "." in raw_value:
-                raw_value = raw_value.replace(",", "")
-            elif "," in raw_value:
-                parts = raw_value.split(",")
-                raw_value = "".join(parts) if parts[-1].isdigit() and len(parts[-1]) == 3 else raw_value.replace(",", ".")
-            try:
-                parsed_values.append(float(raw_value))
-            except ValueError:
-                continue
-        if not parsed_values:
-            return None, None
-        value = max(parsed_values)
-        try:
-            value = float(value)
-        except ValueError:
-            return None, None
-        multiplier_scope = unidecode(f"{label} {cleaned_text}".lower())
-        normalized = unidecode(label.lower())
-        if re.search(r"\b(m|million|millions)\b", multiplier_scope):
-            value *= 1_000_000
-        elif re.search(r"\b(k|thousand)\b", multiplier_scope):
-            value *= 1_000
-        currency = "EUR"
-        if "$" in label or "usd" in normalized:
-            currency = "USD"
-        elif "£" in label or "gbp" in normalized:
-            currency = "GBP"
-        elif "cad" in normalized:
-            currency = "CAD"
-        elif "€" in label or "eur" in normalized:
-            currency = "EUR"
-        if value < 100 or value > 1_000_000_000:
-            return None, None
-        return value, currency
 
     def _build_short_description(self, item: RawItem, raw_body: str, metadata: dict, close_date: Optional[date]) -> Optional[str]:
         profile_short = self._get_profile_text(metadata, getattr(self.profile, "short_description_fields", ()))
@@ -2314,17 +2324,6 @@ class Normalizer:
 
     def _detect_beneficiaries(self, text: str) -> list:
         return [beneficiary for beneficiary, keywords in BENEFICIARY_RULES.items() if any(keyword in text for keyword in keywords)]
-
-    def _detect_currency(self, text: str) -> str:
-        if any(currency in text for currency in ["xof", "fcfa", "franc cfa"]):
-            return "XOF"
-        if any(currency in text for currency in ["mad", "dirham"]):
-            return "MAD"
-        if any(currency in text for currency in ["tnd", "dinar"]):
-            return "TND"
-        if "xaf" in text:
-            return "XAF"
-        return "EUR"
 
     def _detect_status(self, text: str) -> str:
         if any(keyword in text for keyword in ["clôturé", "terminé", "expiré", "closed", "archivé"]):

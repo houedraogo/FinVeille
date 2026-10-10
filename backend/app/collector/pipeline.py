@@ -238,10 +238,30 @@ class CollectionPipeline:
         )
         return stats
 
+    def _try_resolve_relative_url(self, source_url: str) -> str:
+        """Reconstruct absolute URL from source base URL when source_url is relative."""
+        if not source_url or source_url.startswith(("http://", "https://")):
+            return source_url
+        source_base = str(self.source.get("url") or "")
+        if source_base:
+            try:
+                from urllib.parse import urljoin
+                resolved = urljoin(source_base, source_url)
+                parsed = urlparse(resolved)
+                if parsed.scheme in ("http", "https") and parsed.netloc:
+                    return resolved
+            except Exception:
+                pass
+        return source_url  # keep relative — quality gate will flag it
+
     async def _process_item(self, raw) -> str:
         normalized = self.normalizer.normalize(raw)
         if not normalized or not normalized.get("title"):
             return "skipped"
+
+        # Attempt relative URL reconstruction before hashing
+        if normalized.get("source_url"):
+            normalized["source_url"] = self._try_resolve_relative_url(normalized["source_url"])
 
         business_fields = (
             "title", "short_description", "close_date", "open_date", "amount_min",
@@ -300,6 +320,25 @@ class CollectionPipeline:
                         supplemental_fields[field] = new_value
 
                 if supplemental_fields:
+                    # Re-apply source visibility rules on update so that devices
+                    # created before these rules were introduced are corrected
+                    # when their content changes (fixes the admin_only/published contradiction).
+                    existing_as_dict = {
+                        col.name: getattr(existing, col.name)
+                        for col in existing.__table__.columns
+                    }
+                    existing_as_dict.update(supplemental_fields)
+                    quality_tags = [
+                        t.replace("quality:", "")
+                        for t in (existing_as_dict.get("tags") or [])
+                        if t.startswith("quality:")
+                    ]
+                    self._apply_source_visibility_rules(existing_as_dict, quality_tags)
+                    if existing_as_dict.get("validation_status") != getattr(existing, "validation_status", None):
+                        supplemental_fields["validation_status"] = existing_as_dict["validation_status"]
+                    if existing_as_dict.get("tags") != getattr(existing, "tags", None):
+                        supplemental_fields["tags"] = existing_as_dict["tags"]
+
                     supplemental_fields.update(self._ai_readiness_fields(existing, supplemental_fields))
                     supplemental_fields["source_hash"] = content_hash
                     await self.device_service.update_raw(existing.id, supplemental_fields, commit=False)
