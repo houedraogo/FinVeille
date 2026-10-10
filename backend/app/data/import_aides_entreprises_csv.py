@@ -399,6 +399,26 @@ _UPSERT = text("""
                     THEN devices.status ELSE EXCLUDED.status END,
         updated_at=NOW()
     WHERE devices.validation_status IS DISTINCT FROM 'archived'
+      -- updated_at ne bouge que si le CONTENU écrit change réellement (sinon ~2 500 fiches « modifiées » chaque
+      -- nuit, ce qui pollue le tri « Nouveauté » et les synchronisations incrémentales). Chaque comparaison
+      -- reprend l'expression exacte de la valeur qui serait écrite ci-dessus.
+      AND (
+           devices.title IS DISTINCT FROM EXCLUDED.title
+        OR devices.title_normalized IS DISTINCT FROM EXCLUDED.title_normalized
+        OR devices.short_description IS DISTINCT FROM (CASE WHEN length(coalesce(EXCLUDED.short_description, '')) < 80
+                                AND length(coalesce(devices.short_description, '')) >= 80
+                               THEN devices.short_description ELSE EXCLUDED.short_description END)
+        OR devices.full_description IS DISTINCT FROM (CASE WHEN length(coalesce(EXCLUDED.full_description, '')) < 120
+                               AND length(coalesce(devices.full_description, '')) >= 120
+                              THEN devices.full_description ELSE EXCLUDED.full_description END)
+        OR devices.eligibility_criteria IS DISTINCT FROM coalesce(nullif(EXCLUDED.eligibility_criteria, ''), devices.eligibility_criteria)
+        OR devices.funding_details IS DISTINCT FROM coalesce(nullif(EXCLUDED.funding_details, ''), devices.funding_details)
+        OR devices.close_date IS DISTINCT FROM EXCLUDED.close_date
+        OR devices.source_hash IS DISTINCT FROM EXCLUDED.source_hash
+        OR devices.source_url IS DISTINCT FROM EXCLUDED.source_url
+        OR devices.status IS DISTINCT FROM (CASE WHEN devices.status IN ('standby', 'recurring', 'pending_review')
+                    THEN devices.status ELSE EXCLUDED.status END)
+      )
 """)
 
 
@@ -415,7 +435,24 @@ _UPDATE_KEEPER = text("""
         status=CASE WHEN status IN ('standby', 'recurring', 'pending_review') THEN status ELSE :status END,
         updated_at=NOW()
     WHERE id = :id AND validation_status IS DISTINCT FROM 'archived'
+      AND (
+           title IS DISTINCT FROM :title
+        OR title_normalized IS DISTINCT FROM :title_normalized
+        OR short_description IS DISTINCT FROM (CASE WHEN length(coalesce(:short_description, '')) < 80 AND length(coalesce(short_description, '')) >= 80
+                               THEN short_description ELSE :short_description END)
+        OR full_description IS DISTINCT FROM (CASE WHEN length(coalesce(:full_description, '')) < 120 AND length(coalesce(full_description, '')) >= 120
+                              THEN full_description ELSE :full_description END)
+        OR eligibility_criteria IS DISTINCT FROM coalesce(nullif(:eligibility_criteria, ''), eligibility_criteria)
+        OR funding_details IS DISTINCT FROM coalesce(nullif(:funding_details, ''), funding_details)
+        OR close_date IS DISTINCT FROM :close_date
+        OR status IS DISTINCT FROM (CASE WHEN status IN ('standby', 'recurring', 'pending_review') THEN status ELSE :status END)
+      )
 """)
+
+# Fiche présente dans la source et inchangée : on ne touche PAS updated_at, seulement la date de dernière vérification.
+_TOUCH_VERIFIED = text(
+    "UPDATE devices SET last_verified_at = NOW() WHERE id = :id AND validation_status IS DISTINCT FROM 'archived'"
+)
 
 
 def _quality(fields: dict):
@@ -442,7 +479,7 @@ async def main(dry_run: bool = False, csv_text: Optional[str] = None):
     print(f"{len(active_rows)} lignes actives", flush=True)
 
     counts = {"insert": 0, "update": 0, "adopt": 0, "update_keeper": 0, "skip_duplicate": 0, "skip_archived": 0,
-              "ignored": 0, "errors": 0, "candidates": 0}
+              "ignored": 0, "errors": 0, "candidates": 0, "unchanged": 0}
 
     async with AsyncSessionLocal() as db:
         source_id = await ensure_source(db)
@@ -468,9 +505,12 @@ async def main(dry_run: bool = False, csv_text: Optional[str] = None):
                     )
 
                 if decision.action == "update_keeper":
-                    await db.execute(_UPDATE_KEEPER, {
+                    res = await db.execute(_UPDATE_KEEPER, {
                         **{k: v for k, v in fields.items() if k not in ("aid_id", "slug")}, "id": str(decision.device_id),
                     })
+                    if res.rowcount == 0:  # contenu identique : seule la date de vérification avance
+                        await db.execute(_TOUCH_VERIFIED, {"id": str(decision.device_id)})
+                        counts["unchanged"] += 1
                     continue
 
                 quality = _quality(fields)
@@ -485,7 +525,11 @@ async def main(dry_run: bool = False, csv_text: Optional[str] = None):
                     "ai_rewrite_status": initial_ai_rewrite_status("auto_published" if publishable else "admin_only"),
                     "validation_status": "auto_published",
                 }
-                await db.execute(_UPSERT, params)
+                res = await db.execute(_UPSERT, params)
+                if decision.action != "insert" and res.rowcount == 0 and decision.device_id is not None:
+                    # Fiche connue, contenu identique : updated_at reste inchangé, la vérification est enregistrée.
+                    await db.execute(_TOUCH_VERIFIED, {"id": str(decision.device_id)})
+                    counts["unchanged"] += 1
                 if decision.action == "insert":
                     index.register(fields, params["id"])
                     for other, assessment in decision.candidates:

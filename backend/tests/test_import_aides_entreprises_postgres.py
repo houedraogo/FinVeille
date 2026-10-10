@@ -260,3 +260,68 @@ async def test_a_longer_source_text_still_replaces_a_thin_existing_one(use_db):
     await importer.main(csv_text=csv_text({"id_aid": "602", "aid_nom": "Aide courte à améliorer", "aid_objet": richer,
                                            "complements_sources": "https://region-f.fr/courte"}))
     assert (await _all(use_db))[0].short_description == richer
+
+
+# --- updated_at ne bouge que si le contenu change -------------------------------------------------------------------
+
+async def _stamps(factory, slug):
+    async with factory() as db:
+        row = (await db.execute(select(Device.updated_at, Device.last_verified_at).where(Device.slug == slug))).one()
+    return row.updated_at, row.last_verified_at
+
+
+@pytest.mark.asyncio
+async def test_unchanged_content_does_not_touch_updated_at_but_records_the_verification(use_db):
+    first = csv_text({"id_aid": "101", "aid_nom": "Aide à la modernisation des commerces",
+                      "complements_sources": "https://region-a.fr/aide-modernisation"})
+    await importer.main(csv_text=first)
+    updated_1, verified_1 = await _stamps(use_db, "fr-ae-101")
+
+    counts = await importer.main(csv_text=first)          # même CSV, rien n'a changé
+    updated_2, verified_2 = await _stamps(use_db, "fr-ae-101")
+
+    assert counts["update"] == 1 and counts["unchanged"] == 1 and counts["insert"] == 0
+    assert updated_2 == updated_1                          # le contenu n'a pas bougé : updated_at non plus
+    assert verified_2 > verified_1                         # mais la fiche a bien été revue
+
+
+@pytest.mark.asyncio
+async def test_changed_content_bumps_updated_at(use_db):
+    original = csv_text({"id_aid": "101", "aid_nom": "Aide à la modernisation des commerces",
+                         "complements_sources": "https://region-a.fr/aide-modernisation"})
+    await importer.main(csv_text=original)
+    updated_1, _ = await _stamps(use_db, "fr-ae-101")
+
+    changed = csv_text({"id_aid": "101", "aid_nom": "Aide à la modernisation des commerces", "aid_montant": "Jusqu'à 35 000 euros",
+                        "complements_sources": "https://region-a.fr/aide-modernisation"})
+    counts = await importer.main(csv_text=changed)
+    updated_2, _ = await _stamps(use_db, "fr-ae-101")
+
+    assert counts["unchanged"] == 0
+    assert updated_2 > updated_1
+
+
+@pytest.mark.asyncio
+async def test_deadline_change_alone_is_a_real_change(use_db):
+    base = {"id_aid": "101", "aid_nom": "Aide à la modernisation des commerces",
+            "complements_sources": "https://region-a.fr/aide-modernisation"}
+    await importer.main(csv_text=csv_text({**base, "date_fin": FUTURE}))
+    updated_1, _ = await _stamps(use_db, "fr-ae-101")
+    later = (datetime.now(timezone.utc) + timedelta(days=300)).strftime("%Y-%m-%d")
+    counts = await importer.main(csv_text=csv_text({**base, "date_fin": later}))
+    updated_2, _ = await _stamps(use_db, "fr-ae-101")
+    assert counts["unchanged"] == 0 and updated_2 > updated_1
+
+
+@pytest.mark.asyncio
+async def test_mixed_run_only_touches_the_rows_that_changed(use_db):
+    a = {"id_aid": "101", "aid_nom": "Aide à la modernisation des commerces", "complements_sources": "https://region-a.fr/aide-modernisation"}
+    b = {"id_aid": "102", "aid_nom": "Prêt d'honneur pour les créateurs", "complements_sources": "https://region-b.fr/pret-honneur", "natures": "Prêt"}
+    await importer.main(csv_text=csv_text(a, b))
+    ua1, _ = await _stamps(use_db, "fr-ae-101")
+    ub1, _ = await _stamps(use_db, "fr-ae-102")
+    counts = await importer.main(csv_text=csv_text(a, {**b, "aid_montant": "Jusqu'à 90 000 euros"}))
+    ua2, _ = await _stamps(use_db, "fr-ae-101")
+    ub2, _ = await _stamps(use_db, "fr-ae-102")
+    assert counts["unchanged"] == 1
+    assert ua2 == ua1 and ub2 > ub1
