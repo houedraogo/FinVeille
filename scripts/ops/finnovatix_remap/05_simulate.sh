@@ -92,6 +92,7 @@ say ""; say "===== SIMULATION 3 : executeur garde 06_apply.sh (sur la COPIE jeta
 RUNNER="$(dirname "$(readlink -f "$0")")/06_apply.sh"
 if [ -f "$RUNNER" ]; then
   export AUDIT_DIR="$D" MYSQL_CONTAINER="$SIM" APP_CONTAINER=aucun-conteneur DB=finnovatix ASSUME_YES=1
+  export SKIP_CAP_CHECK=1 MYSQL_EXEC="docker exec -i $SIM mysql -uroot -p$RP --default-character-set=utf8mb4 --batch --skip-column-names finnovatix"
   export BLOCKED_FROM=99:98 BLOCKED_TO=99:99 JOURNAL="$W/journal.tsv"
   say "--- (a) mode simulation (aucune ecriture attendue)"
   bash "$RUNNER" 2>&1 | tee -a "$REPORT" | tail -12

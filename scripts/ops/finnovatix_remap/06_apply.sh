@@ -60,6 +60,10 @@ fi
 COUNT="$(echo "select count(*) from funding_calls;" | mysql_q | tail -1)"
 [ "$COUNT" = "$EXPECT_FUNDING_CALLS" ] || die "funding_calls = $COUNT (attendu $EXPECT_FUNDING_CALLS): l'état a changé depuis la simulation, refaire 04 et 05"
 
+# plafond de creation : doit etre 0 (sinon la synchro suivante creerait des doublons / LinkedIn / rapprochements de leads)
+CAP="$(docker exec "$APP_CONTAINER" sh -c 'grep -E "^KAFUNDO_SYNC_CREATE_CAP=" /var/www/html/.env | cut -d= -f2' 2>/dev/null || true)"
+if [ "$MODE" != dry ] && [ "${SKIP_CAP_CHECK:-0}" != 1 ] && [ "$CAP" != "0" ]; then die "KAFUNDO_SYNC_CREATE_CAP='${CAP:-absent}' (attendu 0)"; fi
+
 N_UPD="$(grep -c '^UPDATE funding_calls' "$AUDIT_DIR/finnovatix_apply.sql")"
 say "Sauvegarde vérifiée : $(basename "$BK") (${AGE_H} h)"
 say "funding_calls       : $COUNT (attendu $EXPECT_FUNDING_CALLS)"
@@ -100,5 +104,8 @@ DUP="$(echo "select count(*) from (select kafundo_id from funding_calls group by
 say "doublons kafundo_id : $DUP (attendu 0)"
 printf '%s\tmode=%s\tavant=%s\tapres=%s\n' "$(date -u +%FT%TZ)" "$MODE" "$BEFORE" "$AFTER" >> "${JOURNAL:-$AUDIT_DIR/finnovatix_apply_journal.tsv}"
 if [ "$MODE" = apply ]; then
-  say ""; say "Retour arrière si nécessaire : bash $0 --rollback"
+  say ""; say "--- verification (valeurs rattachees == API Kafundo, doublons, annotations) :"
+  ( cd "$(dirname "$(readlink -f "$0")")" && AUDIT_DIR="$AUDIT_DIR" python3 07_verify.py ) || say "ATTENTION : ecarts detectes, voir ci-dessus (retour arriere possible)"
+  say ""; say "Synthese par consultant (non envoyee) : bash $(dirname "$0")/08_digest.sh   puis --apply apres verification"
+  say "Retour arrière si nécessaire : 1) bash $(dirname "$0")/08_digest.sh --rollback  2) bash $0 --rollback"
 fi

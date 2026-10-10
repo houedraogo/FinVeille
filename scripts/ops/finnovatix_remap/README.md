@@ -39,7 +39,9 @@ Impact côté clients : ~14 167 opportunités de dossiers reposent sur 1 518 `fu
 | 03 | `03_match_by_url.py` | Cherche un remplaçant par `source_url` pour les références sans équivalent par titre |
 | 04 | `04_generate_sql.py` | Génère le plan d'actions, `finnovatix_apply.sql`, `finnovatix_apply_optional_M.sql` et le retour arrière **exact** (valeurs d'origine capturées) |
 | 05 | `05_simulate.sh` | Sauvegarde vérifiée + simulation complète sur un MySQL jetable isolé : avant/après, rejeu, retour arrière, fusion optionnelle, exécuteur |
-| 06 | `06_apply.sh` | Exécuteur **gardé** : simulation par défaut ; `--apply` / `--rollback` seulement avec accord |
+| 06 | `06_apply.sh` | Exécuteur **gardé** : simulation par défaut ; `--apply` / `--rollback` seulement avec accord ; vérifie aussi `KAFUNDO_SYNC_CREATE_CAP=0` et lance `07_verify.py` après application |
+| 07 | `07_verify.py`, `07_simulate_sync.sh` | Vérification post-application (valeurs == API Kafundo, doublons, annotations) ; simulation complète avec le **vrai code Finnovatix** (artisan) sur copie jetable |
+| 08 | `08_digest.sh` / `08_digest.php` | Synthèse par consultant (une notification par destinataire), simulation par défaut, rejouable, réversible |
 
 ## Matrice de traitement (293 références)
 
@@ -104,3 +106,34 @@ dossiers est une décision produit distincte.
 Les 60 références qui gardent un `kafundo_id` absent de Kafundo sont **volontairement** conservées (jamais supprimées) :
 43 sans équivalent exploitable (28 gardées ouvertes + annotées, 9 passées `expired`, 6 actualités en `unknown`) et
 17 conflits d'unicité (doublons préexistants côté Finnovatix, annotés). Le 44ᵉ « sans équivalent » est rattaché par URL.
+
+## Notifications : mécanisme retenu (réalignement silencieux + synthèse)
+
+* Le rattachement SQL ne notifie personne. Les notifications « Modification détectée » ne viennent que de la synchro de
+  06:30, qui compare `deadline`, `funding_max`, `status` à l'API Kafundo.
+* Dans la **même transaction** que le rattachement, les fiches qui seraient notifiées reçoivent les valeurs de la source
+  (`silent_realign`), l'ancienne valeur est inscrite dans `metadata.change_history` et `metadata.kafundo_remap`
+  (ancien `kafundo_id`, run). La synchro suivante ne voit aucune différence : 0 notification pour ces fiches.
+* Après vérification : `08_digest.sh --apply` crée **une** notification de synthèse par destinataire (dossiers + changements).
+  `08_digest.sh --rollback` retire uniquement les synthèses de ce run.
+* Les changements ultérieurs réels restent détectés (testé).
+
+### Simulation du 10/10/2026 (copie jetable ; code Finnovatix réel en lecture seule ; API Kafundo figée) — tous les contrôles passent
+
+| Contrôle | Résultat |
+|---|---|
+| Valeurs des fiches rattachées == API Kafundo (233 fiches ; 175 identiques, 58 absentes de la liste de l'API donc jamais synchronisées) | OK |
+| Notifications créées par l'opération | 0 ; aucune tâche en file |
+| Synchro suivante vs synchro de référence (sans opération) | identique (36 / 36, même empreinte) |
+| Historique `silent_realign` après la synchro | conservé |
+| Changement futur simulé (échéance) sur 2 fiches | 2 changements détectés, 18 notifications (une par dossier suivi), historique cumulatif |
+| Synthèse | 1 destinataire (1 seul utilisateur), 3 dispositifs / 27 dossiers ; rejeu : 0 doublon |
+| Rejeu du SQL principal | refusé (`ROLLBACK`) |
+| Retour arrière (synthèses + SQL) | empreintes `funding_calls`, `funding_opportunities`, `marketing_contents`, `notifications`, `jobs` identiques à l'état initial |
+
+### Écart avec l'estimation précédente (« 19 fiches »)
+
+L'estimation de 19 fiches comparait toutes les fiches de remplacement. La synchro, elle, ne lit que la liste publique de
+l'API : sur les 233 rattachements, **3** fiches changeraient réellement (2 échéances, 1 statut), **58** ne sont pas dans la
+liste (jamais synchronisées, donc jamais notifiées ; 33 pointent vers une fiche non publique, 5 ont des écarts de valeurs
+listés dans `finnovatix_not_synced_changes.csv`, non réalignés par cette opération).
