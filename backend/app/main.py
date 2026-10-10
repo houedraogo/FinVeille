@@ -75,7 +75,7 @@ async def readiness_check():
         await assert_schema_ready()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Schéma PostgreSQL non prêt: {exc}") from exc
-    return {"status": "ready", "schema_revision": "b7d3a91c5e24"}
+    return {"status": "ready", "schema_revision": "c8e1f4a7b2d9"}
 
 
 @app.get("/api/health/detailed", tags=["health"])

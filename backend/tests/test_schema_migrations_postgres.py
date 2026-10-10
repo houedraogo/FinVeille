@@ -17,7 +17,8 @@ pytestmark = pytest.mark.skipif(
     reason="Dedicated disposable PostgreSQL admin URL and KAFUNDO_MIGRATION_TESTS=1 required",
 )
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "b7d3a91c5e24"
+HEAD = "c8e1f4a7b2d9"
+PREVIOUS_HEAD = "b7d3a91c5e24"
 COUNTS = (
     "users", "organizations", "devices", "device_pipeline", "favorite_devices",
     "alerts", "funding_projects", "match_projects", "subscriptions", "billing_customers",
@@ -271,4 +272,54 @@ def test_failed_repair_rolls_back_and_does_not_advance_version(disposable_databa
         assert _version(connection) == BASELINE_REVISION
         assert _counts(connection) == {table: 1 for table in COUNTS}
         assert "country" not in {column["name"] for column in inspect(connection).get_columns("users")}
+    engine.dispose()
+
+
+def _archive_log_fk_rules(connection):
+    return {
+        fk["constrained_columns"][0]: (fk.get("options") or {}).get("ondelete")
+        for fk in inspect(connection).get_foreign_keys("device_archive_log")
+        if fk["referred_table"] == "devices"
+    }
+
+
+def test_archive_log_foreign_keys_restrict_and_downgrade_is_reversible(disposable_database):
+    """c8e1f4a7b2d9 : le journal d'archivage ne cascade plus ; une fiche journalisée n'est pas supprimable en SQL brut."""
+    name = disposable_database()
+    _run(name, "-m", "alembic", "upgrade", PREVIOUS_HEAD)
+    engine = create_engine(_database_url(name))
+    with engine.connect() as connection:
+        assert _archive_log_fk_rules(connection) == {"device_id": "CASCADE", "merged_into_id": "SET NULL"}
+        # une fiche + une ligne de journal : ces données doivent survivre à la migration
+        device_id = uuid4()
+        connection.execute(text(
+            "INSERT INTO devices (id, title, organism, country, device_type, source_url, status, validation_status) "
+            "VALUES (:i, 'Fiche journalisee', 'Org', 'France', 'subvention', 'https://exemple.fr/x', 'open', 'archived')"
+        ), {"i": device_id})
+        connection.execute(text(
+            "INSERT INTO device_archive_log (id, run_id, batch, device_id, action) VALUES (:l, 'RUN-T', 'A', :i, 'archive')"
+        ), {"l": uuid4(), "i": device_id})
+        connection.commit()
+    engine.dispose()
+
+    _run(name, "-m", "alembic", "upgrade", "head")
+    engine = create_engine(_database_url(name))
+    with engine.connect() as connection:
+        assert _version(connection) == HEAD
+        assert _archive_log_fk_rules(connection) == {"device_id": "RESTRICT", "merged_into_id": "RESTRICT"}
+        assert connection.execute(text("SELECT count(*) FROM device_archive_log")).scalar_one() == 1
+        # SQL brut : la base elle-même refuse
+        with pytest.raises(Exception) as excinfo:
+            connection.execute(text("DELETE FROM devices WHERE id = :i"), {"i": device_id})
+        assert "device_archive_log" in str(excinfo.value) or "foreign key" in str(excinfo.value).lower()
+        connection.rollback()
+        assert connection.execute(text("SELECT count(*) FROM devices WHERE id = :i"), {"i": device_id}).scalar_one() == 1
+    engine.dispose()
+
+    _run(name, "-m", "alembic", "downgrade", PREVIOUS_HEAD)
+    engine = create_engine(_database_url(name))
+    with engine.connect() as connection:
+        assert _version(connection) == PREVIOUS_HEAD
+        assert _archive_log_fk_rules(connection) == {"device_id": "CASCADE", "merged_into_id": "SET NULL"}
+        assert connection.execute(text("SELECT count(*) FROM device_archive_log")).scalar_one() == 1
     engine.dispose()
