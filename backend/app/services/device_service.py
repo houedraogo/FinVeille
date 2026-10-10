@@ -21,6 +21,7 @@ from app.utils.text_utils import normalize_title, generate_slug, compute_complet
 from app.utils.hash_utils import compute_content_hash, compute_fingerprint
 from app.services.user_quality import compute_user_quality
 from app.services.catalog_access import public_device_condition
+from app.services.device_deletion_guard import assert_deletable, assert_known_device_relations, find_non_deletable
 
 
 WEST_AFRICA_COUNTRIES = {
@@ -1049,6 +1050,8 @@ class DeviceService:
     async def delete(self, device_id: UUID):
         device = await self.get_by_id(device_id)
         if device:
+            # Refus explicite et lisible (409 côté API) ; le hook ORM reste le filet de sécurité.
+            await assert_deletable(self.db, [device.id], action="Suppression")
             await self.db.delete(device)
             await self.db.commit()
 
@@ -1103,6 +1106,7 @@ class DeviceService:
         ]
 
         protected_ids = set()
+        journaled_ids = set()
         if candidates:
             candidate_ids = [device.id for device in candidates]
             for model in (DevicePipeline, FavoriteDevice, DeviceHistory, DeviceRelevanceCache, AlertDelivery):
@@ -1110,6 +1114,10 @@ class DeviceService:
                     select(model.device_id).where(model.device_id.in_(candidate_ids))
                 )
                 protected_ids.update(linked.scalars().all())
+            # Jamais de suppression physique d'une fiche archivée / journalisée (journal de restauration).
+            journaled = await find_non_deletable(self.db, candidate_ids)
+            journaled_ids = {device.id for device in candidates if str(device.id) in journaled}
+            protected_ids.update(journaled_ids)
 
         preview = [
             {
@@ -1128,19 +1136,13 @@ class DeviceService:
                 "matched": len(candidates),
                 "deleted": 0,
                 "protected": len(protected_ids),
+                "journaled": len(journaled_ids),
                 "preview": preview,
             }
 
         deleted = 0
         # A schema change must not make this quality purge cascade into a new table.
-        incoming = set((await self.db.execute(text("""
-            SELECT DISTINCT conrelid::regclass::text
-            FROM pg_constraint
-            WHERE contype = 'f' AND confrelid = 'devices'::regclass
-        """))).scalars().all())
-        known = {"device_pipeline", "favorite_devices", "device_history", "device_relevance_cache", "alert_deliveries"}
-        if incoming != known:
-            raise ValueError(f"Relations de dispositif non prises en charge: {sorted(incoming ^ known)}")
+        await assert_known_device_relations(self.db)
         for device in candidates:
             if device.id in protected_ids:
                 continue
@@ -1165,6 +1167,7 @@ class DeviceService:
             "matched": len(candidates),
             "deleted": deleted,
             "protected": len(protected_ids),
+            "journaled": len(journaled_ids),
             "preview": preview,
         }
 

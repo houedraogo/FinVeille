@@ -12,22 +12,24 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, text, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.archive_guard import DeviceDeletionForbidden
+from app.models.catalog_cleanup import ARCHIVED_STATUS, DeviceArchiveLog, DuplicateCandidate
 from app.models.device import Device
 from app.models.alert import AlertDelivery
 from app.models.device_history import DeviceHistory
 from app.models.relevance import DeviceRelevanceCache
 from app.models.workspace import DevicePipeline, FavoriteDevice
+from app.services.device_deletion_guard import (
+    DEVICE_REFERENCE_TABLES as _DEVICE_REFERENCE_TABLES,  # noqa: F401  (conservé pour compatibilité)
+    assert_deletable,
+    assert_known_device_relations,
+)
 from app.utils.text_utils import normalize_title
 
 logger = logging.getLogger(__name__)
-
-_DEVICE_REFERENCE_TABLES = {
-    "device_pipeline", "favorite_devices", "device_history", "device_relevance_cache",
-    "alert_deliveries",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -81,13 +83,9 @@ class DedupService:
     async def _transfer_references(self, canonical_id, duplicate_ids):
         """Move every known FK; refuse ambiguous unique-key collisions before changing data."""
         # Check the *live* schema too: a newly added FK must never be silently cascaded.
-        tables = set((await self.db.execute(text("""
-            SELECT DISTINCT conrelid::regclass::text
-            FROM pg_constraint
-            WHERE contype = 'f' AND confrelid = 'devices'::regclass
-        """))).scalars())
-        if tables != _DEVICE_REFERENCE_TABLES:
-            raise ValueError(f"Relations de dispositif non prises en charge: {sorted(tables ^ _DEVICE_REFERENCE_TABLES)}")
+        await assert_known_device_relations(self.db)
+        # Un doublon archivé / journalisé n'est jamais supprimé : son journal de restauration cascaderait.
+        await assert_deletable(self.db, duplicate_ids, action="Fusion", allow_merge_target=True)
 
         all_ids = [canonical_id, *duplicate_ids]
         for model, scope in (
@@ -124,7 +122,43 @@ class DedupService:
                 self.db.add(AlertDelivery(alert_id=row.alert_id, device_id=canonical_id, sent_at=row.sent_at))
                 canonical_alerts.add(row.alert_id)
             await self.db.delete(row)
+        await self._resolve_duplicate_candidates(canonical_id, duplicate_ids)
+        # Journal d'archivage : une fiche archivée dont la fiche conservée est un doublon fusionné doit
+        # pointer vers la nouvelle fiche conservée, sinon la restauration perdrait son point d'ancrage.
+        await self.db.execute(
+            update(DeviceArchiveLog)
+            .where(DeviceArchiveLog.merged_into_id.in_(duplicate_ids))
+            .values(merged_into_id=canonical_id)
+        )
         await self.db.flush()
+
+    async def _resolve_duplicate_candidates(self, canonical_id, duplicate_ids) -> None:
+        """File de revue des doublons : les paires qui touchent un doublon suivent la fusion.
+
+        Une paire devenue (fiche conservée, fiche conservée) ou déjà présente est supprimée ; les autres sont
+        re-pointées vers la fiche conservée au lieu d'être cascadées avec le doublon.
+        """
+        all_ids = [canonical_id, *duplicate_ids]
+        dup_set = set(duplicate_ids)
+        rows = (await self.db.execute(
+            select(DuplicateCandidate)
+            .where(or_(DuplicateCandidate.device_id.in_(all_ids), DuplicateCandidate.other_device_id.in_(all_ids)))
+            .order_by(DuplicateCandidate.id)
+            .with_for_update()
+        )).scalars().all()
+        pairs = {(r.device_id, r.other_device_id) for r in rows}
+        for row in rows:
+            current = (row.device_id, row.other_device_id)
+            a = canonical_id if row.device_id in dup_set else row.device_id
+            b = canonical_id if row.other_device_id in dup_set else row.other_device_id
+            if (a, b) == current:
+                continue  # paire (fiche conservée, tiers) : inchangée
+            pairs.discard(current)
+            if a == b or (a, b) in pairs or (b, a) in pairs:
+                await self.db.delete(row)
+                continue
+            row.device_id, row.other_device_id = a, b
+            pairs.add((a, b))
 
     # ------------------------------------------------------------------ #
     # Détection                                                            #
@@ -209,10 +243,12 @@ class DedupService:
         - Supprime les doublons
         """
         # Charger toutes les fiches avec leurs données complètes
+        # Mêmes exclusions que find_duplicate_groups : une fiche archivée ou rejetée n'entre jamais dans un groupe
+        # fusionnable (sinon elle serait supprimée physiquement, journal de restauration compris).
         result = await self.db.execute(select(
             Device.id, Device.title_normalized, Device.country,
             Device.completeness_score, Device.created_at,
-        ))
+        ).where(Device.validation_status.notin_((ARCHIVED_STATUS, "rejected"))))
         devices = result.all()
 
         # Groupement
@@ -279,6 +315,8 @@ class DedupService:
             canonical = by_id.get(canonical_id)
             if canonical is None:
                 raise ValueError(f"Dispositif {canonical_id} introuvable")
+            if canonical.validation_status == ARCHIVED_STATUS:
+                raise DeviceDeletionForbidden(f"Fusion refusée: la fiche conservée {canonical_id} est archivée")
             duplicates = [by_id[device_id] for device_id in ids[1:] if device_id in by_id]
             if duplicates:
                 await self._transfer_references(canonical.id, [device.id for device in duplicates])

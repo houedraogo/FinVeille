@@ -1336,9 +1336,12 @@ async def merge_group(
     _=Depends(require_role(["admin"])),
 ):
     """Fusionne manuellement un groupe de doublons."""
+    from app.models.archive_guard import DeviceDeletionForbidden
     from app.services.dedup_service import DedupService
     try:
         return await DedupService(db).merge_group(body.canonical_id, body.duplicate_ids)
+    except DeviceDeletionForbidden as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

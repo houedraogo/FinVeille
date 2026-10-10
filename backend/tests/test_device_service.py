@@ -24,6 +24,9 @@ class FakeExecuteResult:
     def scalars(self):
         return FakeScalarResult(self._items)
 
+    def all(self):
+        return list(self._items)
+
 
 class FakeDB:
     def __init__(self, devices):
@@ -35,10 +38,14 @@ class FakeDB:
     async def execute(self, query):
         sql = str(query)
         if "FROM pg_constraint" in sql:
+            # schéma réel après la migration b7d3a91c5e24 : 7 relations vers devices
             return FakeExecuteResult([
                 "device_pipeline", "favorite_devices", "device_history", "device_relevance_cache",
-                "alert_deliveries",
+                "alert_deliveries", "device_archive_log", "device_duplicate_candidates",
             ])
+        if "device_archive_log" in sql:
+            # contrôle « fiche archivée / journalisée ? » : aucune ligne => tout est supprimable
+            return FakeExecuteResult([])
         if "FROM devices" in sql:
             return FakeExecuteResult(self.devices)
         return FakeExecuteResult([])

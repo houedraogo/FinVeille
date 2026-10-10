@@ -1320,4 +1320,10 @@ async def delete_device(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["admin"])),
 ):
-    await DeviceService(db).delete(device_id)
+    from app.models.archive_guard import DeviceDeletionForbidden
+
+    try:
+        await DeviceService(db).delete(device_id)
+    except DeviceDeletionForbidden as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
