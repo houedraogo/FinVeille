@@ -226,7 +226,17 @@ async def test_orm_hook_is_the_safety_net_for_any_other_code_path(pg_session_fac
 
 @pytest.mark.asyncio
 async def test_raw_sql_delete_is_refused_by_the_database_even_with_the_orm_guard_open(pg_session_factory):
-    """Défense en profondeur : RESTRICT sur device_archive_log, indépendamment du code applicatif."""
+    """Défense en profondeur : RESTRICT sur device_archive_log, indépendamment du code applicatif.
+
+    Ne s'applique qu'une fois la migration c8e1f4a7b2d9 appliquée (étape 2 du déploiement) : tant que la clé étrangère
+    est en CASCADE, la protection repose sur le code (autres tests de ce fichier)."""
+    async with pg_session_factory() as db:
+        rule = (await db.execute(text(
+            "SELECT confdeltype FROM pg_constraint WHERE conrelid = 'device_archive_log'::regclass AND contype = 'f' "
+            "AND confrelid = 'devices'::regclass AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE "
+            "attrelid = 'device_archive_log'::regclass AND attname = 'device_id')]"))).scalar()
+    if rule != "r":
+        pytest.skip("clé étrangère device_archive_log.device_id non RESTRICT : migration c8e1f4a7b2d9 non appliquée")
     journaled = make_device(title="Journalisée")
     await _add(pg_session_factory, journaled)
     async with pg_session_factory() as db:
