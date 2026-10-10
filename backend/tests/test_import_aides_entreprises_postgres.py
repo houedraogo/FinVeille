@@ -234,3 +234,29 @@ async def test_probable_duplicate_is_queued_for_review_but_inserted(use_db):
     assert counts["insert"] == 1 and counts["candidates"] == 1
     async with use_db() as db:
         assert len((await db.execute(select(DuplicateCandidate))).scalars().all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_thin_source_text_never_replaces_a_richer_existing_one(use_db):
+    """Constat du premier import supervisé : 17 fiches sortaient du catalogue public (résumé < 80 car.)."""
+    rich_summary = "Aider les entreprises employant des apprentis en prenant en charge une partie du coût salarial pendant un an."
+    assert len(rich_summary) >= 80
+    first = csv_text({"id_aid": "601", "aid_nom": "Aide aux employeurs d'apprentis", "aid_objet": rich_summary,
+                      "complements_sources": "https://region-e.fr/apprentis"})
+    await importer.main(csv_text=first)
+    thin = csv_text({"id_aid": "601", "aid_nom": "Aide aux employeurs d'apprentis", "aid_objet": "Soutenir les TPE.",
+                     "aid_montant": "Jusqu'à 7 777 euros", "complements_sources": "https://region-e.fr/apprentis"})
+    await importer.main(csv_text=thin)
+    device = (await _all(use_db))[0]
+    assert device.short_description == rich_summary                      # texte riche conservé
+    assert "7 777" in device.funding_details                             # les autres champs sont bien mis à jour
+
+
+@pytest.mark.asyncio
+async def test_a_longer_source_text_still_replaces_a_thin_existing_one(use_db):
+    await importer.main(csv_text=csv_text({"id_aid": "602", "aid_nom": "Aide courte à améliorer", "aid_objet": "Aide courte.",
+                                           "complements_sources": "https://region-f.fr/courte"}))
+    richer = "Cette aide finance une partie des investissements productifs des petites entreprises du territoire, avec un dépôt de dossier en ligne."
+    await importer.main(csv_text=csv_text({"id_aid": "602", "aid_nom": "Aide courte à améliorer", "aid_objet": richer,
+                                           "complements_sources": "https://region-f.fr/courte"}))
+    assert (await _all(use_db))[0].short_description == richer

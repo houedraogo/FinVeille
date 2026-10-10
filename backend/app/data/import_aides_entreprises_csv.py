@@ -22,6 +22,9 @@ portails). Cette version :
 * ne touche jamais une fiche archivée, ni son statut de validation ;
 * évalue la qualité utilisateur à l'insertion (plus de fiche publiée « jamais
   évaluée ») et ne met pas en file IA une fiche non publiable ;
+* n'APPAUVRIT jamais un texte : un résumé (< 80 car.) ou une description (< 120 car.) de la source plus
+  courts que l'existant, lui-même au-dessus du seuil de la porte qualité publique, ne le remplacent pas
+  (constaté lors du premier import supervisé : 17 fiches sortaient du catalogue public) ;
 * met à jour ``source_hash`` et ``title_normalized`` (clé cohérente avec le
   reste du pipeline) et conserve les statuts « standby / recurring ».
 """
@@ -382,9 +385,15 @@ _UPSERT = text("""
         :ai_rewrite_status, :validation_status, NOW(), NOW()
     ) ON CONFLICT (slug) DO UPDATE SET
         title=EXCLUDED.title, title_normalized=EXCLUDED.title_normalized,
-        short_description=EXCLUDED.short_description,
-        full_description=EXCLUDED.full_description, eligibility_criteria=EXCLUDED.eligibility_criteria,
-        funding_details=EXCLUDED.funding_details, close_date=EXCLUDED.close_date,
+        short_description=CASE WHEN length(coalesce(EXCLUDED.short_description, '')) < 80
+                                AND length(coalesce(devices.short_description, '')) >= 80
+                               THEN devices.short_description ELSE EXCLUDED.short_description END,
+        full_description=CASE WHEN length(coalesce(EXCLUDED.full_description, '')) < 120
+                               AND length(coalesce(devices.full_description, '')) >= 120
+                              THEN devices.full_description ELSE EXCLUDED.full_description END,
+        eligibility_criteria=coalesce(nullif(EXCLUDED.eligibility_criteria, ''), devices.eligibility_criteria),
+        funding_details=coalesce(nullif(EXCLUDED.funding_details, ''), devices.funding_details),
+        close_date=EXCLUDED.close_date,
         source_hash=EXCLUDED.source_hash, source_url=EXCLUDED.source_url,
         status=CASE WHEN devices.status IN ('standby', 'recurring', 'pending_review')
                     THEN devices.status ELSE EXCLUDED.status END,
@@ -395,9 +404,14 @@ _UPSERT = text("""
 
 _UPDATE_KEEPER = text("""
     UPDATE devices SET
-        title=:title, title_normalized=:title_normalized, short_description=:short_description,
-        full_description=:full_description, eligibility_criteria=:eligibility_criteria,
-        funding_details=:funding_details, close_date=:close_date,
+        title=:title, title_normalized=:title_normalized,
+        short_description=CASE WHEN length(coalesce(:short_description, '')) < 80 AND length(coalesce(short_description, '')) >= 80
+                               THEN short_description ELSE :short_description END,
+        full_description=CASE WHEN length(coalesce(:full_description, '')) < 120 AND length(coalesce(full_description, '')) >= 120
+                              THEN full_description ELSE :full_description END,
+        eligibility_criteria=coalesce(nullif(:eligibility_criteria, ''), eligibility_criteria),
+        funding_details=coalesce(nullif(:funding_details, ''), funding_details),
+        close_date=:close_date,
         status=CASE WHEN status IN ('standby', 'recurring', 'pending_review') THEN status ELSE :status END,
         updated_at=NOW()
     WHERE id = :id AND validation_status IS DISTINCT FROM 'archived'

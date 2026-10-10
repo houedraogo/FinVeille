@@ -12,7 +12,7 @@ un dossier 0700 détruit à la sortie. Les surcharges d'environnement viennent d
 Commandes
     plan   NOM [--image IMG]                       affiche la configuration rejouée (sans valeurs d'environnement)
     swap   NOM --image IMG [--env-from FICHIER] [--env-only CLE,CLE] [--health CMD] [--wait SEC] [--stop-timeout SEC]
-    run-once NOM --image IMG [--mount H:C ...] -- CMD...   conteneur jetable : même réseau et même environnement que NOM
+    run-once --image IMG [--mount H:C ...] NOM -- CMD...   conteneur jetable : même réseau et même environnement que NOM
     rollback NOM                                   remet l'ancien conteneur (NOM-prev) en service
     commit NOM                                     supprime l'ancien conteneur (NOM-prev) une fois la validation faite
 
