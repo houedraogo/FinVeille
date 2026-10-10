@@ -232,7 +232,7 @@ async def test_raw_sql_delete_is_refused_by_the_database_even_with_the_orm_guard
     est en CASCADE, la protection repose sur le code (autres tests de ce fichier)."""
     async with pg_session_factory() as db:
         rule = (await db.execute(text(
-            "SELECT confdeltype FROM pg_constraint WHERE conrelid = 'device_archive_log'::regclass AND contype = 'f' "
+            "SELECT confdeltype::text FROM pg_constraint WHERE conrelid = 'device_archive_log'::regclass AND contype = 'f' "
             "AND confrelid = 'devices'::regclass AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE "
             "attrelid = 'device_archive_log'::regclass AND attname = 'device_id')]"))).scalar()
     if rule != "r":
