@@ -26,11 +26,12 @@ avec une consommation IA maîtrisée. **Aucune suppression physique.**
 3. **Plan (lecture seule)** :
    `python -m app.data.catalog_cleanup plan --out /tmp/plan --protect-file ids_finnovatix.txt`
    `ids_finnovatix.txt` = `kafundo_id` des `funding_calls` Finnovatix (un par ligne) : un doublon déjà
-   référencé par un dossier client n'est jamais archivé (lot P), et devient la fiche conservée si possible.
+   référencé par un dossier client n'est jamais archivé (lot P), et devient la fiche conservée si possible ;
+   une fiche des lots A/B déjà référencée est mise de côté (lot Q, décision humaine).
 4. **Suspension IA** (réversible) : `hold-ai --run-id RUN-AI --protect-file … [--yes]`.
 5. **Archivage par lot, dans l'ordre A puis B puis C** :
    `apply --batch A_projets_institutionnels --plan-hash <hash du plan> --run-id RUN-A --backup-ref <dump> --protect-file … [--yes]`
-   Sans `--yes` : simulation. Hash inattendu : arrêt. Lots F, H, P, G, Z : refusés (revue humaine).
+   Sans `--yes` : simulation. Hash inattendu : arrêt. Lots F, H, P, Q, G, Z : refusés (revue humaine).
 6. **Restauration** : `restore --run-id RUN-A [--batch …] [--device-id …] [--yes]` — remet les valeurs exactes.
 7. **Qualité progressive** : `quality --limit 200` (rapport) puis `--yes` (écrit seulement `user_quality_*`).
 

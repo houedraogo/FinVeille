@@ -80,6 +80,18 @@ def test_externally_referenced_duplicate_is_protected_and_preferred_as_keeper():
     assert cleanup.BATCH_P not in plan.batches
 
 
+def test_externally_referenced_expired_and_institutional_devices_are_kept_out_of_archivable_batches():
+    referenced_expired = row(status="expired", title="Appel terminé référencé")
+    plain_expired = row(status="expired", title="Appel terminé libre")
+    referenced_wb = row(source_url=WB_URL, source_name="Banque Mondiale - projets Kenya", title="Projet Kenya référencé")
+    plan = build_plan([referenced_expired, plain_expired, referenced_wb],
+                      protected_ids=[str(referenced_expired["id"]), str(referenced_wb["id"])])
+    assert plan.ids(BATCH_B) == [plain_expired["id"]]
+    assert BATCH_A not in plan.batches
+    assert sorted(plan.ids(cleanup.BATCH_Q), key=str) == sorted([referenced_expired["id"], referenced_wb["id"]], key=str)
+    assert cleanup.BATCH_Q not in cleanup.ARCHIVABLE_BATCHES
+
+
 def test_two_externally_referenced_twins_are_both_kept_and_reported_in_batch_p():
     a = row(title="Fonds commerce rural", organism="ANCT", source_url="https://anct.gouv.fr/cr", completeness_score=90)
     b = row(title="Fonds commerce rural", organism=GENERIC, source_url="https://www.anct.gouv.fr/cr/", completeness_score=20)

@@ -44,8 +44,10 @@ BATCH_G = "G_deja_rejetees"
 BATCH_Z = "Z_reste"
 # Doublons CERTAINS déjà référencés par un système externe (ex. dossiers clients Finnovatix) : jamais archivés.
 BATCH_P = "P_doublons_references_externes"
+# Fiches des lots A / B déjà référencées par un système externe : conservées, décision humaine requise.
+BATCH_Q = "Q_references_externes_a_arbitrer"
 ARCHIVABLE_BATCHES = (BATCH_A, BATCH_B, BATCH_C)
-REVIEW_BATCHES = (BATCH_F, BATCH_H, BATCH_P)
+REVIEW_BATCHES = (BATCH_F, BATCH_H, BATCH_P, BATCH_Q)
 # Lots dont les réécritures IA en attente sont suspendues (jamais de dépense avant validation).
 AI_HOLD_BATCHES = (BATCH_A, BATCH_B, BATCH_C, BATCH_F, BATCH_H, BATCH_G)  # P reste actif : fiche déjà utilisée par des dossiers
 
@@ -89,8 +91,9 @@ def build_plan(rows: Iterable[dict], protected_ids: Iterable[Any] = ()) -> Plan:
     """Classe chaque fiche dans exactement un lot (priorité A > G > B > C > H > F > Z). Pur.
 
     ``protected_ids`` : identifiants de fiches référencées ailleurs (ex. kafundo_id des
-    FundingCall Finnovatix). Un doublon protégé n'est jamais archivé : il devient la fiche
-    conservée si possible, sinon il est placé dans le lot P (aucune perte de référence).
+    FundingCall Finnovatix). Une fiche protégée n'est jamais archivée : un doublon protégé
+    devient la fiche conservée si possible, sinon il va dans le lot P ; une fiche protégée des
+    lots A / B va dans le lot Q (décision humaine). Aucune référence n'est perdue.
     """
     protected = frozenset(str(i) for i in protected_ids)
     plan = Plan()
@@ -100,8 +103,12 @@ def build_plan(rows: Iterable[dict], protected_ids: Iterable[Any] = ()) -> Plan:
     for row in rows:
         decision = evaluate_scope(row, row.get("source_name"))
         if decision.excluded:
-            plan.batches[BATCH_A].append(row["id"])
-            plan.rules[row["id"]] = decision.rule or "scope"
+            if str(row["id"]) in protected:
+                plan.batches[BATCH_Q].append(row["id"])
+                plan.rules[row["id"]] = f"{decision.rule or 'scope'}_externally_referenced"
+            else:
+                plan.batches[BATCH_A].append(row["id"])
+                plan.rules[row["id"]] = decision.rule or "scope"
             taken.add(row["id"])
 
     for row in rows:
@@ -116,8 +123,12 @@ def build_plan(rows: Iterable[dict], protected_ids: Iterable[Any] = ()) -> Plan:
             continue
         recurring = bool(row.get("is_recurring")) or row.get("status") == "recurring"
         if row.get("status") in ("expired", "closed") and not recurring:
-            plan.batches[BATCH_B].append(row["id"])
-            plan.rules[row["id"]] = f"status_{row.get('status')}_non_recurrent"
+            if str(row["id"]) in protected:
+                plan.batches[BATCH_Q].append(row["id"])
+                plan.rules[row["id"]] = f"status_{row.get('status')}_externally_referenced"
+            else:
+                plan.batches[BATCH_B].append(row["id"])
+                plan.rules[row["id"]] = f"status_{row.get('status')}_non_recurrent"
             taken.add(row["id"])
 
     remaining = [r for r in rows if r["id"] not in taken]
