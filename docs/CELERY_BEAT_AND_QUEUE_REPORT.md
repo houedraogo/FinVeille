@@ -24,3 +24,16 @@
 | Blocage des workers | aucun : 0 tâche active / réservée au repos, files `default`, `collect`, `alerts` vidées (237 collectes terminées), 0 tâche échouée dans Finnovatix |
 | Risque si consommées | rafale de 382 tâches obsolètes (dont 16 × enrichissement IA, 16 × import CSV) : **ne pas démarrer de worker sur `celery`** |
 | Recommandation | exporter les 382 messages (JSON) puis les purger après accord ; décision requise |
+
+## Exécution du 10/10/2026 (validée par le propriétaire)
+
+* **Export** de la file `celery` : 382 messages, `celery_queue_382.json` (0600, dossier 0700 + sha256) dans
+  `/opt/finveille-backups/celery_queue_export_20261010/`, copie dans `audit_20261010/`. Vérifié : 382 identifiants distincts,
+  382 corps décodables, identique à la file au moment de la purge (ordre inclus).
+* **Purge** : suppression de la seule clé `celery` (aucune exécution) ; `default`, `collect`, `alerts` inchangées (0). Retour
+  arrière : `restore_celery_queue.py <export>` (même dossier).
+* **Correctif beat** : build depuis `deploy/phase1-fixes-step1` + `e39d055` (schéma inchangé `b7d3a91c5e24`), image
+  `kafundo-celery-beat:fixes2-e39d055`, seul `kafundo-beat` remplacé. Sauvegarde `pre_beat_fix_20261010T115218Z.dump`
+  (sha256, TOC 266). Retour arrière : `kafundo-beat-prev` (fixes1) et `kafundo-beat-prev-5a5323d`.
+* **Contrôle** : 0 tâche au démarrage ; ensuite chaque tâche part une seule fois à son heure (12:05 collecte niveau 1,
+  12:18 requalification, 12:20 alertes : 1 envoi, 1 réception) ; 199 collectes reçues / 199 terminées ; files à 0.

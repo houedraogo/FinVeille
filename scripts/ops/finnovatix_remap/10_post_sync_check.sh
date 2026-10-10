@@ -14,6 +14,8 @@ C=$(echo "select count(*) from funding_calls where created_at >= '$SINCE';" | q 
 FJ=$(echo "select count(*) from failed_jobs where failed_at >= '$SINCE';" | q | tail -1)
 PJ=$(echo "select count(*) from jobs;" | q | tail -1)
 OTHER=$(echo "select count(*) from notifications where type <> 'funding_opportunity_changed' and created_at >= '$SINCE';" | q | tail -1)
+APP_CONTAINER="${APP_CONTAINER:-finnovatix-platform-app-1}"
+CAP=$(docker exec "$APP_CONTAINER" sh -c 'grep -E "^KAFUNDO_SYNC_CREATE_CAP=" /var/www/html/.env | cut -d= -f2' 2>/dev/null || true)
 echo "Depuis                                   : $SINCE (UTC)"
 echo "fiches verifiees par la synchro          : $T"
 echo "fiches creees (attendu 0, plafond 0)     : $C"
@@ -21,5 +23,6 @@ echo "notifications 'modification detectee'    : $N (attendu ~$EXPECTED ; ecart 
 echo "  destinataires / dispositifs distincts  : $R"
 echo "  doublons exacts (user,titre,corps,lien) : $D (attendu 0)"
 echo "autres notifications sur la periode      : $OTHER (non liees a la synchro)"
+echo "KAFUNDO_SYNC_CREATE_CAP                 : ${CAP:-absent} (attendu 0)"
 echo "taches echouees depuis / en file         : $FJ / $PJ"
-[ "$D" = 0 ] && [ "$C" = 0 ] && echo "RESULTAT : OK (aucun doublon, aucune creation)" || { echo "RESULTAT : A EXAMINER"; exit 1; }
+[ "$D" = 0 ] && [ "$C" = 0 ] && [ "$CAP" = 0 ] && echo "RESULTAT : OK (aucun doublon, aucune creation)" || { echo "RESULTAT : A EXAMINER"; exit 1; }
