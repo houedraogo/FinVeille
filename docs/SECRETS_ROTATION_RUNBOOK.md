@@ -90,3 +90,34 @@ bash scripts/ops/rotate_postgres_password.sh              # exécution ; taper R
 * `~/.claude/file-history` conserve aussi des copies de fichiers édités (15 fichiers contenant des secrets d'autres projets) :
   même outil, sur demande.
 * L'expurgation locale ne retire pas les valeurs déjà transmises au service d'IA pendant la conversation : seule la rotation protège.
+
+## Prérequis et calendrier d'exécution (préparé le 10/10/2026 — rien exécuté)
+
+### Prérequis bloquants (aucun n'est encore levé)
+
+| # | Prérequis | État | Action |
+|---|---|---|---|
+| P1 | Valider le déploiement `phase1` en cours (conteneurs `-prev` = retour arrière) | à valider par le propriétaire | Ne **pas** appeler `swap_container.py commit` avant validation ; la rotation recrée les conteneurs et ne doit pas se superposer à un retour arrière ouvert |
+| P2 | `scripts/ops/*` absents du serveur | à copier | Copier `scripts/ops/` dans `/opt/finveille/scripts/ops/` (lecture du script avant exécution) |
+| P3 | 9 copies périmées de `.env.production` dans `/opt/releases/kafundo/*` contenant l'ancien mot de passe | à traiter | Les ajouter à `ENV_FILES` **ou** les supprimer après validation ; sinon un redéploiement depuis une release ancienne réintroduit l'ancien secret |
+| P4 | Le déploiement doit lire `/opt/finveille/.env.production` (source unique) | à confirmer | Vérifier la ligne `docker run`/`--env-file` de chaque conteneur avant la rotation |
+| P5 | Branche compose (`postgres-backup`) et ping du worker Celery non testés | à tester sur pile jetable | Dry-run + test sur copie ; ne pas toucher à la file historique `celery` (382 messages) |
+| P6 | Sauvegarde < 26 h lisible (dump nocturne 03:00 UTC) | à vérifier le jour J | `--dry-run` le contrôle |
+| P7 | Références Finnovatix rétablies et fiches publiques vérifiées | prioritaire | Voir `scripts/ops/finnovatix_remap/README.md` : ne pas empiler deux opérations sensibles |
+| P8 | Anciens conteneurs de retour arrière | **conservés** | Suppression seulement après validation écrite, au moins 48 h après la dernière rotation |
+
+### Calendrier proposé (une opération par créneau, hors 03:00 sauvegarde et 06:15–06:55 synchro Finnovatix)
+
+| Jour | Créneau (UTC) | Opération | Retour arrière | Critère de passage |
+|---|---|---|---|---|
+| J0 | — | Décisions du propriétaire (P1, P3, P4), copie de `scripts/ops` (P2) | — | Dry-run PostgreSQL propre |
+| J1 | 10:00–10:30 | Répétition sur pile jetable (P5) + `rotate_postgres_password.sh --dry-run` en production | — | 0 erreur |
+| J2 | 10:00–10:30 | **PostgreSQL** : exécution (confirmation `ROTATE`) | automatique + `-prev` | santé OK, ancienne clé refusée, file Celery stable |
+| J3 | 10:00–10:30 | **Stripe** : roll clé secrète (expiration ancienne 1 h) puis webhook | ancienne clé pendant 1 h | webhook test 200, facturation test |
+| J3 | +1 h | **SMTP** | ancien mot de passe re-saisissable | `admin/email/test` OK |
+| J4 | 10:00–10:30 | Priorité 2 Kafundo : `SECRET_KEY` (déconnecte les sessions → prévenir), `REDIS_PASSWORD` | sauvegarde `.env` 0600 | connexion, files Celery |
+| J5–J7 | à convenir | Finnovatix (hors `APP_KEY`) puis autres projets | par service | par service |
+| J+7 | — | Suppression des `.env.rotation-bak.*`, des conteneurs `-prev`, `chmod 600` | — | validation écrite |
+
+Règle : jamais deux rotations le même jour pour un même service ; chaque étape ne démarre que si la précédente est
+vérifiée. `APP_KEY` (Finnovatix) fait l'objet d'une procédure séparée et n'est **pas** dans ce calendrier.
