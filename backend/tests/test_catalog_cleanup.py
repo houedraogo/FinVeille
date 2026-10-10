@@ -298,6 +298,6 @@ async def test_listings_hide_archived_devices_by_default_and_show_them_on_explic
         ])
         await db.commit()
         everything = dict(include_all_statuses=True, include_rejected=True, include_low_quality=True)
-        assert await count(db, False) == 1                                         # public : l'archivée n'apparaît pas
+        assert await count(db, False, include_low_quality=True) == 1              # public : l'archivée n'apparaît pas
         assert await count(db, True, **everything) == 2                            # admin : sans les archivées
         assert await count(db, True, **everything, include_archived=True) == 3     # sur demande explicite
