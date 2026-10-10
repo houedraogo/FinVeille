@@ -158,6 +158,32 @@ simq < "$D/finnovatix_rollback.sql" | tail -1 | sed 's/^/   /' | tee -a "$REPORT
 CK2=$(chk); say "empreintes apres retour arriere : $CK2"
 check "retour arriere identique a l'etat initial (valeurs, metadonnees, historique, notifications, taches)" \
       "[ -n '$CK0' ] && ! echo '$CK0' | grep -q NULL && [ '$CK0' = '$CK2' ]"
+say ""; say "===== 6. Disponibilite : fiches expirees / non confirmees retirees des recommandations (etape distincte) ====="
+reset
+simq < "$D/finnovatix_apply.sql" | tail -1 | sed 's/^/   /' | tee -a "$REPORT"
+CKA=$(chk)
+DOS0=$(echo "CHECKSUM TABLE funding_opportunities, marketing_contents;" | simh | tail -n +2 | awk '{print $2}' | tr '
+' ' ')
+OPEN0=$(n "select count(*) from funding_calls where status='open'")
+PAST0=$(n "select count(*) from funding_calls where status='open' and deadline < curdate()")
+( cd "$HERE" && AUDIT_DIR="$D" python3 09_availability.py ) 2>&1 | sed 's/^/   /' | tee -a "$REPORT"
+NCH=$(tail -n +2 "$D/finnovatix_availability.csv" | wc -l)
+RES=$(simq < "$D/finnovatix_availability.sql" | tail -1); say "application : $RES"
+check "COMMIT effectue" "echo '$RES' | grep -q 'COMMIT effectue'"
+OPEN1=$(n "select count(*) from funding_calls where status='open'")
+say "fiches open : $OPEN0 -> $OPEN1 (attendu -$NCH) ; open + echeance passee : $PAST0 -> $(n "select count(*) from funding_calls where status='open' and deadline < curdate()")"
+check "exactement les fiches prevues quittent 'open'" "[ $((OPEN0 - OPEN1)) = $NCH ] && [ $NCH -gt 0 ]"
+check "plus aucune fiche ouverte avec echeance passee" "[ \"\$(n \"select count(*) from funding_calls where status='open' and deadline < curdate()\")\" = 0 ]"
+DOS1=$(echo "CHECKSUM TABLE funding_opportunities, marketing_contents;" | simh | tail -n +2 | awk '{print $2}' | tr '
+' ' ')
+check "dossiers clients et marketing inchanges (aucune suppression, aucun lien modifie)" "[ '$DOS0' = '$DOS1' ]"
+check "rejeu refuse (plus rien ne correspond)" "[ \"\$(simq < \"$D/finnovatix_availability.sql\" | tail -1 | grep -c ROLLBACK)\" = 1 ]"
+simq < "$D/finnovatix_availability_rollback.sql" | tail -1 | sed 's/^/   /' | tee -a "$REPORT"
+CKB=$(chk)
+check "retour arriere de la disponibilite identique a l'etat precedent" "[ '$CKA' = '$CKB' ]"
+simq < "$D/finnovatix_availability.sql" | tail -1 >/dev/null
+OUT=$(sync); say "synchro apres application : $(echo "$OUT" | summ)"; check "la synchro s'est reellement executee" "ran \"\$OUT\""
+check "les statuts ne sont pas rouverts par la synchro" "[ \"\$(n \"select count(*) from funding_calls where status='open' and deadline < curdate()\")\" = 0 ]"
 say ""
 if [ $fail = 0 ]; then say "RESULTAT GLOBAL : TOUS LES CONTROLES PASSENT (copie jetable ; production Finnovatix non modifiee)"; else say "RESULTAT GLOBAL : AU MOINS UN ECHEC"; fi
 exit $fail

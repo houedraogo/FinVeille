@@ -137,3 +137,19 @@ L'estimation de 19 fiches comparait toutes les fiches de remplacement. La synchr
 l'API : sur les 233 rattachements, **3** fiches changeraient réellement (2 échéances, 1 statut), **58** ne sont pas dans la
 liste (jamais synchronisées, donc jamais notifiées ; 33 pointent vers une fiche non publique, 5 ont des écarts de valeurs
 listés dans `finnovatix_not_synced_changes.csv`, non réalignés par cette opération).
+
+## Disponibilité des fiches (étape distincte, simulée, non appliquée)
+
+`FundingCall::open()` (`status='open'`) alimente les recommandations, la boucle de découverte et le rapprochement des leads,
+sans regarder l'échéance. Constat du 10/10/2026 : **52** fiches `open` ont une échéance passée (38 avec dossiers) ; l'API Kafundo
+ne liste pas les fiches expirées, donc la synchro ne les ferme jamais. `09_availability.py` génère (lecture seule) un script
+transactionnel et son retour arrière exact : `open` + échéance passée → `expired` ; fiches rattachées hors liste publique
+expirées/en attente/non confirmées → `expired` / `unknown`. Rien n'est supprimé, aucun lien avec les dossiers n'est modifié
+(simulé : empreintes `funding_opportunities` et `marketing_contents` identiques, rejeu refusé, retour arrière identique, la
+synchro ne rouvre rien). Exécution : `09_apply_availability.sh` (simulation par défaut), seulement après accord explicite.
+
+## Contrôle après la synchronisation
+
+`10_post_sync_check.sh [SINCE] [ATTENDU]` (lecture seule) : nombre réel de notifications « modification détectée », doublons
+(utilisateur + titre + corps + lien), créations (attendu 0), tâches échouées. Volumes habituels de la synchro de 06:30 observés :
+25 à 470 notifications par jour (470 le 09/10, 242 le 10/10).
