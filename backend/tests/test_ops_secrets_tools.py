@@ -159,3 +159,18 @@ def test_a_file_without_secrets_is_not_rewritten(tmp_path):
     mtime = transcript.stat().st_mtime
     redact.main([str(tmp_path), "--apply"])
     assert transcript.stat().st_mtime == mtime
+
+
+def test_all_files_mode_handles_extensionless_snapshots_and_skips_binaries(tmp_path):
+    snapshot = tmp_path / "58ddc0c13008b2bb@v1"
+    snapshot.write_text(f"APP_ENV=production\nPOSTGRES_PASSWORD={FAKE_PW}\n", encoding="utf-8")
+    binary = tmp_path / "image@v1"
+    binary.write_bytes(b"\x89PNG\x00\x00POSTGRES_PASSWORD=" + FAKE_PW.encode())
+    for f in (snapshot, binary):
+        old = time.time() - 48 * 3600
+        os.utime(f, (old, old))
+    assert redact.main([str(tmp_path), "--all-files", "--apply"]) == 0
+    redacted = snapshot.read_text(encoding="utf-8")
+    assert FAKE_PW not in redacted
+    assert redacted.startswith("APP_ENV=production\nPOSTGRES_PASSWORD=[REDACTED:variable]")
+    assert FAKE_PW.encode() in binary.read_bytes()   # binaire : non touché

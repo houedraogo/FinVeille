@@ -20,6 +20,7 @@ Usage :
     python redact_transcripts.py CHEMIN [CHEMIN...]            # simulation : compte seulement
     python redact_transcripts.py CHEMIN [...] --apply          # applique
     python redact_transcripts.py CHEMIN [...] --apply --include-recent
+    python redact_transcripts.py ~/.claude/file-history --all-files [--apply]   # copies de fichiers édités
 """
 from __future__ import annotations
 
@@ -51,7 +52,7 @@ TOKEN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 # NOM=valeur où le nom évoque un secret ; la valeur s'arrête à un espace, un guillemet, un \n échappé…
 ASSIGNMENT = re.compile(
     r"(?P<name>\b[A-Za-z0-9_]*(?:PASSWORD|PASSWD|PWD|SECRET|API_?KEY|APP_?KEY|ACCESS_?KEY|PRIVATE_?KEY|TOKEN|"
-    r"ENCRYPTION_?KEY|SIGNING_?KEY|CLIENT_?SECRET|DSN)[A-Za-z0-9_]*)(?P<sep>\s*=\s*)(?P<value>[^\s\"'\\,;)}\]]{6,})",
+    r"ENCRYPTION_?KEY|SIGNING_?KEY|CLIENT_?SECRET|DSN)[A-Za-z0-9_]*)(?P<sep>[ \t]*=[ \t]*)(?P<value>[^\s\"'\\,;)}\]]{6,})",
 )
 # Mots de passe intégrés dans une URL : schéma://utilisateur:motdepasse@hôte
 URL_CREDENTIALS = re.compile(r"(?P<head>[A-Za-z][A-Za-z0-9+.-]*://[^:@/\s\"'\\]+:)(?P<pw>[^@\s\"'\\/]{4,})(?P<tail>@)")
@@ -152,12 +153,24 @@ def process_file(path: Path, apply: bool) -> dict:
     return result
 
 
-def collect(paths: list[str]) -> list[Path]:
+def _is_text_file(path: Path) -> bool:
+    try:
+        with open(path, "rb") as handle:
+            return b"\x00" not in handle.read(4096)
+    except OSError:
+        return False
+
+
+def collect(paths: list[str], all_files: bool = False) -> list[Path]:
+    """Fichiers à traiter : *.jsonl, ou tout fichier texte avec --all-files (ex. ~/.claude/file-history)."""
     files: list[Path] = []
     for item in paths:
         p = Path(item)
         if p.is_dir():
-            files.extend(sorted(p.rglob("*.jsonl")))
+            if all_files:
+                files.extend(f for f in sorted(p.rglob("*")) if f.is_file() and _is_text_file(f))
+            else:
+                files.extend(sorted(p.rglob("*.jsonl")))
         elif p.is_file():
             files.append(p)
     return files
@@ -169,13 +182,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true", help="remplace réellement les fichiers (sinon simulation)")
     parser.add_argument("--include-recent", action="store_true", help="inclut les fichiers modifiés il y a moins de 2 h")
     parser.add_argument("--recent-hours", type=float, default=2.0)
+    parser.add_argument("--all-files", action="store_true", help="traite tous les fichiers texte du dossier (ex. file-history)")
     args = parser.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     exit_code = 0
     scanned = skipped = flagged = 0
-    for path in collect(args.paths):
+    for path in collect(args.paths, args.all_files):
         age_h = (time.time() - path.stat().st_mtime) / 3600
         if age_h < args.recent_hours and not args.include_recent:
             skipped += 1
