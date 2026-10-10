@@ -733,11 +733,11 @@ class DeviceService:
 
         if normalized_sort == "close_date" and not params.sort_desc:
             upcoming_first = case((Device.close_date >= date.today(), 0), else_=1)
-            query = query.order_by(upcoming_first.asc(), Device.close_date.asc().nullslast(), Device.updated_at.desc())
+            query = query.order_by(upcoming_first.asc(), Device.close_date.asc().nullslast(), Device.updated_at.desc(), Device.id.asc())
         elif params.sort_desc:
-            query = query.order_by(order_col.desc().nullslast(), Device.updated_at.desc())
+            query = query.order_by(order_col.desc().nullslast(), Device.updated_at.desc(), Device.id.asc())
         else:
-            query = query.order_by(order_col.asc().nullslast(), Device.updated_at.desc())
+            query = query.order_by(order_col.asc().nullslast(), Device.updated_at.desc(), Device.id.asc())
 
         # Pagination
         offset = (params.page - 1) * params.page_size
