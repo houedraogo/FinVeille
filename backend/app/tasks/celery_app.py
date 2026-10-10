@@ -1,4 +1,6 @@
-﻿from celery import Celery
+﻿import os
+
+from celery import Celery
 from celery.schedules import crontab
 
 from app.config import settings
@@ -28,6 +30,9 @@ celery_app.conf.update(
     result_expires=3600,
     worker_max_tasks_per_child=50,
     task_default_queue="default",
+    # Fichier d'ordonnancement de beat : hors du code et de l'image. Un fichier versionne (stale) faisait partir toutes les
+    # taches periodiques d'un coup a chaque recreation du conteneur (constat du 10/10/2026, 237 taches).
+    beat_schedule_filename=os.getenv("CELERY_BEAT_SCHEDULE_FILE", "/tmp/celerybeat-schedule"),
     task_routes={
         "app.tasks.collect_tasks.*": {"queue": "collect"},
         "app.tasks.alert_tasks.*": {"queue": "alerts"},

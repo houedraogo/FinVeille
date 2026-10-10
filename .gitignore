@@ -60,3 +60,6 @@ docker-compose.override.yml
 *.sql
 *.dump
 *.bak
+
+# Celery beat : fichier d ordonnancement d execution, jamais versionne ni copie dans l image
+celerybeat-schedule*
