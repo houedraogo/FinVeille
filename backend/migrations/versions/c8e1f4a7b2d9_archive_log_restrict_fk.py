@@ -32,11 +32,19 @@ def _replace_fk(column: str, ondelete: str) -> None:
     op.create_foreign_key(f"{TABLE}_{column}_fkey", TABLE, "devices", [column], ["id"], ondelete=ondelete)
 
 
+def _fail_fast() -> None:
+    """DROP/ADD CONSTRAINT queue behind running writers and block new ones behind it. Give up after 10 s instead of
+    stalling the collectors and the API (the migration is transactional: nothing is left half-applied)."""
+    op.execute("SET LOCAL lock_timeout = '10s'")
+
+
 def upgrade() -> None:
+    _fail_fast()
     _replace_fk("device_id", "RESTRICT")
     _replace_fk("merged_into_id", "RESTRICT")
 
 
 def downgrade() -> None:
+    _fail_fast()
     _replace_fk("device_id", "CASCADE")
     _replace_fk("merged_into_id", "SET NULL")
