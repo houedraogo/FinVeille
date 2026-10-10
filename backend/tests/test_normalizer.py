@@ -22,13 +22,13 @@ def test_normalizer_reads_close_date_from_metadata_field():
         title="Appel a projets energie",
         url="https://example.org/aide",
         raw_content="Financement pour les PME.",
-        metadata={"closingdate": "2026-09-30"},
+        metadata={"closingdate": "2099-09-30"},
     )
 
     normalized = normalizer.normalize(item)
 
     assert normalized is not None
-    assert normalized["close_date"] == date(2026, 9, 30)
+    assert normalized["close_date"] == date(2099, 9, 30)
     assert normalized["status"] == "open"
 
 
