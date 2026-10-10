@@ -32,6 +32,8 @@ def upgrade() -> None:
         sa.Column("previous_user_quality_decision", sa.String(50)),
         sa.Column("previous_ai_rewrite_status", sa.String(50)),
         sa.Column("previous_tags", sa.JSON()),
+        sa.Column("action", sa.String(20), nullable=False, server_default="archive"),
+        sa.Column("moved_references", sa.JSON()),
         sa.Column("archived_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("restored_at", sa.DateTime(timezone=True)),
         sa.UniqueConstraint("run_id", "device_id", name="uq_device_archive_log_run_device"),

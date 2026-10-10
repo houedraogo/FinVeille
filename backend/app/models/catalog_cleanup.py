@@ -37,6 +37,10 @@ class DeviceArchiveLog(Base):
     previous_user_quality_decision = Column(String(50))
     previous_ai_rewrite_status = Column(String(50))
     previous_tags = Column(JSON)
+    # archive | ai_hold : ce que l'opération a changé (ai_hold ne touche que le statut IA)
+    action = Column(String(20), nullable=False, default="archive")
+    # Références utilisateur déplacées vers la fiche conservée (pour pouvoir les remettre à la restauration).
+    moved_references = Column(JSON)
     archived_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     restored_at = Column(DateTime(timezone=True))
 
