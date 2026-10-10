@@ -47,11 +47,20 @@ def _write_manifests(out_dir: Path, plan, rows) -> None:
                                  row.get("status"), plan.merged_into.get(device_id), plan.rules.get(device_id)])
 
 
+def _protected_ids(args) -> set:
+    """Identifiants (un par ligne) de fiches référencées par un système externe, à ne pas archiver."""
+    path = getattr(args, "protect_file", None)
+    if not path:
+        return set()
+    return {line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()}
+
+
 async def run(args) -> int:
+    protected = _protected_ids(args)
     async with AsyncSessionLocal() as db:
         if args.command == "plan":
             rows = await load_rows(db)
-            plan = build_plan(rows)
+            plan = build_plan(rows, protected)
             summary = summarize(plan, rows)
             if args.out:
                 _write_manifests(Path(args.out), plan, rows)
@@ -66,7 +75,7 @@ async def run(args) -> int:
             if args.yes and not args.backup_ref:
                 print("--backup-ref est obligatoire pour écrire (nom du dump vérifié avant l'opération).", file=sys.stderr)
                 return 2
-            plan = build_plan(await load_rows(db))
+            plan = build_plan(await load_rows(db), protected)
             try:
                 result = await archive_batch(db, plan, args.batch, run_id=args.run_id, expected_hash=args.plan_hash,
                                              dry_run=not args.yes, limit=args.limit)
@@ -77,7 +86,7 @@ async def run(args) -> int:
             return 0
 
         if args.command == "hold-ai":
-            plan = build_plan(await load_rows(db))
+            plan = build_plan(await load_rows(db), protected)
             result = await hold_pending_ai(db, plan, run_id=args.run_id, dry_run=not args.yes)
             print(json.dumps(result.__dict__, indent=2, default=str))
             return 0
@@ -98,7 +107,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("plan").add_argument("--out")
+    plan_parser = sub.add_parser("plan")
+    plan_parser.add_argument("--out")
+    plan_parser.add_argument("--protect-file")
 
     apply_parser = sub.add_parser("apply")
     apply_parser.add_argument("--batch", required=True)
@@ -107,10 +118,12 @@ def main(argv=None) -> int:
     apply_parser.add_argument("--backup-ref")
     apply_parser.add_argument("--limit", type=int)
     apply_parser.add_argument("--yes", action="store_true")
+    apply_parser.add_argument("--protect-file")
 
     hold_parser = sub.add_parser("hold-ai")
     hold_parser.add_argument("--run-id", required=True)
     hold_parser.add_argument("--yes", action="store_true")
+    hold_parser.add_argument("--protect-file")
 
     restore_parser = sub.add_parser("restore")
     restore_parser.add_argument("--run-id", required=True)

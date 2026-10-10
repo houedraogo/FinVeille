@@ -70,6 +70,25 @@ def test_certain_duplicates_keep_the_public_complete_oldest_and_never_homonyms()
     assert homonym_a["id"] not in plan.merged_into and homonym_b["id"] not in plan.merged_into
 
 
+def test_externally_referenced_duplicate_is_protected_and_preferred_as_keeper():
+    plain = row(title="Fonds commerce rural", organism="ANCT", source_url="https://anct.gouv.fr/cr", completeness_score=90)
+    referenced = row(title="Fonds commerce rural", organism=GENERIC, source_url="https://www.anct.gouv.fr/cr/", completeness_score=20)
+    plan = build_plan([plain, referenced], protected_ids=[str(referenced["id"])])
+    # La fiche utilisée par les dossiers clients devient la fiche conservée, malgré une complétude plus faible.
+    assert plan.ids(BATCH_C) == [plain["id"]]
+    assert plan.merged_into[plain["id"]] == referenced["id"]
+    assert cleanup.BATCH_P not in plan.batches
+
+
+def test_two_externally_referenced_twins_are_both_kept_and_reported_in_batch_p():
+    a = row(title="Fonds commerce rural", organism="ANCT", source_url="https://anct.gouv.fr/cr", completeness_score=90)
+    b = row(title="Fonds commerce rural", organism=GENERIC, source_url="https://www.anct.gouv.fr/cr/", completeness_score=20)
+    plan = build_plan([a, b], protected_ids=[str(a["id"]), str(b["id"])])
+    assert BATCH_C not in plan.batches
+    assert len(plan.ids(cleanup.BATCH_P)) == 1
+    assert cleanup.BATCH_P not in cleanup.ARCHIVABLE_BATCHES
+
+
 def test_already_archived_rows_are_ignored_and_fingerprint_is_stable_and_sensitive():
     archived = row(validation_status="archived")
     a, b = row(status="expired"), row(status="expired")
@@ -138,6 +157,22 @@ async def test_dry_run_changes_nothing_and_wrong_hash_aborts(pg_session_factory)
         with pytest.raises(PlanMismatch):
             await cleanup.archive_batch(db, plan, BATCH_A, run_id="run-y", expected_hash=None, dry_run=False)
         assert (await db.execute(select(DeviceArchiveLog))).scalars().all() == []
+
+
+@pg
+@pytest.mark.asyncio
+async def test_an_archived_device_cannot_be_reactivated_by_a_stray_script(pg_session_factory):
+    from app.models.archive_guard import ArchivedDeviceError
+
+    async with pg_session_factory() as db:
+        wb, _expired, _keep = await _setup(db)
+        plan = await cleanup.plan_catalog(db)
+        await cleanup.archive_batch(db, plan, BATCH_A, run_id="run-guard", expected_hash=plan.fingerprint(BATCH_A), dry_run=False)
+        await db.refresh(wb)
+        with pytest.raises(ArchivedDeviceError):
+            wb.validation_status = "auto_published"
+        wb.validation_status = "archived"  # réaffecter la même valeur reste permis
+        await db.rollback()
 
 
 @pg

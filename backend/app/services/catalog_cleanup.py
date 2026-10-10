@@ -28,6 +28,7 @@ from uuid import UUID
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.archive_guard import allow_unarchive
 from app.models.catalog_cleanup import AI_HELD_STATUS, ARCHIVED_STATUS, DeviceArchiveLog
 from app.models.device import Device
 from app.models.source import Source
@@ -41,10 +42,12 @@ BATCH_F = "F_admin_only_a_recuperer"
 BATCH_H = "H_pending_review"
 BATCH_G = "G_deja_rejetees"
 BATCH_Z = "Z_reste"
+# Doublons CERTAINS déjà référencés par un système externe (ex. dossiers clients Finnovatix) : jamais archivés.
+BATCH_P = "P_doublons_references_externes"
 ARCHIVABLE_BATCHES = (BATCH_A, BATCH_B, BATCH_C)
-REVIEW_BATCHES = (BATCH_F, BATCH_H)
+REVIEW_BATCHES = (BATCH_F, BATCH_H, BATCH_P)
 # Lots dont les réécritures IA en attente sont suspendues (jamais de dépense avant validation).
-AI_HOLD_BATCHES = (BATCH_A, BATCH_B, BATCH_C, BATCH_F, BATCH_H, BATCH_G)
+AI_HOLD_BATCHES = (BATCH_A, BATCH_B, BATCH_C, BATCH_F, BATCH_H, BATCH_G)  # P reste actif : fiche déjà utilisée par des dossiers
 
 PUBLIC_VALIDATION = ("auto_published", "approved", "validated", "manually_published")
 CHUNK_SIZE = 200
@@ -68,15 +71,28 @@ class Plan:
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
-def _keeper_sort_key(row: dict):
-    """Fiche conservée dans un groupe de doublons : publique d'abord, plus complète, plus ancienne."""
+def _keeper_sort_key(row: dict, protected: frozenset = frozenset()):
+    """Fiche conservée dans un groupe de doublons.
+
+    Priorité : déjà référencée par un système externe (les dossiers clients pointent vers elle),
+    puis publique, puis la plus complète, puis la plus ancienne.
+    """
     is_public = row.get("validation_status") in PUBLIC_VALIDATION
     created = row.get("created_at")
-    return (not is_public, -(row.get("completeness_score") or 0), created or datetime.max.replace(tzinfo=timezone.utc), str(row["id"]))
+    return (
+        str(row["id"]) not in protected, not is_public, -(row.get("completeness_score") or 0),
+        created or datetime.max.replace(tzinfo=timezone.utc), str(row["id"]),
+    )
 
 
-def build_plan(rows: Iterable[dict]) -> Plan:
-    """Classe chaque fiche dans exactement un lot (priorité A > G > B > C > H > F > Z). Pur."""
+def build_plan(rows: Iterable[dict], protected_ids: Iterable[Any] = ()) -> Plan:
+    """Classe chaque fiche dans exactement un lot (priorité A > G > B > C > H > F > Z). Pur.
+
+    ``protected_ids`` : identifiants de fiches référencées ailleurs (ex. kafundo_id des
+    FundingCall Finnovatix). Un doublon protégé n'est jamais archivé : il devient la fiche
+    conservée si possible, sinon il est placé dans le lot P (aucune perte de référence).
+    """
+    protected = frozenset(str(i) for i in protected_ids)
     plan = Plan()
     rows = [dict(r) for r in rows if r.get("validation_status") != ARCHIVED_STATUS]
     taken: set = set()
@@ -126,9 +142,15 @@ def build_plan(rows: Iterable[dict]) -> Plan:
     for members in clusters.values():
         if len(members) < 2:
             continue
-        keeper = sorted(members, key=_keeper_sort_key)[0]
+        keeper = sorted(members, key=lambda m: _keeper_sort_key(m, protected))[0]
         for member in members:
             if member["id"] == keeper["id"]:
+                continue
+            if str(member["id"]) in protected:
+                plan.batches[BATCH_P].append(member["id"])
+                plan.merged_into[member["id"]] = keeper["id"]
+                plan.rules[member["id"]] = "certain_duplicate_externally_referenced"
+                taken.add(member["id"])
                 continue
             plan.batches[BATCH_C].append(member["id"])
             plan.merged_into[member["id"]] = keeper["id"]
@@ -160,8 +182,8 @@ async def load_rows(db: AsyncSession) -> list[dict]:
     return [dict(zip(columns, row)) for row in result.all()]
 
 
-async def plan_catalog(db: AsyncSession) -> Plan:
-    return build_plan(await load_rows(db))
+async def plan_catalog(db: AsyncSession, protected_ids: Iterable[Any] = ()) -> Plan:
+    return build_plan(await load_rows(db), protected_ids)
 
 
 # --- références utilisateur ---------------------------------------------------
@@ -314,7 +336,8 @@ async def restore(
         if device is None:
             continue
         if entry.action == "archive":
-            device.validation_status = entry.previous_validation_status
+            with allow_unarchive():
+                device.validation_status = entry.previous_validation_status
             device.status = entry.previous_status
             device.user_quality_decision = entry.previous_user_quality_decision
             device.tags = list(entry.previous_tags or [])

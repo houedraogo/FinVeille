@@ -12,6 +12,7 @@ from app.models.billing import Plan, Subscription, UsageEvent, BillingCustomer, 
 from app.models.operations import AuditLog, EmailEvent, DataExport, DeletionRequest, PasswordResetToken
 from app.models.project import UserProject
 from app.models.catalog_cleanup import DeviceArchiveLog, DeviceRejection, DuplicateCandidate
+from app.models import archive_guard  # noqa: F401  (garde-fou fiches archivées)
 
 __all__ = [
     "User", "Source", "Device", "DeviceHistory",
