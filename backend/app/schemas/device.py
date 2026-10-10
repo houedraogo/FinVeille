@@ -67,7 +67,7 @@ class DeviceUpdate(BaseModel):
     full_description: Optional[str] = None
     content_sections_json: Optional[List[dict[str, Any]]] = None
     ai_rewritten_sections_json: Optional[List[dict[str, Any]]] = None
-    ai_rewrite_status: Optional[Literal["pending", "done", "failed", "needs_review"]] = None
+    ai_rewrite_status: Optional[Literal["pending", "done", "failed", "needs_review", "on_hold"]] = None
     ai_rewrite_model: Optional[str] = None
     ai_rewrite_checked_at: Optional[datetime] = None
     eligibility_criteria: Optional[str] = None
@@ -294,6 +294,7 @@ class DeviceSearchParams(BaseModel):
     include_all_statuses: bool = False
     include_rejected: bool = False
     include_low_quality: bool = False
+    include_archived: bool = False
     sort_by: str = "updated_at"
     sort_desc: bool = True
     page: int = 1

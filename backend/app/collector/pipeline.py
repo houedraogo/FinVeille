@@ -17,6 +17,9 @@ from app.services.ai_readiness import compute_ai_readiness
 from app.services.device_quality import DeviceQualityGate
 from app.services.user_quality import compute_user_quality
 from app.services.device_service import DeviceService
+from app.services.ai_eligibility import initial_ai_rewrite_status
+from app.services.catalog_guard import is_quarantined, quarantine, record_duplicate_candidate
+from app.services.scope_rules import ScopeVerdict, evaluate_scope
 from app.utils.hash_utils import compute_content_hash
 from app.utils.text_utils import clean_editorial_text, looks_english_text
 
@@ -275,7 +278,31 @@ class CollectionPipeline:
         ))
         normalized["source_hash"] = content_hash
 
+        # Périmètre (nettoyage du catalogue, oct. 2026) : une fiche structurellement hors
+        # périmètre (fiche projet institutionnelle…) n'est ni créée ni réexaminée à chaque
+        # collecte ; elle est mise en quarantaine une seule fois.
+        scope = evaluate_scope(normalized, self.source.get("name"))
+        if scope.excluded:
+            await quarantine(
+                self.db, source_id=self.source_id, source_url=normalized.get("source_url"),
+                title=normalized.get("title"), content_hash=content_hash, rule=f"scope_{scope.rule}", reason=scope.reason,
+            )
+            return "skipped"
+        if await is_quarantined(
+            self.db, source_id=self.source_id, source_url=normalized.get("source_url"), content_hash=content_hash,
+        ):
+            return "skipped"
+
         existing = await self.deduplicator.find_duplicate(normalized)
+
+        if existing is not None and existing.validation_status == "archived":
+            # Fiche archivée par le nettoyage : la collecte ne la réactive ni ne la modifie.
+            from sqlalchemy import update as _update
+
+            await self.db.execute(
+                _update(type(existing)).where(type(existing).id == existing.id).values(last_verified_at=func.now())
+            )
+            return "skipped"
 
         if existing:
             if existing.source_hash == content_hash:
@@ -379,7 +406,14 @@ class CollectionPipeline:
         enriched["user_quality_decision"] = user_quality.decision
         enriched["user_quality_reasons"] = user_quality.reasons
 
+        # Aucune file IA pour une fiche non publiable ou à revoir : le traitement coûteux
+        # n'a lieu qu'après validation.
+        enriched["ai_rewrite_status"] = initial_ai_rewrite_status(
+            enriched.get("validation_status"), out_of_scope=scope.verdict is ScopeVerdict.REVIEW,
+        )
         create_data = {key: value for key, value in enriched.items() if key in DEVICE_CREATE_FIELDS}
         device_schema = DeviceCreate(**create_data)
-        await self.device_service.create(device_schema, created_by="system", source_hash=content_hash, commit=False)
+        created = await self.device_service.create(device_schema, created_by="system", source_hash=content_hash, commit=False)
+        for other, assessment in self.deduplicator.last_candidates:
+            await record_duplicate_candidate(self.db, created.id, other.id, assessment)
         return "new"

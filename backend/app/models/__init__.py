@@ -11,6 +11,7 @@ from app.models.relevance import OrganizationProfile, FundingProject, DeviceRele
 from app.models.billing import Plan, Subscription, UsageEvent, BillingCustomer, StripeWebhookEvent, BillingCheckout
 from app.models.operations import AuditLog, EmailEvent, DataExport, DeletionRequest, PasswordResetToken
 from app.models.project import UserProject
+from app.models.catalog_cleanup import DeviceArchiveLog, DeviceRejection, DuplicateCandidate
 
 __all__ = [
     "User", "Source", "Device", "DeviceHistory",
@@ -21,4 +22,5 @@ __all__ = [
     "Plan", "Subscription", "UsageEvent", "BillingCustomer", "StripeWebhookEvent", "BillingCheckout",
     "AuditLog", "EmailEvent", "DataExport", "DeletionRequest", "PasswordResetToken",
     "UserProject",
+    "DeviceArchiveLog", "DeviceRejection", "DuplicateCandidate",
 ]

@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(
     reason="Dedicated disposable PostgreSQL admin URL and KAFUNDO_MIGRATION_TESTS=1 required",
 )
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "3f8e2d1c9a05"
+HEAD = "b7d3a91c5e24"
 COUNTS = (
     "users", "organizations", "devices", "device_pipeline", "favorite_devices",
     "alerts", "funding_projects", "match_projects", "subscriptions", "billing_customers",
@@ -101,7 +101,7 @@ def test_empty_database_upgrade_head_and_idempotence(disposable_database):
     engine = create_engine(_database_url(name))
     with engine.connect() as connection:
         assert _version(connection) == HEAD
-        assert set(inspect(connection).get_table_names()) == set(SCHEMA) | {"alembic_version", "user_projects", "stripe_webhook_events", "billing_checkouts", "alert_deliveries"}
+        assert set(inspect(connection).get_table_names()) == set(SCHEMA) | {"alembic_version", "user_projects", "stripe_webhook_events", "billing_checkouts", "alert_deliveries", "device_archive_log", "device_rejections", "device_duplicate_candidates"}
         assert not any(inspect_legacy(connection, allow_post_baseline_tables=True).values())
         assert connection.execute(text("SELECT count(*) FROM plans WHERE slug='free'")).scalar_one() == 1
         before = _counts(connection)

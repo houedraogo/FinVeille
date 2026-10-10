@@ -46,7 +46,10 @@ def inspect_legacy(connection, *, allow_post_baseline_tables=False):
     existing_tables = set(inspector.get_table_names(schema="public")) - {"alembic_version"}
     expected_tables = set(SCHEMA)
     if allow_post_baseline_tables:
-        existing_tables -= {"user_projects", "stripe_webhook_events", "billing_checkouts", "alert_deliveries"}
+        existing_tables -= {
+            "user_projects", "stripe_webhook_events", "billing_checkouts", "alert_deliveries",
+            "device_archive_log", "device_rejections", "device_duplicate_candidates",
+        }
     if existing_tables != expected_tables:
         raise RuntimeError(
             f"Schéma historique incomplet ou inconnu: tables absentes={sorted(expected_tables - existing_tables)}, "

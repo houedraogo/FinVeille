@@ -407,6 +407,7 @@ async def list_devices(
     include_all_statuses: bool = Query(False),
     include_rejected: bool = Query(False),
     include_low_quality: bool = Query(False),
+    include_archived: bool = Query(False),
     sort_by: str = Query("updated_at"),
     sort_desc: bool = Query(True),
     page: int = Query(1, ge=1),
@@ -414,7 +415,7 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_current_user),
 ):
-    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality
+    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality or include_archived
     if admin_catalog_requested and not _can_use_admin_catalog(current_user):
         raise HTTPException(status_code=403, detail="Le catalogue complet est reserve aux administrateurs.")
 
@@ -474,6 +475,7 @@ async def list_devices(
         include_all_statuses=include_all_statuses,
         include_rejected=include_rejected,
         include_low_quality=include_low_quality,
+        include_archived=include_archived,
         sort_by=sort_by,
         sort_desc=sort_desc, page=page, page_size=page_size,
     )
@@ -693,6 +695,7 @@ async def export_csv(
     include_all_statuses: bool = Query(False),
     include_rejected: bool = Query(False),
     include_low_quality: bool = Query(False),
+    include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -710,8 +713,9 @@ async def export_csv(
         include_all_statuses=include_all_statuses,
         include_rejected=include_rejected,
         include_low_quality=include_low_quality,
+        include_archived=include_archived,
     )
-    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality
+    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality or include_archived
     if admin_catalog_requested and not _can_use_admin_catalog(current_user):
         raise HTTPException(status_code=403, detail="Le catalogue complet est reserve aux administrateurs.")
 
@@ -763,6 +767,7 @@ async def export_excel(
     include_all_statuses: bool = Query(False),
     include_rejected: bool = Query(False),
     include_low_quality: bool = Query(False),
+    include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -787,8 +792,9 @@ async def export_excel(
         include_all_statuses=include_all_statuses,
         include_rejected=include_rejected,
         include_low_quality=include_low_quality,
+        include_archived=include_archived,
     )
-    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality
+    admin_catalog_requested = include_all_statuses or include_rejected or include_low_quality or include_archived
     if admin_catalog_requested and not _can_use_admin_catalog(current_user):
         raise HTTPException(status_code=403, detail="Le catalogue complet est reserve aux administrateurs.")
 
@@ -1293,7 +1299,7 @@ async def rewrite_device(
         "content_sections_json": device.content_sections_json or [],
     }
 
-    result = await rewriter.rewrite_device(device_dict)
+    result = await rewriter.rewrite_device(device_dict, force=True)
 
     device.ai_rewritten_sections_json = result.sections
     device.ai_rewrite_status = result.status

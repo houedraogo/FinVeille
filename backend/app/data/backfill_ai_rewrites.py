@@ -19,6 +19,7 @@ from app.database import AsyncSessionLocal
 from app.data.ensure_ai_rewrite_columns import run as ensure_ai_rewrite_columns
 from app.models.device import Device
 from app.models.source import Source
+from app.services.ai_eligibility import ai_eligible_condition
 from app.services.ai_rewriter import AIRewriter, REWRITE_FAILED
 
 
@@ -43,7 +44,7 @@ async def run(
         query = (
             select(Device, Source)
             .outerjoin(Source, Source.id == Device.source_id)
-            .where(Device.validation_status != "rejected")
+            .where(ai_eligible_condition())
             .where(Device.content_sections_json.is_not(None))
             .order_by(Device.updated_at.desc().nullslast())
         )

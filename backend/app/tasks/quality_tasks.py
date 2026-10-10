@@ -457,7 +457,7 @@ async def _enrich_missing_async(batch_size: int = 50):
             )
             .where(
                 Device.source_url.ilike("http%"),
-                Device.validation_status != "rejected",
+                Device.validation_status.notin_(("rejected", "archived")),
                 Device.last_verified_at < cutoff,
                 or_(
                     and_(Device.amount_max.is_(None), Device.amount_min.is_(None)),
@@ -617,9 +617,11 @@ async def _auto_rewrite_quality_queue_async(batch_size: int = 20):
 
         from sqlalchemy import select
         from app.models.device import Device
+        from app.services.ai_eligibility import ai_eligible_condition
 
+        # Jamais d'IA automatique sur une fiche rejetée / archivée / en revue / suspendue.
         devices = (
-            await db.execute(select(Device).where(Device.id.in_(candidate_ids)))
+            await db.execute(select(Device).where(Device.id.in_(candidate_ids), ai_eligible_condition()))
         ).scalars().all()
 
         processed = 0

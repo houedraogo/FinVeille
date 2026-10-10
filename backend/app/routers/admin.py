@@ -1211,7 +1211,9 @@ async def bulk_rewrite_devices(
         )
 
     # Build query to select devices that need rewriting
-    query = select(Device).where(Device.validation_status == "validated")
+    from app.services.ai_eligibility import ai_eligible_condition
+
+    query = select(Device).where(Device.validation_status == "validated", ai_eligible_condition())
     if status_filter != "all":
         allowed = [s.strip() for s in status_filter.split(",") if s.strip()]
         query = query.where(Device.ai_rewrite_status.in_(allowed))

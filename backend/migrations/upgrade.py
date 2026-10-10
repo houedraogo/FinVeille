@@ -13,7 +13,7 @@ from app.config import settings
 from migrations.schema_contract import inspect_legacy
 
 
-HEAD_REVISION = "f54e3b706d18"
+HEAD_REVISION = "b7d3a91c5e24"
 
 
 def main() -> None:

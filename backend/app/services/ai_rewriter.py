@@ -10,6 +10,7 @@ import httpx
 from unidecode import unidecode
 
 from app.config import settings
+from app.services.ai_eligibility import ai_hold_reason
 from app.services.content_section_builder import SECTION_ORDER, SECTION_TITLES
 from app.utils.text_utils import clean_editorial_text, looks_english_text
 
@@ -18,6 +19,7 @@ REWRITE_PENDING = "pending"
 REWRITE_DONE = "done"
 REWRITE_FAILED = "failed"
 REWRITE_NEEDS_REVIEW = "needs_review"
+REWRITE_ON_HOLD = "on_hold"
 
 REWRITABLE_SECTION_KEYS = (
     "why_this_opportunity",
@@ -62,8 +64,14 @@ class AIRewriter:
             return bool(settings.OPENAI_API_KEY)
         return False
 
-    async def rewrite_device(self, device: dict[str, Any]) -> AIRewriteResult:
+    async def rewrite_device(self, device: dict[str, Any], *, force: bool = False) -> AIRewriteResult:
         checked_at = datetime.now(timezone.utc)
+        # Aucune dépense IA automatique pour une fiche rejetée, archivée, « admin
+        # uniquement », en revue ou suspendue. Une action manuelle explicite
+        # d'un administrateur passe force=True.
+        hold_reason = None if force else ai_hold_reason(device)
+        if hold_reason:
+            return AIRewriteResult(REWRITE_ON_HOLD, [], self.model, checked_at, [hold_reason])
         source_sections = _source_sections(device)
         if not source_sections:
             return AIRewriteResult(REWRITE_FAILED, [], self.model, checked_at, ["sections_source_absentes"])

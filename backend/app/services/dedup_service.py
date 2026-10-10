@@ -146,7 +146,7 @@ class DedupService:
                 Device.completeness_score,
                 Device.source_url,
                 Device.created_at,
-            )
+            ).where(Device.validation_status.notin_(("archived", "rejected")))
         )
         rows = result.all()
 

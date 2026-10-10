@@ -443,6 +443,10 @@ class DeviceService:
         sans pagination ni tri. Réutilisée par search() et stream_for_export().
         """
         query = select(Device)
+        # Fiches archivées par le nettoyage du catalogue : jamais listées, même
+        # pour un administrateur, sauf demande explicite (include_archived).
+        if not params.include_archived:
+            query = query.where(Device.validation_status != "archived")
         if not allow_unpublished:
             query = query.where(public_device_condition())
         if not params.include_rejected:
