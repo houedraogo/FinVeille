@@ -5,6 +5,11 @@ from app.database import engine
 
 
 HEAD_REVISION = "c8e1f4a7b2d9"
+# c8e1f4a7b2d9 ne remplace que deux contraintes de cles etrangeres : le code fonctionne identiquement sur la revision
+# precedente. Accepter les deux permet de deployer les images et d'appliquer la migration dans l'ordre voulu, sans
+# fenetre ou /api/ready repond 503. Toute autre revision reste refusee.
+PREVIOUS_COMPATIBLE_REVISION = "b7d3a91c5e24"
+COMPATIBLE_REVISIONS = frozenset({HEAD_REVISION, PREVIOUS_COMPATIBLE_REVISION})
 REQUIRED_COLUMNS = {
     ("users", "country"),
     ("users", "sectors"),
@@ -35,10 +40,10 @@ REQUIRED_FOREIGN_KEYS = {
 }
 
 
-async def assert_schema_ready() -> None:
+async def assert_schema_ready() -> str:
     async with engine.connect() as connection:
         version = (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalar_one_or_none()
-        if version != HEAD_REVISION:
+        if version not in COMPATIBLE_REVISIONS:
             raise RuntimeError(f"Révision Alembic attendue {HEAD_REVISION}, trouvée {version}")
         columns = set((await connection.execute(text("""
             SELECT table_name, column_name
@@ -60,3 +65,4 @@ async def assert_schema_ready() -> None:
         missing_foreign_keys = REQUIRED_FOREIGN_KEYS - foreign_keys
         if missing_foreign_keys:
             raise RuntimeError(f"Clés étrangères requises absentes: {sorted(missing_foreign_keys)}")
+        return version
