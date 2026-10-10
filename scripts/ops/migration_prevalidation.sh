@@ -68,6 +68,19 @@ FP0=$(fp); FPD0=$(fpd); say "empreinte journal : $FP0 ; empreinte fiches : $FPD0
 check "revision restauree = $PREV_REV" "[ \"\$(iso $DB -c 'select version_num from alembic_version')\" = '$PREV_REV' ]"
 say "cles avant migration : $(fk)"
 
+say ""; say "===== 3b. Image cible sur la base NON migree : /api/ready doit rester 200 (revision precedente acceptee) ====="
+docker run -d --name mig-api --network "$NET" $(appenv) -w /app -e PYTHONPATH=/app --entrypoint python "$IMAGE" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 >/dev/null
+for i in $(seq 1 40); do docker exec mig-api python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)" >/dev/null 2>&1 && break; sleep 2; done
+RDY=$(docker exec mig-api python -c "import urllib.request,json;print(json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/ready',timeout=10)))" 2>&1 | tail -1)
+say "  /api/ready (base a $PREV_REV) : $RDY"
+check "image cible prete sur la revision precedente" "echo \"$RDY\" | grep -q \"'schema_revision': '$PREV_REV'\""
+docker rm -f mig-api >/dev/null 2>&1
+# le demarrage de l'API (lifespan) peut ecrire quelques lignes : nouvelle reference pour comparer AVANT / APRES migration
+iso "$DB" -c "$counts_sql" > /tmp/mig_counts_pre.txt
+say "  tables modifiees par le simple demarrage de l'API : $(diff /tmp/mig_counts_iso.txt /tmp/mig_counts_pre.txt | grep -c '^>' ) ($(diff /tmp/mig_counts_iso.txt /tmp/mig_counts_pre.txt | grep '^>' | tr '
+' ' ' | cut -c1-120))"
+FP0=$(fp); FPD0=$(fpd)
+
 say ""; say "===== 4. Application de la migration sur la base jetable ====="
 t=$(date +%s%3N)
 docker run --rm --network "$NET" $(appenv) -w /app --entrypoint python -e PYTHONPATH=/app "$IMAGE" -m migrations.upgrade --backup-confirmed 2>&1 | tail -4 | sed "s/${ISO_PW}/***/g"
@@ -76,7 +89,7 @@ check "revision = $HEAD_REV" "[ \"\$(iso $DB -c 'select version_num from alembic
 say "cles apres migration : $(fk)"
 check "device_id et merged_into_id en RESTRICT" "[ \"\$(iso $DB -c \"select count(*) from pg_constraint where contype='f' and conrelid='device_archive_log'::regclass and confrelid='devices'::regclass and confdeltype='r'\")\" = 2 ]"
 check "journal et fiches inchangés par la migration" "[ '$(fp)' = '$FP0' ] && [ '$(fpd)' = '$FPD0' ]"
-check "comptes par table inchanges" "[ \"\$(iso $DB -c \"$counts_sql\" | md5sum)\" = \"\$(md5sum < /tmp/mig_counts_prod.txt)\" ]"
+check "comptes par table inchanges" "[ \"\$(iso $DB -c \"$counts_sql\" | md5sum)\" = \"\$(md5sum < /tmp/mig_counts_pre.txt)\" ]"
 
 say ""; say "===== 5. Comportement des suppressions apres migration (transactions annulees) ====="
 J=$(iso "$DB" -c "select device_id from device_archive_log where merged_into_id is null limit 1")
