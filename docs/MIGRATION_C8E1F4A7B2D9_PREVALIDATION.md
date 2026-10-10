@@ -65,3 +65,29 @@ peut être pris (écritures longues), elle échoue sans rien laisser à moitié 
 * Immédiat (schéma seul) : `python -m alembic downgrade b7d3a91c5e24` (testé : restitue `CASCADE` / `SET NULL`, aucune donnée touchée).
 * Complet : restaurer `pre_migration_<ts>.dump` dans une base neuve puis basculer (procédure `pg_restore`, testée, 7 s en copie).
 * Conteneurs : `swap_container.py rollback` (les `-prev` sont conservés).
+
+## Plan d'exécution définitif (proposé — en attente de validation)
+
+Images : `kafundo-{backend,celery-worker,celery-beat}:fixes3-78822f6` (branche locale `deploy/phase1-step2-migration` =
+correctifs de l'étape 1 + correctif beat + migration + `/api/ready` acceptant `b7d3a91c5e24` et `c8e1f4a7b2d9`).
+Contrôlé : import OK, `alembic heads = c8e1f4a7b2d9`, aucun fichier d'ordonnancement beat, 515 tests passés (4 échecs
+historiques inchangés), 12 fichiers PostgreSQL verts, prévalidation complète rejouée avec cette image.
+
+Séquence (`IMAGE_TAG=fixes3-78822f6 bash scripts/ops/migration_execute.sh --apply`, simulation sans `--apply`) :
+0. Pré-contrôles : conteneurs sains, révision `b7d3`, 0 opération > 30 s, 0 tâche Celery active/réservée/en file, journal sans
+   orphelin, espace disque, `KAFUNDO_SYNC_CREATE_CAP=0` (lecture).
+1. Sauvegarde `pg_dump -Fc` + sha256 + sommaire.
+2. Images : renommage des `-prev` existants en `-prev-before-<ts>`, puis swap backend → worker → beat. `/api/ready` reste 200 (révision
+   précédente acceptée). Seule coupure : remplacement du backend (≈ 15-30 s), worker (arrêt gracieux 60 s), beat (0 tâche au démarrage).
+3. Migration (`run-once` avec l'environnement du backend), transactionnelle, `lock_timeout` 10 s, ≈ 3 s.
+4. Contrôles : révision, clés `r`/`r`, comptes fiches/journal, `/api/ready` = `c8e1f4a7b2d9`, pagination 3 177 / 3 177, erreurs de
+   journaux, files Celery.
+Créneau proposé : dimanche 11/10/2026, 21:15-21:45 UTC (23:15-23:45 Paris) ; trafic le plus faible (≈ 35 requêtes/h), entre la
+collecte de 21:05 (≈ 1 min 10) et celle de 22:05 ; aucune tâche planifiée sur la fenêtre (prochaines : 22:05 collecte, 22:18
+requalification, 22:30 collecte niveau 2, 23:00 statuts expirés). Repli : lundi 12/10, même heure.
+
+Retour arrière (testé en copie) :
+* Schéma seul : `swap_container.py run-once --image <image> kafundo-backend -- python -m alembic downgrade b7d3a91c5e24` (≈ 3 s ;
+  les images acceptent les deux révisions, `/api/ready` reste 200).
+* Images : `swap_container.py rollback kafundo-beat | kafundo-worker | kafundo-backend` (les `-prev` sont conservés).
+* Ultime recours : `pg_restore` de `pre_c8e1_migration_<ts>.dump` dans une base neuve, puis bascule.

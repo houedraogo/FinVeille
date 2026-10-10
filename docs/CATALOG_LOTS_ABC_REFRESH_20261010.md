@@ -26,3 +26,26 @@ rattachement prévues). Manifestes : `/opt/finveille-backups/audit_20261010/plan
 2. `plan --protect-file` → vérifier les empreintes ci-dessus ; `hold-ai` si besoin.
 3. `apply --batch A… --plan-hash <empreinte> --run-id … --backup-ref …` (simulation sans `--yes`), puis B, puis C.
 4. Contrôles entre lots (comptes, API, références), journal `device_archive_log`, `restore --run-id …` possible.
+
+## Revue individuelle des 9 fiches publiques du lot A (exclues provisoirement ; rien archivé)
+
+Analyse faite sur le contenu Kafundo (description, dates, type, source). Aucune n'est un appel à candidatures : ce sont des
+enregistrements de projets déjà approuvés (Banque Mondiale : « date d'approbation » et « clôture prévisionnelle » = fin du projet,
+pas date limite de dépôt ; AFD : financement souverain).
+
+| # | Fiche | Statut | Clôture | Nature | Verdict proposé |
+|---|---|---|---|---|---|
+| 1 | Guinée – Deuxième financement additionnel COVID-19 (P178602) | expired | 30/06/2024 | projet approuvé, terminé | archiver (lot A) |
+| 2 | Guinée – Financement supplémentaire COVID-19 (P176706) | expired | 30/06/2024 | projet approuvé, terminé | archiver (lot A) |
+| 3 | AFD – FMT, appui budgétaire transition verte, Monténégro | expired | 15/12/2024 | financement souverain (100 M€), terminé | archiver (lot A) |
+| 4 | Togo – Réponse d'urgence contingente CERP (P515227) | open | 30/04/2032 | instrument d'urgence de l'État, approuvé 14/05/2026 | archiver (déjà financé, pas d'appel) |
+| 5 | Rwanda – Réponse d'urgence par contingent (P510931) | open | 01/12/2031 | instrument d'urgence de l'État | archiver |
+| 6 | Maroc – Opération de politique de développement, emploi et croissance verte (P513503) | open | 30/06/2027 | prêt de politique publique à l'État | archiver |
+| 7 | Éthiopie – 2e programme d'action communautaire, paysages (P510697) | open | 29/08/2031 | programme axé sur résultats, mise en œuvre étatique | archiver (ou signal « veille ») |
+| 8 | Madagascar – accélérer l'accès à une énergie durable (P515164) | open | 30/06/2030 | projet approuvé 04/05/2026 ; volets privés possibles via l'agence d'exécution, aucun appel documenté | **revue humaine** : conserver hors lot, vérifier la source |
+| 9 | Rwanda – Entrepreneuriat numérique des jeunes urbains DEVY (P510000) | standby | — | projet approuvé 09/04/2026 ; type « subvention », volet entrepreneurs possible, aucune ouverture | **revue humaine** : conserver hors lot, vérifier la source |
+
+Synthèse : 7 fiches sont des projets institutionnels déjà financés ou terminés (aucun appel accessible) ; 2 (n° 8 et 9) peuvent
+déboucher sur des guichets pour entrepreneurs via l'agence d'exécution mais aucun n'est ouvert à ce jour : à reclasser en
+« signal » plutôt qu'« opportunité ouverte ». Limite : l'analyse repose sur les données Kafundo ; la page source de n° 8 et 9
+reste à consulter avant décision.
