@@ -27,7 +27,12 @@ Contrôles après déploiement (tous lecture seule) :
 * Pagination : parcourir `/api/v1/devices/?page_size=100` ; `total` == nombre d'identifiants distincts.
 * Garde : `DELETE` d'une fiche archivée de test (copie) → 409 ; `merge-group` avec fiche conservée archivée → 409.
 * File Celery : stable ; ne pas toucher à la file historique `celery` (382 messages).
-* Import CSV : exécuter `--dry-run` : `unchanged` > 0, aucune fiche inchangée marquée mise à jour.
+* Import CSV : le `--dry-run` ne compte pas `unchanged` (il ne compare pas les contenus) ; la mesure se fait au premier
+  passage réel (05:00 UTC) : `unchanged` > 0 dans le résumé et `updated_at` stable pour les fiches inchangées.
+* Attention au démarrage du beat : le nouveau conteneur `kafundo-beat` n'a pas de fichier d'ordonnancement ; toutes les tâches
+  périodiques « dues » partent une fois (collectes ×3 niveaux, alertes, qualité, enrichissement). Prévoir le créneau en conséquence.
+* Effet de bord de la pagination : l'API liste désormais les 3 177 fiches publiques (au lieu de ~2 679) ; la synchro Finnovatix
+  de 06:30 voit donc ~500 fiches de plus et détecte davantage de changements réels (9 au lieu de 4 en simulation).
 
 Retour arrière : `swap_container.py rollback <nom>` (instantané).
 
