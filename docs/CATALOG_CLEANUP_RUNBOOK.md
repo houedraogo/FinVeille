@@ -47,3 +47,28 @@ avec une consommation IA maîtrisée. **Aucune suppression physique.**
   pour une fiche archivée (les `UPDATE` SQL directs ne sont pas interceptés — ne pas en écrire).
 * Côté Finnovatix : les `FundingCall` ne sont jamais supprimés ; un dispositif archivé disparaît du flux
   de synchronisation (statut non public) sans effacer la fiche locale ni les opportunités de dossiers.
+
+## Garde-fou de suppression physique (migration `c8e1f4a7b2d9`, préparée — NON déployée)
+
+* **Code** (`archive_guard.py`, `device_deletion_guard.py`, `dedup_service.py`, `device_service.py`) :
+  une fiche `archived` ou présente dans `device_archive_log` (comme fiche archivée ou cible de fusion)
+  n'est **jamais** supprimée physiquement. La fusion (`merge_group`, `merge_duplicates_auto`) re-pointe
+  `device_archive_log.merged_into_id` et les paires de `device_duplicate_candidates` ; la purge protège les fiches journalisées ;
+  `DELETE /devices/{id}` et `merge-group` répondent **409**.
+* **Schéma inconnu = arrêt** : si une nouvelle clé étrangère vers `devices` apparaît, les opérations de fusion/purge
+  refusent de s'exécuter tant que la liste n'est pas mise à jour (`assert_known_device_relations`).
+* **Base de données** : la migration `c8e1f4a7b2d9` passe les clés étrangères de `device_archive_log` en `RESTRICT`
+  (défense en profondeur : même un `DELETE` SQL direct est refusé). Retour arrière : `downgrade` (CASCADE / SET NULL).
+* **Ordre de déploiement** : (1) code seul (aucune migration requise) ; (2) `alembic upgrade head` dans un second temps,
+  après sauvegarde vérifiée, avec accord explicite.
+
+## Import CSV `aides-entreprises` : `updated_at` fiable
+
+L'`UPSERT` ne touche une fiche que si une valeur écrite change réellement (`IS DISTINCT FROM`). Une fiche inchangée
+n'avance que `last_verified_at` (jamais sur une fiche archivée). Le résumé de l'import expose `unchanged`.
+
+## Références Finnovatix
+
+Voir `scripts/ops/finnovatix_remap/README.md` : contrôle, simulation avant/après, sauvegarde, retour arrière exact et
+exécuteur gardé (`06_apply.sh`, simulation par défaut). **À jouer avant** de relancer l'archivage des lots A/B/C, puis
+régénérer `--protect-file` et re-planifier.
