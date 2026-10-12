@@ -72,6 +72,17 @@ for n in backend worker beat; do
   echo "  kafundo-$n : $S"; case "$S" in running*) ;; *) die "kafundo-$n ne tourne pas" ;; esac
 done
 img_ok "kafundo-backend:$TAG"; img_ok "kafundo-celery-worker:$TAG"; img_ok "kafundo-celery-beat:$TAG"
+# le cron hote `docker image prune -af --filter until=24h` (00:33 UTC) supprime toute image non referencee de plus de 24 h
+AGE_H=$(python3 - "$TAG" <<'PY'
+import subprocess, sys, datetime
+c = subprocess.run(["docker", "image", "inspect", "-f", "{{.Created}}", "kafundo-backend:" + sys.argv[1]], capture_output=True, text=True).stdout.strip()
+t = datetime.datetime.fromisoformat(c[:19]).replace(tzinfo=datetime.timezone.utc)
+print(int((datetime.datetime.now(datetime.timezone.utc) - t).total_seconds() // 3600))
+PY
+)
+echo "  age des images $TAG : ${AGE_H} h (le prune quotidien de 00:33 UTC supprime les images non utilisees de plus de 24 h)"
+[ "${AGE_H:-99}" -lt 20 ] || die "images trop anciennes (${AGE_H} h) : les reconstruire le jour de l'intervention"
+for n in backend worker beat; do docker container inspect kafundo-$n-prev >/dev/null 2>&1 && echo "  retour arriere existant : kafundo-$n-prev ($(docker inspect -f '{{.Config.Image}}' kafundo-$n-prev))"; done
 REV=$(pg -c "select version_num from alembic_version")
 echo "  revision actuelle : $REV ; PostgreSQL : $(pg -c 'show server_version') ; sante : $(docker inspect -f '{{.State.Health.Status}}' "$PG")"
 [ "$REV" = "$PREV_REV" ] || die "revision $REV (attendue $PREV_REV)"
@@ -100,10 +111,12 @@ if [ "$APPLY" = 0 ]; then
   echo ""; echo "(simulation) pre-controles OK. Aucune ecriture. Pour executer : IMAGE_TAG=$TAG bash $0 --apply"; exit 0
 fi
 
-# fenetre autorisee par le proprietaire : dimanche 11/10/2026 21:15-21:45 UTC (surcharge : WINDOW_OVERRIDE=1, autre accord requis)
+# fenetre autorisee par le proprietaire : WINDOW_FROM / WINDOW_TO au format YYYY-MM-DDTHH:MM (UTC), OBLIGATOIRES avec --apply.
+# (surcharge de secours : WINDOW_OVERRIDE=1, uniquement avec un nouvel accord explicite)
 NOWSTAMP=$(date -u +%Y-%m-%dT%H:%M)
 if [ "${WINDOW_OVERRIDE:-0}" != 1 ]; then
-  [[ "$NOWSTAMP" > "2026-10-11T21:14" && "$NOWSTAMP" < "2026-10-11T21:46" ]] || die "hors de la fenetre autorisee (2026-10-11 21:15-21:45 UTC) : $NOWSTAMP"
+  [ -n "${WINDOW_FROM:-}" ] && [ -n "${WINDOW_TO:-}" ] || die "WINDOW_FROM et WINDOW_TO requis avec --apply (fenetre autorisee, UTC)"
+  [[ "$NOWSTAMP" > "$WINDOW_FROM" || "$NOWSTAMP" == "$WINDOW_FROM" ]] && [[ "$NOWSTAMP" < "$WINDOW_TO" ]]     || die "hors de la fenetre autorisee ($WINDOW_FROM -> $WINDOW_TO UTC) : $NOWSTAMP"
 fi
 read -rp "Tapez MIGRATE pour executer sur la PRODUCTION : " c; [ "$c" = MIGRATE ] || die "confirmation absente"
 
