@@ -106,7 +106,7 @@ echo "  fiches : $DEV ; journal : $FIRST ; orphelins : $ORPH"; [ "$ORPH" = 0 ] |
 DISK=$(df -BG --output=avail /opt | tail -1 | tr -dc '0-9'); echo "  espace libre /opt : ${DISK} Go"; [ "$DISK" -ge 3 ] || die "espace disque insuffisant"
 CAP=$(docker exec finnovatix-platform-app-1 sh -c 'grep -E "^KAFUNDO_SYNC_CREATE_CAP=" /var/www/html/.env | cut -d= -f2' 2>/dev/null || true)
 echo "  KAFUNDO_SYNC_CREATE_CAP (Finnovatix, lecture) : ${CAP:-n/a}"
-H=$(date -u +%H:%M); echo "  heure UTC $H (creneau recommande 21:15-21:45)"
+H=$(date -u +%H:%M); echo "  heure UTC $H"
 if [ "$APPLY" = 0 ]; then
   echo ""; echo "(simulation) pre-controles OK. Aucune ecriture. Pour executer : IMAGE_TAG=$TAG bash $0 --apply"; exit 0
 fi
