@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# Archivage PILOTE du lot A : exactement 50 fiches (premier sous-lot), reversible, avec controles et arret au moindre ecart.
+# SIMULATION (precontroles + plan) par defaut ; --apply exige la fenetre autorisee ET la confirmation ARCHIVE-50.
+#
+#   bash lot_a_pilot.sh                                  # precontroles + plan + simulation, n'ecrit RIEN dans la base
+#   printf 'ARCHIVE-50\n' | WINDOW_FROM=2026-10-12T21:15 WINDOW_TO=2026-10-12T21:45 bash lot_a_pilot.sh --apply
+#   RUN_ID=LOTA-S1-... bash lot_a_pilot.sh --followup    # apres la prochaine collecte : aucune reactivation (lecture seule)
+#
+# Confirmation : une seule ligne exactement `ARCHIVE-50`, lue AVANT toute sous-commande ; l'entree standard est ensuite fermee.
+# Perimetre : seulement les 50 identifiants de EXPECT_IDS (par defaut lotA_first_sublot_ids.txt), jamais les autres candidates,
+# jamais les lots B/C, jamais une fiche protegee (Finnovatix), du lot Q, des 2 exclusions du proprietaire ni des 7 projets reserves.
+# Parametres de test : LOG_DIR, API_BASE, BACKEND, PG, FNX_MYSQL, AUDIT_DIR, ACTION_PLAN, DUMP_DIR.
+set -uo pipefail
+umask 077
+HERE="$(dirname "$(readlink -f "$0")")"
+BACKEND="${BACKEND:-kafundo-backend}"; PG="${PG:-kafundo-postgres}"; PGU="${PGU:-finveille}"; PGDB="${PGDB:-finveille}"
+FNX_MYSQL="${FNX_MYSQL:-finnovatix-platform-finnovatix-mysql-1}"
+AUDIT_DIR="${AUDIT_DIR:-/opt/finveille-backups/audit_20261012_lotA}"
+ACTION_PLAN="${ACTION_PLAN:-/opt/finveille-backups/audit_20261010/finnovatix_action_plan.csv}"
+EXPECT_IDS="${EXPECT_IDS:-$AUDIT_DIR/lotA_first_sublot_ids.txt}"
+LOG_DIR="${LOG_DIR:-/opt/finveille-backups}"; DUMP_DIR="${DUMP_DIR:-/opt/finveille-backups}"
+API_BASE="${API_BASE:-http://127.0.0.1:8000}"; export API_BASE
+LIMIT=50; BATCH="A_projets_institutionnels"
+MIN_START_MIN="${MIN_START_MIN:-20}"; MIN_APPLY_MIN="${MIN_APPLY_MIN:-8}"
+HEAD_REV="c8e1f4a7b2d9"
+# exclusions imposees par le proprietaire (a ne jamais archiver) : Madagascar P515164, Rwanda P510000, puis les 7 projets reserves a l'etape 4
+RESERVED_IDS="8feb4407-42c1-43ee-ab3b-22a3b560924f cacc4c18-fd6a-41f9-9e87-0a9c466147d7 3d0c59f6-6d04-40f4-bcb1-b53ca1d5edd1 8c4b49d7-69c9-4939-bebd-c0045543641e 96fe955f-7c22-40c1-88b9-924b49ff7aa6 cac9fddd-215e-43fd-a08b-c473a57ed74a 5405bc16-88ae-4e40-9166-18c177f5686d 19d51742-0d3b-4126-9db7-468b3d53063f 882a672c-65e8-446f-91c4-51170ae09bf0"
+die() { echo "ARRET: $*" >&2; exit 1; }
+
+MODE="${1:-}"
+case "$MODE" in ""|--apply|--followup) ;; *) die "option inconnue : $MODE" ;; esac
+if [ "$MODE" = "--apply" ]; then
+  if [ -t 0 ]; then IFS= read -r -p "Tapez ARCHIVE-50 pour archiver 50 fiches en PRODUCTION : " CONFIRM_LINE || CONFIRM_LINE=""
+  else IFS= read -r -t 30 CONFIRM_LINE || CONFIRM_LINE=""; fi
+  [ "$CONFIRM_LINE" = "ARCHIVE-50" ] || die "confirmation absente ou incorrecte (attendu : ARCHIVE-50)"
+fi
+exec 0</dev/null
+
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+LOG="$LOG_DIR/lot_a_pilot_${TS}.log"
+exec > >(tee -a "$LOG") 2>&1
+pg() { docker exec "$PG" psql -U "$PGU" -d "$PGDB" -At -F'|' "$@"; }
+ready() { python3 - <<'PY'
+import json, os, urllib.request, urllib.error
+try:
+    with urllib.request.urlopen(os.environ["API_BASE"] + "/api/ready", timeout=5) as r: d = json.load(r); print(200, d.get("schema_revision"))
+except urllib.error.HTTPError as e: print(e.code, "-")
+except Exception as e: print("ERR", type(e).__name__)
+PY
+}
+pagination() { python3 - <<'PY'
+import json, os, urllib.request
+base = os.environ["API_BASE"]
+ids, page, total = [], 1, 0
+while True:
+    with urllib.request.urlopen(f"{base}/api/v1/devices/?page={page}&page_size=100", timeout=60) as r: d = json.load(r)
+    it = d["items"]
+    if not it: break
+    ids += [i["id"] for i in it]; total = d["total"]; page += 1
+print(total, len(ids), len(set(ids)))
+PY
+}
+celery_state() { docker exec -i -e PYTHONPATH=/app "$BACKEND" python - <<'PY' 2>/dev/null | tail -1
+from app.tasks.celery_app import celery_app
+i = celery_app.control.inspect(timeout=3)
+a = sum(len(v) for v in (i.active() or {}).values()); r = sum(len(v) for v in (i.reserved() or {}).values())
+c = celery_app.connection_for_read().default_channel.client
+print(a, r, sum(c.llen(q) for q in ("default", "collect", "alerts")), c.llen("celery"))
+PY
+}
+cli() { docker exec -e PYTHONPATH=/app "$BACKEND" python -m app.data.catalog_cleanup "$@"; }
+END_EPOCH=""
+need_minutes() { [ -n "$END_EPOCH" ] || return 0; local r=$(( (END_EPOCH - $(date -u +%s)) / 60 ))
+  [ "$r" -ge "$1" ] || die "temps restant insuffisant dans la fenetre ($r min < $1 min requis avant : $2) - aucune ecriture effectuee a ce stade"
+  echo "  [temps] $r min restantes (>= $1 requis avant : $2)"; }
+
+# ---------------- suivi apres la collecte (lecture seule) ----------------
+if [ "$MODE" = "--followup" ]; then
+  : "${RUN_ID:?RUN_ID requis}"
+  echo "===== SUIVI $RUN_ID ($(date -u +%FT%TZ)) ====="
+  echo "  archivees (run) : $(pg -c "select count(*) from device_archive_log l join devices d on d.id=l.device_id where l.run_id='$RUN_ID' and l.action='archive' and d.validation_status='archived'")  (attendu $LIMIT)"
+  echo "  reactivees depuis : $(pg -c "select count(*) from device_archive_log l join devices d on d.id=l.device_id where l.run_id='$RUN_ID' and l.action='archive' and d.validation_status<>'archived'")  (attendu 0)"
+  echo "  archivees au total : $(pg -c "select count(*) from devices where validation_status='archived'") ; fiches : $(pg -c 'select count(*) from devices')"
+  echo "  collectes 60 min : $(pg -c "select coalesce(string_agg(status||':'||n, ' '), 'aucune') from (select status, count(*) n from collection_logs where started_at > now() - interval '60 minutes' group by 1) t")"
+  echo "  erreurs de journaux (60 min) : backend=$(docker logs --since 60m "$BACKEND" 2>&1 | grep -ciE 'traceback|critical') worker=$(docker logs --since 60m kafundo-worker 2>&1 | grep -ciE 'traceback|critical')"
+  echo "  /api/ready : $(ready) ; pagination : $(pagination)"
+  exit 0
+fi
+
+echo "===== 0. PRE-CONTROLES ($(date -u +%FT%TZ)) ====="
+for c in "$BACKEND" kafundo-worker kafundo-beat; do
+  S=$(docker inspect -f '{{.State.Status}} {{.Config.Image}}' "$c" 2>/dev/null) || die "$c introuvable"
+  echo "  $c : $S"; case "$S" in running*) ;; *) die "$c ne tourne pas" ;; esac
+done
+REV=$(pg -c "select version_num from alembic_version"); echo "  revision : $REV"; [ "$REV" = "$HEAD_REV" ] || die "revision $REV (attendue $HEAD_REV)"
+echo "  /api/ready : $(ready)"; [ "$(ready)" = "200 $HEAD_REV" ] || die "/api/ready non conforme"
+LONG=$(pg -c "select count(*) from pg_stat_activity where datname=current_database() and pid<>pg_backend_pid() and state<>'idle' and now()-xact_start > interval '30 seconds'")
+echo "  operations PostgreSQL > 30 s : $LONG"; [ "$LONG" = 0 ] || die "operation longue en cours"
+CEL=$(celery_state); echo "  Celery actives / reservees / en file / file 'celery' : $CEL"
+[ "$CEL" = "0 0 0 0" ] || die "tache Celery active, reservee ou en attente"
+DEV0=$(pg -c "select count(*) from devices"); ARCH0=$(pg -c "select count(*) from devices where validation_status='archived'")
+JOUR0=$(pg -c "select count(*) from device_archive_log")
+ORPH=$(pg -c "select count(*) from device_archive_log l left join devices d on d.id=l.device_id where d.id is null")
+echo "  fiches : $DEV0 ; archivees : $ARCH0 ; journal : $JOUR0 ; orphelins : $ORPH"; [ "$ORPH" = 0 ] || die "journal avec orphelins"
+[ "$ARCH0" = 0 ] || echo "  (note : $ARCH0 fiche(s) deja archivee(s) avant l'operation)"
+[ -f "$EXPECT_IDS" ] || die "fichier d'identifiants absent : $EXPECT_IDS"
+NEXP=$(grep -c . "$EXPECT_IDS"); [ "$NEXP" = "$LIMIT" ] || die "le fichier d'identifiants contient $NEXP lignes (attendu $LIMIT)"
+[ "$(sort -u "$EXPECT_IDS" | wc -l)" = "$LIMIT" ] || die "identifiants en double"
+for r in $RESERVED_IDS; do grep -q "$r" "$EXPECT_IDS" && die "identifiant reserve present dans le sous-lot : $r"; done
+echo "  sous-lot attendu : $NEXP identifiants distincts, aucun reserve (Madagascar, Rwanda, 7 projets valides)"
+CAP=$(docker exec finnovatix-platform-app-1 sh -c 'grep -E "^KAFUNDO_SYNC_CREATE_CAP=" /var/www/html/.env | cut -d= -f2' 2>/dev/null || true)
+echo "  KAFUNDO_SYNC_CREATE_CAP (lecture) : ${CAP:-n/a}"
+
+echo ""; echo "===== 1. PROTECTIONS ET PLAN (regeneres) ====="
+W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+{ echo "select kafundo_id from funding_calls where kafundo_id is not null;" | docker exec -i "$FNX_MYSQL" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot --batch --skip-column-names finnovatix' 2>/dev/null | grep -av "Using a password"
+  [ -f "$ACTION_PLAN" ] && tail -n +2 "$ACTION_PLAN" | awk -F, '$3=="R_remap"||$3=="R_remap_by_url"{print $4}'
+  for r in $RESERVED_IDS; do echo "$r"; done; } | sed '/^$/d' | sort -u > "$W/protect.txt"
+NPROT=$(wc -l < "$W/protect.txt"); echo "  identifiants proteges (Finnovatix actuels + cibles de rattachement + reserves) : $NPROT"
+[ "$NPROT" -ge 1500 ] || die "fichier de protection anormalement petit ($NPROT) : lecture Finnovatix en echec ?"
+docker cp "$W/protect.txt" "$BACKEND:/tmp/lota_pilot_protect.txt" >/dev/null || die "docker cp protect"
+PLAN_JSON=$(cli plan --out /tmp/lota_pilot_plan --protect-file /tmp/lota_pilot_protect.txt 2>/dev/null) || die "plan en echec"
+read -r FP N_A <<EOF2
+$(echo "$PLAN_JSON" | python3 -c "
+import json, sys
+t = sys.stdin.read(); d = json.loads(t[t.index('{'):])
+a = d['batches']['A_projets_institutionnels']; print(a['fingerprint'], a['count'])")
+EOF2
+echo "  lot A : effectif $N_A, empreinte $FP"
+docker exec "$BACKEND" cat "/tmp/lota_pilot_plan/${BATCH}.csv" 2>/dev/null | tail -n +2 | cut -d, -f1 | sed 's/"//g' | LC_ALL=C sort | head -n "$LIMIT" > "$W/first.txt"
+LC_ALL=C sort "$EXPECT_IDS" > "$W/expect.txt"
+NSEL=$(grep -c . "$W/first.txt")
+echo "  sous-lot calcule : $NSEL fiches"
+[ "$NSEL" = "$LIMIT" ] || die "le sous-lot calcule contient $NSEL fiches (attendu $LIMIT)"
+if ! diff -q "$W/first.txt" "$W/expect.txt" >/dev/null; then
+  echo "  ecarts (calcule < | > attendu) :"; diff "$W/first.txt" "$W/expect.txt" | head -6 | sed 's/^/    /'
+  die "les 50 identifiants calcules different de $EXPECT_IDS (le catalogue a change : revalider)"
+fi
+echo "  les 50 identifiants calcules == fichier valide par le proprietaire"
+IDS_CSV=$(paste -sd, "$W/expect.txt")
+INNER=$(pg -c "select count(*) from devices where id::text = any(string_to_array('$IDS_CSV', ',')) and validation_status in ('admin_only','rejected','pending_review') and device_type='institutional_project'")
+echo "  fiches du sous-lot non publiees et de type institutional_project : $INNER / $LIMIT"; [ "$INNER" = "$LIMIT" ] || die "le sous-lot contient une fiche publique ou d'un autre type"
+REFS=$(pg -c "select (select count(*) from favorite_devices where device_id::text = any(string_to_array('$IDS_CSV', ','))) + (select count(*) from device_pipeline where device_id::text = any(string_to_array('$IDS_CSV', ','))) + (select count(*) from alert_deliveries where device_id::text = any(string_to_array('$IDS_CSV', ','))) + (select count(*) from device_duplicate_candidates where device_id::text = any(string_to_array('$IDS_CSV', ',')) or other_device_id::text = any(string_to_array('$IDS_CSV', ','))) + (select count(*) from device_archive_log where merged_into_id::text = any(string_to_array('$IDS_CSV', ',')))")
+echo "  references (favoris, pipelines, alertes, paires, cibles de fusion) : $REFS"; [ "$REFS" = 0 ] || die "references trouvees sur le sous-lot"
+PROT_HIT=$(grep -cFf "$W/protect.txt" "$W/expect.txt" || true); echo "  fiches du sous-lot presentes dans la liste de protection : $PROT_HIT"; [ "$PROT_HIT" = 0 ] || die "fiche protegee dans le sous-lot"
+LIST_HIT=$(python3 - "$W/expect.txt" <<'PY'
+import json, os, sys, urllib.request
+want = {l.strip() for l in open(sys.argv[1]) if l.strip()}
+ids, page = set(), 1
+while True:
+    with urllib.request.urlopen(f"{os.environ['API_BASE']}/api/v1/devices/?page={page}&page_size=100", timeout=60) as r: d = json.load(r)
+    if not d["items"]: break
+    ids |= {i["id"] for i in d["items"]}; page += 1
+print(len(want & ids))
+PY
+)
+echo "  fiches du sous-lot presentes dans le listing public : $LIST_HIT"; [ "$LIST_HIT" = 0 ] || die "fiche du sous-lot visible dans l'API publique"
+PAG0=$(pagination); echo "  pagination avant (total lignes distincts) : $PAG0"
+JFP0=$(pg -c "select coalesce(md5(string_agg(concat_ws('~', id, run_id, action, coalesce(previous_validation_status,''), coalesce(previous_status,''), coalesce(previous_ai_rewrite_status,''), archived_at), '|' order by id)), 'vide') from device_archive_log where device_id::text = any(string_to_array('$IDS_CSV', ','))")
+echo "  journal existant sur le sous-lot : $(pg -c "select count(*) from device_archive_log where device_id::text = any(string_to_array('$IDS_CSV', ','))") ligne(s), empreinte $JFP0"
+SIM=$(cli apply --batch "$BATCH" --plan-hash "$FP" --run-id "SIMULATION-$TS" --backup-ref none --limit "$LIMIT" --protect-file /tmp/lota_pilot_protect.txt 2>&1 | tr -d '\n ' )
+echo "  simulation apply : $SIM"
+echo "$SIM" | grep -q '"dry_run":true' && echo "$SIM" | grep -q "\"planned\":$LIMIT" || die "la simulation ne planifie pas exactement $LIMIT fiches"
+H=$(date -u +%H:%M); echo "  heure UTC $H"
+if [ "$MODE" != "--apply" ]; then
+  echo ""; echo "(simulation) tous les controles sont satisfaisants. Aucune ecriture. Execution : printf 'ARCHIVE-50\\n' | WINDOW_FROM=... WINDOW_TO=... bash $0 --apply"
+  docker exec "$BACKEND" rm -rf /tmp/lota_pilot_plan /tmp/lota_pilot_protect.txt; exit 0
+fi
+
+# ---------------- fenetre ----------------
+NOWSTAMP=$(date -u +%Y-%m-%dT%H:%M)
+[ -n "${WINDOW_FROM:-}" ] && [ -n "${WINDOW_TO:-}" ] || die "WINDOW_FROM et WINDOW_TO requis avec --apply (UTC)"
+[[ "$NOWSTAMP" > "$WINDOW_FROM" || "$NOWSTAMP" == "$WINDOW_FROM" ]] && [[ "$NOWSTAMP" < "$WINDOW_TO" ]] \
+  || die "hors de la fenetre autorisee ($WINDOW_FROM -> $WINDOW_TO UTC) : $NOWSTAMP"
+END_EPOCH=$(date -u -d "${WINDOW_TO/T/ }:00 UTC" +%s) || die "WINDOW_TO illisible"
+need_minutes "$MIN_START_MIN" "debut de l'archivage"
+
+echo ""; echo "===== 2. SAUVEGARDE FRAICHE VERIFIEE ====="
+B="$DUMP_DIR/pre_lotA_pilot_${TS}.dump"
+docker exec "$PG" pg_dump -U "$PGU" -d "$PGDB" -Fc > "$B" || die "pg_dump"
+sha256sum "$B" > "$B.sha256"; chmod 600 "$B" "$B.sha256"
+TOC=$(docker exec -i "$PG" pg_restore --list < "$B" | wc -l)
+echo "  $(basename "$B") $(stat -c %s "$B") octets, sommaire $TOC entrees"; [ "$TOC" -gt 200 ] || die "sauvegarde suspecte"
+sha256sum -c "$B.sha256" >/dev/null || die "sha256 de la sauvegarde"; echo "  sha256 : $(cut -c1-16 "$B.sha256")..."
+echo "  restauration disponible : restore --run-id ... (dry-run teste ci-dessous apres archivage)"
+CEL2=$(celery_state); [ "$CEL2" = "0 0 0 0" ] || die "tache Celery apparue pendant la sauvegarde : $CEL2"
+need_minutes "$MIN_APPLY_MIN" "archivage"
+
+echo ""; echo "===== 3. ARCHIVAGE ($LIMIT fiches) ====="
+RUN="LOTA-S1-${TS}"
+echo "  run-id : $RUN"
+OUT=$(cli apply --batch "$BATCH" --plan-hash "$FP" --run-id "$RUN" --backup-ref "$(basename "$B")" --limit "$LIMIT" --protect-file /tmp/lota_pilot_protect.txt --yes 2>&1); RC=$?
+echo "$OUT" | sed 's/^/   /'
+[ "$RC" = 0 ] || { echo "ECHEC de l'archivage (code $RC) : verifier l'etat, restauration si necessaire : restore --run-id $RUN --yes"; exit 2; }
+
+echo ""; echo "===== 4. CONTROLES POST-ARCHIVAGE ====="
+BAD=0
+ARCH1=$(pg -c "select count(*) from devices where validation_status='archived'")
+ARCH_SUB=$(pg -c "select count(*) from devices where validation_status='archived' and id::text = any(string_to_array('$IDS_CSV', ','))")
+DEV1=$(pg -c "select count(*) from devices")
+JOUR1=$(pg -c "select count(*) from device_archive_log"); JRUN=$(pg -c "select count(*) from device_archive_log where run_id='$RUN' and action='archive'")
+JFP1=$(pg -c "select coalesce(md5(string_agg(concat_ws('~', id, run_id, action, coalesce(previous_validation_status,''), coalesce(previous_status,''), coalesce(previous_ai_rewrite_status,''), archived_at), '|' order by id)), 'vide') from device_archive_log where device_id::text = any(string_to_array('$IDS_CSV', ',')) and run_id <> '$RUN'")
+PROT_ARCH=$(docker exec -i "$PG" psql -U "$PGU" -d "$PGDB" -At -c "select count(*) from devices where id::text = any(string_to_array('$(paste -sd, "$W/protect.txt")', ',')) and validation_status='archived'")
+echo "  archivees : $ARCH1 (avant $ARCH0, attendu $((ARCH0 + LIMIT))) ; dont du sous-lot : $ARCH_SUB (attendu $LIMIT)"
+echo "  fiches totales : $DEV1 (avant $DEV0) ; journal : $JOUR1 (avant $JOUR0, attendu $((JOUR0 + LIMIT))) ; entrees du run : $JRUN"
+echo "  historique anterieur du sous-lot conserve : $([ "$JFP1" = "$JFP0" ] && echo OUI || echo NON) ($JFP0 -> $JFP1)"
+echo "  fiches protegees archivees : $PROT_ARCH (attendu 0)"
+[ "$ARCH1" = "$((ARCH0 + LIMIT))" ] && [ "$ARCH_SUB" = "$LIMIT" ] || { echo "ANOMALIE : nombre d'archivees"; BAD=1; }
+[ "$DEV1" = "$DEV0" ] || { echo "ANOMALIE : fiches totales modifiees"; BAD=1; }
+[ "$JOUR1" = "$((JOUR0 + LIMIT))" ] && [ "$JRUN" = "$LIMIT" ] || { echo "ANOMALIE : journal"; BAD=1; }
+[ "$JFP1" = "$JFP0" ] || { echo "ANOMALIE : historique journal modifie"; BAD=1; }
+[ "$PROT_ARCH" = 0 ] || { echo "ANOMALIE : fiche protegee archivee"; BAD=1; }
+echo "  /api/ready : $(ready) ; pagination apres : $(pagination) (avant $PAG0)"
+[ "$(ready)" = "200 $HEAD_REV" ] || { echo "ANOMALIE : /api/ready"; BAD=1; }
+[ "$(pagination)" = "$PAG0" ] || { echo "ANOMALIE : pagination modifiee"; BAD=1; }
+echo "  Celery (actives reservees en_file celery) : $(celery_state)"
+ERRS=$(for c in "$BACKEND" kafundo-worker kafundo-beat; do docker logs --since 10m "$c" 2>&1; done | grep -ciE 'traceback|critical'); echo "  erreurs de journaux (10 min) : $ERRS"
+[ "$ERRS" = 0 ] || { echo "ANOMALIE : erreurs de journaux"; BAD=1; }
+REST=$(cli restore --run-id "$RUN" 2>&1 | tr -d '\n '); echo "  restauration (simulation) : $REST"
+echo "$REST" | grep -q "\"entries\":$LIMIT" || { echo "ANOMALIE : restauration non disponible pour $LIMIT entrees"; BAD=1; }
+docker exec "$BACKEND" rm -rf /tmp/lota_pilot_plan /tmp/lota_pilot_protect.txt
+echo ""
+if [ "$BAD" = 0 ]; then echo "RESULTAT : $LIMIT FICHES ARCHIVEES ET CONTROLEES (run-id $RUN)"; else echo "RESULTAT : ANOMALIE(S) - NE PAS POURSUIVRE ; restauration : docker exec -e PYTHONPATH=/app $BACKEND python -m app.data.catalog_cleanup restore --run-id $RUN --yes"; fi
+echo "Suite : controle apres la prochaine collecte planifiee : RUN_ID=$RUN bash $0 --followup"
+echo "Restauration : docker exec -e PYTHONPATH=/app $BACKEND python -m app.data.catalog_cleanup restore --run-id $RUN --yes"
+echo "Sauvegarde : $B ; journal : $LOG"
+exit $BAD
